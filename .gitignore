@@ -1,0 +1,45 @@
+# If you prefer the allow list template instead of the deny list, see community template:
+# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
+#
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build output
+/bin/
+
+# Test binary, built with `go test -c`
+*.test
+/reports
+
+# Code coverage profiles and other test artifacts
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Environment files
+.env*
+!.env.example
+
+# Editor/IDE
+.idea/
+.vscode/
+.history
+.codex
+# Per-user Claude Code overrides (machine-local permissions)
+.claude/settings.local.json
+# Graphify's knowledge graph is a regenerable local cache. Keeping the complete
+# directory out of Git prevents hook/update churn from entering functional
+# commits while preserving graphify query/path/explain in each working copy.
+/graphify-out/

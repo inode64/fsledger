@@ -1,0 +1,19 @@
+formatter:
+  type: basic
+  indent: 2
+  include_document_start: false
+  indentless_arrays: false
+  eof_newline: true
+  retain_line_breaks: true
+  pad_line_comments: 2
+
+match_type: doublestar
+gitignore_excludes: true
+include:
+  - "**/*.yml"
+  - "**/*.yaml"
+  - .yamlfmt
+exclude:
+  - .git/**
+  - vendor/**
+  - graphify-out/**

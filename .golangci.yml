@@ -1,0 +1,161 @@
+# fsledger — golangci-lint v2.13.2.
+# All maintained built-in linters, including checks on test files.
+# NilAway runs separately through make nilaway; no custom binary is needed.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  default: all
+  disable:
+    # Deprecated; the maintained replacements remain enabled.
+    - exhaustruct
+    - gomodguard
+    - wsl
+  settings:
+    depguard:
+      rules:
+        # Start dependency-free. Add reviewed imports explicitly as needed.
+        main:
+          list-mode: strict
+          files:
+            - $all
+          allow:
+            - $gostd
+            - fsledger$
+            - fsledger/
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      disable-default-exclusions: true
+    exhaustive:
+      check:
+        - switch
+        - map
+      default-signifies-exhaustive: false
+    fatcontext:
+      check-struct-pointers: true
+    govet:
+      enable-all: true
+    staticcheck:
+      checks:
+        - all
+    gocritic:
+      enable-all: true
+      disabled-checks:
+        # Conflicts with nonamedreturns, which requires unnamed results.
+        - unnamedResult
+    gocognit:
+      min-complexity: 15
+    gocyclo:
+      min-complexity: 10
+    cyclop:
+      max-complexity: 10
+      package-average: 5
+    maintidx:
+      under: 20
+    goconst:
+      min-occurrences: 3
+      ignore-tests: false
+    gomoddirectives:
+      exclude-forbidden: true
+      toolchain-forbidden: true
+    loggercheck:
+      no-printf-like: true
+      require-string-key: true
+    nakedret:
+      max-func-lines: 0
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+      require-specific: true
+    perfsprint:
+      err-error: true
+    prealloc:
+      for-loops: true
+    sloglint:
+      static-msg: true
+      key-naming-case: snake
+    testifylint:
+      enable-all: true
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+        - name: if-return
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: var-declaration
+        - name: var-naming
+        - name: package-naming
+        - name: unused-parameter
+        - name: unused-receiver
+        - name: use-errors-new
+        - name: get-return
+        - name: struct-tag
+        - name: import-shadowing
+        - name: modifies-value-receiver
+        - name: atomic
+        - name: waitgroup-by-value
+        - name: datarace
+        - name: range-val-address
+        - name: range-val-in-closure
+        - name: unconditional-recursion
+        - name: identical-branches
+        - name: constant-logical-expr
+        - name: bool-literal-in-expr
+        - name: time-equal
+        - name: string-of-int
+        - name: defer
+        - name: duplicated-imports
+        - name: redundant-import-alias
+        - name: useless-break
+        - name: unnecessary-stmt
+        - name: unnecessary-format
+        - name: optimize-operands-order
+        - name: early-return
+        - name: use-any
+        - name: comment-spacings
+  exclusions:
+    generated: strict
+    presets: []
+    warn-unused: true
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra:
+        group-params: true
+        clothe-returns: true
+        balance-calls: true
+    goimports:
+      local-prefixes:
+        - fsledger
+  exclusions:
+    generated: strict
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
