@@ -1,0 +1,30 @@
+syntax = "proto3";
+package fsledger.catalog.v1;
+option go_package = "github.com/inode64/fsledger/internal/catalog/recordpb";
+message Attribute { bytes name = 1; bytes value = 2; }
+// Path is supplied by the database key, never duplicated in the record value.
+message Record {
+ string type = 1;
+ string attributes_status = 2;
+ string algorithm = 3;
+ bytes hash = 4;
+ bytes target = 5;
+ repeated Attribute acl = 6;
+ repeated Attribute xattrs = 7;
+ int64 size = 8;
+ uint64 inode = 9;
+ int64 mtime = 10;
+ int64 ctime = 11;
+ int64 btime = 12;
+ int64 hashed_at = 13;
+ int64 observed = 14;
+ uint64 nlink = 15;
+ int64 atime = 16;
+ uint64 device = 17;
+ uint32 gid = 18;
+ uint32 uid = 19;
+ uint32 mode = 20;
+ bool no_atime = 21;
+ bool has_btime = 22;
+ bool times_in_seconds = 23;
+}

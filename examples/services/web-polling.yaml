@@ -1,0 +1,31 @@
+# Full repository scan using the existing DB inventory and scanner.
+# Cron schedules replace inherited intervals. Times use an explicit IANA zone.
+# This installed example enables email: replace the email-ops placeholder settings first.
+type: db
+paths: [/srv/www]
+watch:
+  backend: polling
+  reconcile:
+    schedule: "15 3 * * *"
+    timezone: UTC
+    # Polling only: wait for the scan schedule instead of scanning at startup/shutdown.
+    on_start: false
+    on_stop: false
+integrity:
+  hash:
+    full_scan_schedule: "15 3 * * *"
+    full_scan_timezone: UTC
+# Changes and baseline violations are delivered in the scheduled summary.
+# Errors and recovery use immediate-alert delivery with the inherited batch window.
+notifications:
+  use: [email-ops]
+  events: [error, recovery]
+reports:
+  enabled: true
+  format: summary
+  # Independent from the scan cron: 07:00 does not guarantee the 03:15 scan has finished.
+  schedule: "0 7 * * *"
+  timezone: UTC
+  use: [email-ops]
+  send_empty: false
+# The inherited baseline is never approved automatically; review it with the CLI.

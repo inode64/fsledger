@@ -1,0 +1,13 @@
+type: git
+# Commit, watch, storage, integrity, notifications and reports inherit the main YAML.
+# Absent entries are skipped and adopted if they appear later; * ? [...] match one component.
+paths:
+  - /etc
+  - /usr/src/linux/.config
+  - /var/spool/fcron/*.orig
+# No alerts or reports with the main example defaults. To enable immediate alerts:
+# notifications:
+#   use: [email-ops]
+# AI selection belongs here, not in the main YAML, and requires both lists:
+# ia_commit: [profile-from-ai-directory]
+# ia_include: [/etc/ssh/sshd_config]

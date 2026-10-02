@@ -1,4 +1,4 @@
-# fsledger — golangci-lint v2.13.2.
+# fsledger — golangci-lint v2.14.0 (pinned in tools/versions.mk).
 # All maintained built-in linters, including checks on test files.
 # NilAway runs separately through make nilaway; no custom binary is needed.
 version: "2"
@@ -25,8 +25,93 @@ linters:
             - $all
           allow:
             - $gostd
-            - fsledger$
-            - fsledger/
+            - github.com/RaduBerinde/btreemap$
+            - github.com/tmc/langchaingo/llms$
+            - github.com/tmc/langchaingo/llms/openai$
+            - github.com/tmc/langchaingo/llms/anthropic$
+            - github.com/aymanbagabas/go-udiff$
+            - github.com/fsnotify/fsnotify$
+            - github.com/moby/sys/mountinfo$
+            - github.com/prometheus/procfs$
+            - github.com/go-co-op/gocron/v2$
+            - github.com/elastic/go-libaudit/v2$
+            - github.com/elastic/go-libaudit/v2/
+            - github.com/bmatcuk/doublestar/v4$
+            - github.com/cockroachdb/pebble/v2$
+            - github.com/cockroachdb/pebble/v2/sstable$
+            - google.golang.org/protobuf/proto$
+            - github.com/zeebo/blake3$
+            - github.com/cespare/xxhash/v2$
+            - github.com/wneessen/go-mail$
+            - go.yaml.in/yaml/v3$
+            - golang.org/x/sys/unix$
+            - github.com/inode64/fsledger$
+            - github.com/inode64/fsledger/
+        ai-adapter:
+          list-mode: lax
+          files:
+            - $all
+            - '!**/internal/aisummary/provider.go'
+          deny:
+            - pkg: github.com/tmc/langchaingo
+              desc: Keep provider SDKs in internal/aisummary/provider.go.
+        clock-adapter:
+          list-mode: lax
+          files:
+            - $all
+            - '!**/internal/reportclock/*.go'
+          deny:
+            - pkg: github.com/go-co-op/gocron
+              desc: Use internal/reportclock instead of the scheduler SDK.
+        mount-adapter:
+          list-mode: lax
+          files:
+            - $all
+            - '!**/internal/mountinfo/*.go'
+          deny:
+            - pkg: github.com/moby/sys/mountinfo
+              desc: Use internal/mountinfo instead of the native mount parser.
+        proc-adapter:
+          list-mode: lax
+          files:
+            - $all
+            - '!**/internal/attribution/proc/*.go'
+          deny:
+            - pkg: github.com/prometheus/procfs
+              desc: Keep procfs access in internal/attribution/proc.
+        audit-adapter:
+          list-mode: lax
+          files:
+            - $all
+            - '!**/internal/attribution/audit/*.go'
+          deny:
+            - pkg: github.com/elastic/go-libaudit
+              desc: Keep Audit protocol types in internal/attribution/audit.
+        watcher-adapter:
+          list-mode: lax
+          files:
+            - $all
+            - '!**/internal/watcher/inotify/*.go'
+            - '!**/internal/capabilities/*.go'
+          deny:
+            - pkg: github.com/fsnotify/fsnotify
+              desc: Keep fsnotify in the inotify adapter or capability probes.
+        catalog-adapter:
+          list-mode: lax
+          files:
+            - $all
+            - '!**/internal/catalog/*.go'
+          deny:
+            - pkg: github.com/cockroachdb/pebble
+              desc: Use internal/catalog instead of accessing Pebble directly.
+        mail-adapter:
+          list-mode: lax
+          files:
+            - $all
+            - '!**/internal/notify/*.go'
+          deny:
+            - pkg: github.com/wneessen/go-mail
+              desc: Keep SMTP transport types in internal/notify.
     errcheck:
       check-type-assertions: true
       check-blank: true
@@ -48,13 +133,19 @@ linters:
       disabled-checks:
         # Conflicts with nonamedreturns, which requires unnamed results.
         - unnamedResult
+      settings:
+        hugeParam:
+          sizeThreshold: 512
+        rangeValCopy:
+          sizeThreshold: 512
     gocognit:
       min-complexity: 15
     gocyclo:
-      min-complexity: 10
+      min-complexity: 15
     cyclop:
-      max-complexity: 10
-      package-average: 5
+      max-complexity: 15
+      # Enforce complexity per function; package averages penalize small adapters.
+      package-average: 0
     maintidx:
       under: 20
     goconst:
@@ -66,6 +157,16 @@ linters:
     loggercheck:
       no-printf-like: true
       require-string-key: true
+    mnd:
+      # Octal permissions are clearest at the security-sensitive call site.
+      ignored-numbers:
+        - "0o600"
+        - "0o700"
+    varnamelen:
+      # Conventional Linux ABI names remain recognizable in adapters.
+      ignore-names:
+        - fd
+        - n
     nakedret:
       max-func-lines: 0
     nolintlint:
@@ -79,6 +180,35 @@ linters:
     sloglint:
       static-msg: true
       key-naming-case: snake
+    # Event values are deliberately copied across queues; avoid shared mutation.
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+          yaml: snake
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/inode64/fsledger/internal/*
+    exhaustruct_v5:
+      # Zero-valued DTO fields represent absent observations; kernel handles remain checked.
+      allow-empty: true
+      optional-patterns:
+        # Constructors use Go zero values; nonzero defaults (including invalid FDs) stay explicit.
+        - '^github.com/inode64/fsledger/internal/daemon\.worker$'
+        - '^github.com/inode64/fsledger/internal/catalog\.Store$'
+        - '^github.com/inode64/fsledger/internal/mirror\.Sync$'
+        - '^github.com/inode64/fsledger/internal/attribution/audit\.Provider$'
+        - '^github.com/inode64/fsledger/internal/watcher/(fanotify|inotify)\.Watcher$'
+        - '^github.com/inode64/fsledger/internal/event\.(Raw|Actor|Group)$'
+        - '^github.com/inode64/fsledger/internal/daemon\.Status$'
+        - '^github.com/inode64/fsledger/internal/capabilities\.Support$'
+        - '^github.com/inode64/fsledger/internal/attribution/audit\.Status$'
+        - '^github.com/inode64/fsledger/internal/doctor\.Report$'
+        - '^github.com/inode64/fsledger/internal/mountinfo\.Mount$'
+        - '^github.com/inode64/fsledger/internal/integrity\.(Record|Attribute)$'
+        - '^github.com/inode64/fsledger/internal/catalog\.(Result|Stats|Message)$'
+        - '^log/slog\.HandlerOptions$'
+        - '^golang.org/x/sys/unix\.PollFd$'
     testifylint:
       enable-all: true
     revive:
@@ -144,7 +274,10 @@ formatters:
   enable:
     - gofumpt
     - goimports
+    - golines
   settings:
+    golines:
+      max-len: 120
     gofumpt:
       extra:
         group-params: true
@@ -152,10 +285,11 @@ formatters:
         balance-calls: true
     goimports:
       local-prefixes:
-        - fsledger
+        - github.com/inode64/fsledger
   exclusions:
     generated: strict
 
 issues:
+  uniq-by-line: false
   max-issues-per-linter: 0
   max-same-issues: 0

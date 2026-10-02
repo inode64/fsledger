@@ -1,0 +1,5 @@
+# Replace this placeholder with an HTTPS incoming webhook; selected by notifications.use.
+# Scheduled reports accept email notifiers only. No example repository selects Slack.
+type: slack
+url: "https://hooks.slack.com/services/EXAMPLE/EXAMPLE/EXAMPLE"
+template: change

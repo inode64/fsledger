@@ -1,0 +1,19 @@
+title = "fsledger secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Local build output and generated caches, never source files"
+paths = [
+  '''^(?:\./)?(?:bin|graphify-out|\.git)/''',
+]
+
+[[allowlists]]
+description = "Literal PEM-matching regex followed by the synthetic redaction test input"
+targetRules = ["private-key"]
+condition = "AND"
+paths = ['''^internal/redact/redact_test\.go$''']
+regexTarget = "secret"
+# Match only this complete synthetic finding, including its non-key Go source text.
+regexes = ['''(?s)^-----BEGIN PRIVATE KEY-----\.\*\?-----END PRIVATE KEY-----`, Replacement: `\[CLAVE OCULTA\]`},\s*\}\)\s*if err != nil \{\s*t\.Fatal\(err\)\s*\}\s*input := "TOKEN=real-secret\\nnormal=true\\n-----BEGIN PRIVATE KEY-----$''']

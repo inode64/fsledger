@@ -1,0 +1,105 @@
+.TH FSLEDGERD 8 "2026-10-02" "fsledger" "System Administration"
+.SH NAME
+fsledgerd \- foreground filesystem history daemon
+.SH SYNOPSIS
+.B fsledgerd
+.RB [ \-c " configuration" ]
+.RB [ \-\-debug ]
+.br
+.B fsledgerd \-\-version
+.SH DESCRIPTION
+fsledgerd runs the same pipeline as
+.BR "fsledger run" .
+It remains in the foreground; the service manager provides supervision.
+Multiple repositories may run concurrently, but mirror and Git operations are
+serialized within each repository. Unknown actors never block a commit.
+Both Git and DB repositories maintain an integrity catalog. Only Git
+repositories
+copy file contents and create commits. Report preparation and notification
+delivery
+run independently of the repository's copy and commit worker.
+Configured sources that do not exist are skipped and adopted when they appear;
+see paths in
+.BR fsledger.yaml (5).
+.PP
+Files changing during observation are retried up to three times. Persistently
+unstable paths retain their previous valid copies while other changes can be
+committed. Pending paths appear in the status field unstable_paths and are
+retried
+by a reconciliation scheduled after one minute, even if periodic reconciliation
+is disabled. Polling with a scan cron waits for its next configured scan slot
+instead. An incomplete inventory cannot initialize an integrity baseline.
+.PP
+Explicit polling reuses the full repository scanner and inventory, without
+fanotify/inotify marks or passive Audit attribution. Interval or cron schedules
+can control ordinary traversal and full hashing independently. For polling,
+watch.reconcile.on_start=false defers initial observation and on_stop=false
+omits shutdown traversal. Both options default to true. Changes reverted between
+scans may be missed, and periodic observations do not identify their writer.
+.SH OPTIONS
+.TP
+.BI \-c " configuration"
+YAML configuration path; default /etc/fsledger/fsledger.yaml.
+.TP
+.B \-\-debug
+Override the YAML log level with debug, retaining its destination.
+.TP
+.BR \-h , " \-\-help"
+Display option help.
+.TP
+.B \-\-version
+Print the version, Git commit and Go toolchain, then exit without reading
+the configuration.
+.SH OPENRC
+Install with make install-openrc, review the YAML, then enable and start:
+.nf
+rc-update add fsledger default
+rc-service fsledger start
+rc-service fsledger checkconfig
+rc-service fsledger status
+rc-service fsledger stop
+.fi
+.PP
+/etc/conf.d/fsledger selects the configuration with fsledger_config.
+The service uses supervise-daemon, waits for local mounts and orders after
+available network mounts. It validates the configuration before starting;
+absent sources are skipped. It allows
+300 seconds after SIGTERM before sending SIGKILL; the daemon uses a 270-second
+grace from SIGTERM, including the operation already running. Blocked filesystem
+I/O may exceed that deadline.
+When SIGTERM interrupts a reconciliation, the final reconciliation is skipped
+because the next startup reconciliation resumes the work. Adjust the init
+script for filesystems that can block longer. Use logging.file for persistent
+daemon logs.
+.SH SYSTEMD
+Install with make install-systemd, review the YAML, then run:
+.nf
+systemctl daemon-reload
+systemctl enable --now fsledger
+journalctl -u fsledger -f
+.fi
+.PP
+The unit permits the default state, runtime and /var/log/fsledger log
+directory.
+Custom writable locations require corresponding unit overrides. It allows 300
+seconds for shutdown. Sources are read-only under ProtectSystem=strict; optional
+bidirectional Git requires explicit ReadWritePaths for authorized sources.
+.SH SIGNALS
+SIGINT and SIGTERM trigger orderly shutdown, including pending Git work.
+SIGHUP logs an info notice only; restart to reload YAML or reopen a rotated
+log.
+.SH SECURITY
+The default service runs as root to observe privileged source paths and use
+fanotify. Sources never receive Git metadata. Mirrors and logs should be
+private.
+Audit is passive: fsledgerd never installs rules, enables Audit, or takes the
+controller role from auditd. Administrator rules must cover the desired
+sources.
+.SH EXIT STATUS
+0 on clean shutdown, help or version; 1 on configuration, startup or runtime
+error.
+.SH SEE ALSO
+.BR fsledger (1),
+.BR fsledger.yaml (5),
+.BR openrc-run (8),
+.BR supervise-daemon (8)

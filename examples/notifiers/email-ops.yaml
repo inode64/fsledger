@@ -1,0 +1,10 @@
+# Replace the example server, credentials and addresses before enabling delivery.
+# web-polling selects this notifier for operational alerts and scheduled reports.
+type: email
+# SMTP requires STARTTLS; alternatively use smtps://user:password@host:465 without tls=.
+# Percent-encode reserved characters in credentials. TLS certificate checks stay enabled.
+dsn: "smtp://user:password@smtp.example.org:587?tls=starttls"
+from: fsledger@example.org
+to: [ops@example.org]
+template: change
+# Scheduled reports use their own format; this template applies to immediate alerts.

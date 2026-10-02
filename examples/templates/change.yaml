@@ -1,0 +1,28 @@
+# Named template "change" for immediate email/Slack alerts; reports use their own renderer.
+# VisibleFields/VisibleBaseline hide inode and equal values without changing stored evidence.
+subject: 'fsledger {{.Host}} / {{.Repository}}: {{.Event}} ({{.Count}}: +{{.Added}} ~{{.Modified}} -{{.Deleted}})'
+body: |
+  Servidor: {{.Host}} ({{.Hostname}})
+  Observaciones: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})
+  {{if .ChangeID}}Cambio: {{.ChangeID}}
+  {{end}}{{if .Reason}}Motivo: {{.Reason}}
+  {{end}}
+  Elementos cambiados
+  Clave  Ruta
+  {{range .Details}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}
+  {{else}}{{range .Paths}}—      {{printf "%q" .}}
+  {{end}}{{end}}
+  C = Creado; D = Borrado; M = Contenido; P = Solo permisos; MP = Contenido y permisos.
+  — = Otros metadatos o sin evidencia suficiente para clasificar.
+
+  Detalle de cambios
+  {{range .Details}}
+  Ruta: {{printf "%q" .Path}} / {{.Code}}
+  {{if .ChangeID}}ID de cambio: {{.ChangeID}}
+  {{end}}Observado: {{time .Observed}}
+  Actor: {{printf "%q" .Actor}}
+  {{range .VisibleFields}}{{.Field}}: {{.Before}} -> {{.After}}
+  {{else}}Sin diferencias de campos visibles.
+  {{end}}{{with .VisibleBaseline}}Comparación con referencia aprobada:
+  {{range .}}{{.Field}}: {{.Before}} -> {{.After}}
+  {{end}}{{end}}{{end}}

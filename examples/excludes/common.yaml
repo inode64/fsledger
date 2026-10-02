@@ -1,0 +1,22 @@
+# Exclusion patterns use doublestar, unlike the restricted source-selection patterns.
+# Global and repository profiles add together; there is no negation/re-inclusion syntax.
+# Storage/runtime subtrees and .git are excluded by the daemon even without these rules.
+- "**/.git/**"
+- "**/*.swp"
+- "**/*.tmp"
+- "**/*~"
+- "**/.#*"
+- "**/.env"
+- "**/.env.*"
+- /etc/shadow
+- /etc/gshadow
+- /etc/shadow-
+- /etc/gshadow-
+- /etc/ssh/ssh_host_*_key
+- /etc/ssl/private/**
+- "**/*.key"
+- "**/id_rsa"
+- "**/id_ed25519"
+- /etc/letsencrypt/**
+# Adapt this path if notifier files (which may contain credentials) are stored elsewhere.
+- /etc/fsledger/notifiers/**

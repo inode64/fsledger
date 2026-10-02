@@ -1,0 +1,532 @@
+.TH FSLEDGER.YAML 5 "2026-10-02" "fsledger" "File Formats"
+.SH NAME
+fsledger.yaml \- fsledger configuration
+.SH DESCRIPTION
+The default file is /etc/fsledger/fsledger.yaml. Use -c to select another file.
+Each file contains one YAML document, with strict keys and no duplicates.
+Source and state paths must be clean and absolute. Restart to apply changes;
+only the on-disk meaning of repository paths is re-read while running.
+.SH SETTINGS
+.TP
+.B server.name
+Host identity used in Git messages. Default: localhost.
+.TP
+.B storage.path
+Private repository root. Default: /var/lib/fsledger/repos.
+.TP
+.B storage.git.timeout
+Positive Go duration limiting each bulk Git command, including hooks and
+foreground automatic maintenance. Default: 10m. May be overridden per
+repository.
+rev-parse queries retain a 30-second limit. Timeout cancels the Git process
+group;
+the direct process is also killed. Hooks that deliberately detach into another
+session are outside that group. Waiting for inherited pipes is bounded by a
+one-second WaitDelay; this does not guarantee termination of detached
+descendants.
+Partial failures require unknown-actor reconciliation before further commits.
+.TP
+.B runtime
+Private volatile-state directory for status snapshots and flush requests.
+Default: /run/fsledger. Status replacement is atomic but is not synchronized for
+durability across machine restarts; catalogs and pending decisions use
+storage.path.
+.TP
+.B logging.level
+Minimum severity: debug, info, warning or error. Default: info.
+The command-line --debug flag overrides this value for daemon execution.
+.TP
+.B logging.file
+Optional absolute log file path; empty by default, selecting standard error.
+A configured file replaces standard error for daemon logs and is opened in
+append mode. Missing parent directories are created with mode 0700 and new
+files with mode 0600, subject to umask. Existing file permissions are retained.
+The destination must be a regular file. Symlinks, special files and symlink
+parents are rejected. Overlap with storage or runtime is a configuration error.
+A selected source containing the log file is skipped in its entirety and
+reported
+in skipped_sources.
+An open failure aborts startup. Check only inspects the path and creates
+nothing.
+There is no built-in rotation. Restart after renaming a log to reopen its path;
+SIGHUP does not reopen it. Errors before logging is initialized use stderr.
+.TP
+.B watch.backend
+One of auto, fanotify, inotify or polling. Default: auto.
+Capability failures fall back to supported detection.
+.TP
+.B watch.reconcile.enabled
+Periodic reconciliation, default true. Remote filesystems may force it on.
+.TP
+.B watch.reconcile.interval
+Positive Go duration, default 5m. Example units: ms, s, m, h.
+The next interval begins after reconciliation finishes, preventing continuously
+queued scans when a traversal takes longer than the interval.
+.TP
+.B watch.reconcile.schedule, watch.reconcile.timezone
+Optional five-field cron expression replacing interval; timezone defaults to
+UTC.
+Explicit schedule replaces the inherited interval and explicit interval replaces
+the inherited schedule. Specifying both in the same document is an error.
+The existing scanner traverses the whole selected repository and reuses its
+catalog and concurrency budget. Coincident ordinary and full-hash deadlines
+produce one full scan. Jobs do not overlap; missed cron occurrences are skipped.
+.TP
+.B watch.reconcile.on_start, watch.reconcile.on_stop
+Both default to true. Only explicit polling permits false, deferring startup
+inventory or omitting shutdown reconciliation. An empty catalog is not verified
+until its first complete scan. Polling with any scan cron retries failed
+or unstable observations at the next configured slot instead of continuously
+rescanning outside its window. Explicit administrative operations remain
+possible.
+.TP
+.B attribution.audit.enabled
+Enable the passive Audit subscriber, default true. Does not enable kernel
+Audit.
+.TP
+.B attribution.audit.key
+Key of administrator-supplied Audit rules, default fsledger. When enabled,
+requires 1-31 letters, digits, dots, underscores or hyphens.
+.TP
+.B commit.debounce
+Quiet interval before committing a group, default 2s; must be positive.
+.TP
+.B commit.max_delay
+Maximum group delay, default 30s; must be at least debounce.
+.TP
+.B commit.grouping.by_process
+Group by observed PID and verified start time, default true.
+.TP
+.B commit.grouping.by_user
+Separate observed user identities, default true.
+.TP
+.B commit.grouping.prefer_login_uid
+Prefer a known login UID for grouping, default true.
+.TP
+.B paths.repositories, paths.notifiers, paths.excludes
+Lists of files or directories containing named objects. A directory loads its
+immediate .yaml/.yml files in sorted order. Explicit files may have other
+suffixes.
+The filename minus .yaml/.yml supplies the name; do not repeat it inside the
+file.
+Relative catalog paths resolve from the main configuration. Repeated files,
+duplicate names, missing files and invalid YAML are errors. Maximum 256 files
+and 4 MiB including templates. Files must be regular.
+.TP
+.B paths.templates
+YAML file or directory of immediate .yaml/.yml files. The filename minus its
+YAML extension identifies the template. Each document requires subject and body
+text/template strings; unknown keys and the former plain-text format are
+rejected.
+.TP
+.B scan.workers
+Global concurrent filesystem work limit, default 2, shared across repositories.
+Applies to observations, hashes and mirror copies; not an OS thread limit.
+Budgets are shared within each daemon process, not across separate services.
+.TP
+.B scan.max_concurrent
+Maximum active catalog scans per process, default 2, range 1 to 256.
+Waiting for admission is cancellable and does not reserve an observation worker.
+The first ordinary interval starts at a repository-specific offset if startup
+observation is deferred. A completed scan resets its interval from completion.
+Startup scans, cron occurrences and the full-hash timer are not staggered.
+.TP
+.B paths
+Repository file setting: sources to mirror. Entries that do not exist are
+skipped
+without error, so one list may serve hosts with different software; check
+reports
+how many are absent and status lists them as missing_sources. An entry may be a
+pattern: *, ? and [...] match within one component, including names starting
+with
+a dot. ** and {} are rejected, as is a pattern in the first directory; escape a
+literal metacharacter with a backslash. A symlinked parent directory is replaced
+by its target when the link belongs to root or to the daemon user, so
+/usr/src/linux/.config is mirrored below the real kernel directory; the final
+component is never followed. Matches that resolve into state directories, onto
+the log file or into another repository of the same type are skipped and
+reported
+as skipped_sources. Special files cannot be selection roots; their metadata may
+still be observed beneath a selected directory.
+The selection is re-read at ordinary or full-hash scan deadlines, whether
+configured
+by interval or cron, and on flush for Git repositories: new matches are
+adopted and
+deleted ones recorded as deletions without
+restarting. A selected source whose filesystem disappeared is kept, listed as
+unavailable_sources, and nothing is pruned until it returns; this memory does
+not
+survive a restart. Two repositories of one type may not select the same tree;
+a git and a db
+repository may, since one keeps content and the other verifies it. Conflicting
+matches are assigned to the first repository in name order and skipped in the
+others. Inside one
+repository a pattern may fall below another entry, and the wider one is watched.
+.TP
+.B type
+Repository file setting: git (default) or db. DB stores hashes and metadata,
+not file contents. Repository files may override commit, watch, attribution,
+storage, integrity, notifications and reports. Omitted fields inherit global
+defaults; explicit
+false and empty lists override them. No Git/DB conversion is performed.
+.TP
+.B Catalog storage
+The catalog uses Pebble, using Protobuf records and Snappy compression without
+CGO.
+Catalog directories require local storage. No permanent observation or approval
+history is kept. storage.history_days is no longer accepted.
+.TP
+.B integrity.reference, integrity.compare
+Reference is baseline (default) or previous. Fields: hash, type, mode, uid, gid,
+size, mtime, ctime, atime, btime, xattrs, acl, inode, device, nlink, target.
+Default comparison excludes atime, btime, inode, device, nlink and target.
+ctime is metadata change time. btime availability is stored explicitly.
+.TP
+.B integrity.hash
+algorithm is sha256 (default), sha512, sha512_256, sha3_256, sha3_512,
+blake3 or xxhash64. xxhash64 requires previous,
+not baseline. on_event defaults true; full_scan_interval defaults 24h and
+continues even if ordinary watch reconciliation is disabled.
+full_scan_schedule and full_scan_timezone (UTC by default) provide a cron
+alternative to full_scan_interval with the same inheritance and exclusivity
+rules as watch.reconcile. The first inventory scan still requires full hashing
+when hash comparison is enabled. Ordinary scans retain the existing metadata
+and on_event policy; no second scanner or inventory is created.
+.TP
+.B notifications
+use selects named notifiers; [] disables them. events selects change,
+integrity_violation, error and recovery. batch_window defaults 30s;
+max_batch_window defaults 15m and must be at least batch_window. Change and
+integrity notices for each repository and destination share a delivery window.
+While gaps between notices do not exceed max_batch_window, completed windows
+double up to that maximum;
+setting both windows equal disables growth. Error and recovery notices keep the
+base delay and remain separate. A restart resets only the volatile window size;
+queued evidence remains in Pebble. max_pending defaults 10000.
+Delivery retries persist. Saturation increments
+notification_overflow and records a warning. New notices are retained; the
+watermark does not discard evidence. Backlogs can grow until delivery succeeds.
+Changing/removing destinations defers old deliveries without redirecting them.
+.TP
+.B notifier files
+Email: type: email, dsn: smtp://user:password@host:587?tls=starttls or
+smtps://user:password@host:465, from and to (list). TLS is mandatory.
+The optional DSN parameter tls_server_name sets the verified certificate name
+when connecting through an IP address or a VPN alias. Certificate validation
+remains enabled. Delivery errors distinguish missing STARTTLS, certificate
+verification failures, hostname mismatches and timeouts without exposing
+credentials or raw server responses. Configure TLS on the SMTP relay; a server
+without STARTTLS is rejected and its notifications remain queued for retry.
+Slack: type: slack and url containing an HTTPS webhook. Redirects are disabled.
+Both may select a template by name. Templates have Host (server.name), Hostname
+(kernel hostname when the message was queued), Repository, Event, ChangeID,
+Paths,
+Count, the per-kind counts Added, Modified and Deleted, Details (path, kind,
+actor, observed time, field values and approved-reference differences) and
+Reason
+(error and recovery events only: the repository warnings behind the error, or
+what the recovery recovered from). The time
+function formats Unix nanoseconds as UTC. Subject and body share a 16 MiB output
+limit. Email uses each field directly;
+Slack sends the subject followed by the body and splits long output into parts.
+Due change and integrity notices are summarized by repository, destination and
+event. Each detail retains its change ID. One summary contains at most 2000
+paths,
+512 KiB of rendered email, or four Slack parts; excess complete deliveries
+remain
+queued for a later sender tick. A single larger delivery is sent intact so
+evidence
+is never truncated.
+.PP
+The default and example change templates list Code and Path before detailed
+differences. Detail.Code is C (created), D (deleted), M (content/type/link
+target),
+P (permissions only) or MP (content and permissions). Permissions include mode,
+UID, GID and ACL; accompanying timestamps do not imply content changes.
+An em dash indicates other metadata or insufficient evidence. Historical
+approved-reference differences do not change the classification of an
+observation.
+Detail.VisibleFields and Detail.VisibleBaseline omit inode and equal
+before/after
+values. Raw Fields and Baseline remain available to custom templates; stored
+evidence is unchanged. Existing custom templates must opt into these methods.
+Scheduled reports use the same list-first layout and visible-field filtering.
+.TP
+.B exclude
+Select exclusion profile names globally or per repository. Profile files contain
+YAML lists of doublestar patterns. Global and repository profiles are additive.
+.SH EXAMPLE
+Main configuration:
+.nf
+paths:
+  repositories: [/etc/fsledger/services]
+  notifiers: [/etc/fsledger/notifiers]
+  templates: /etc/fsledger/templates
+  excludes: [/etc/fsledger/excludes]
+runtime: /run/fsledger
+scan:
+  workers: 2
+  max_concurrent: 2
+notifications:
+  use: []
+  batch_window: 30s
+  max_batch_window: 15m
+.fi
+.PP
+Contents of services/web.yaml:
+.nf
+type: db
+paths: [/etc/nginx]
+integrity:
+  compare: [hash, type, uid, gid, mode, xattrs, acl]
+.fi
+.PP
+Contents of templates/change.yaml:
+.nf
+subject: 'fsledger {{.Host}} / {{.Repository}}: {{.Event}} ({{.Count}})'
+body: |
+  Paths: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})
+  {{if .ChangeID}}Change: {{.ChangeID}}{{end}}
+.fi
+.SH CONFIGURATION FORMAT
+Configuration has no version field. Options evolve incrementally; only the
+current format is supported and unknown fields are rejected. The installer
+preserves existing configuration.
+runtime is the only volatile-state location. All configuration changes require
+restart; sources appearing or disappearing on disk do not.
+With systemd, custom writable paths require a ReadWritePaths drop-in.
+.SH NOTES
+Git stores final contents and the executable bit, not full filesystem metadata
+or every intermediate write. Source symlinks are preserved without following
+them. Secrets may persist in Git history even after later exclusion.
+.SH SEE ALSO
+.BR fsledger (1),
+.BR fsledgerd (8)
+
+.SH HOST SUBSTITUTION AND GIT PUBLICATION
+${HOST} and $HOST expand in YAML strings and keys using the HOST environment
+variable, or the system hostname when unset. No shell commands are executed.
+An explicitly empty HOST is rejected when a substitution is requested.
+storage.git.remote enables optional publication to storage.git.branch (default
+main).
+An empty remote disables it. push_interval defaults to 1m and push_timeout to
+30s.
+remote accepts a configured Git remote name, an absolute local path, or an SSH
+or
+HTTPS URL; SCP-style user@host:path syntax is not accepted.
+Credentials belong in SSH or Git credential configuration, never the remote URL.
+Publication is serialized with repository work and never forces remote history.
+Branch permissions restrict writes; read isolation requires separate
+repositories.
+
+.SH OPTIONAL BIDIRECTIONAL GIT
+storage.git.bidirectional defaults to false. When true, a Git repository also
+fetches and applies incoming commits from exactly storage.git.branch. A nonempty
+remote is required; DB repositories reject this flag. fetch_interval defaults to
+1m and fetch_timeout to 30s. All fields inherit individually and a repository
+can explicitly set bidirectional to false.
+.PP
+Start by publishing the local snapshot, then edit a clone of that history using
+paths relative to /. Incoming history must fast-forward the local HEAD. There is
+no automatic merge, force push, checkout of sources or import of unrelated
+history.
+Pending local/deferred/unstable changes postpone import; divergent histories
+need
+manual resolution in a separate clone. Network errors do not block local
+commits.
+.PP
+Enabling this flag grants remote branch writers the ability to modify selected
+sources with daemon privileges. Use a trusted remote and branch protection.
+Commit signatures are not verified. With the packaged systemd service, add only
+authorized source directories to ReadWritePaths through an override; the default
+ProtectSystem=strict deliberately prevents writes to arbitrary sources.
+.PP
+The complete change set is checked before mutation. Excluded paths, paths
+outside
+the current selection, .git, submodules, hardlinks, special permission bits and
+file/directory transitions are rejected. Source symlinks are never followed.
+The limit is 4096 changed paths and 64 MiB per file. statx mount identity must
+be
+available. Empty directories are not removed.
+.PP
+Existing owners, ordinary permission bits and extended attributes are preserved
+when supported; Git controls the executable bit. New entries belong to the
+daemon
+user; new files use 0600 (0700 when executable) and directories use 0700. Git
+does
+not supply ownership or extended attributes. Incoming changes do not approve the
+integrity baseline.
+.PP
+A durable Pebble journal holds object IDs and progress, not file contents. It is
+recovered before ordinary local commits. Replacements use same-directory
+temporaries, fsync and rename, with local-byte and root-identity revalidation.
+There is no whole-tree atomicity or locking of external writers: coordinate
+source writes during deployment. Partial imports are possible after
+interruption.
+I/O errors retain the journal for retry. Conflicts stop the import and allow
+local
+reconciliation to record actual state; there is no automatic rollback. A
+conflicted
+operation is not retried against the same target commit: review sources and
+publish
+a new resolution. Disabling bidirectional and restarting cancels a pending
+import
+without reverting applied files.
+.PP
+fsledger status exposes remote_commit, last_fetched, last_fetch_error,
+inbound_pending, inbound_applied, sync_blocked and sync_conflict.
+
+.SH CHANGE FILTERS
+notifications.ignore and commit.defer are lists of rules, globally or per
+repository.
+Omitting a list inherits it; an explicit list replaces it; [] disables
+inheritance.
+Each rule accepts users, command_regex and paths. Fields combine with AND;
+values in each field and separate rules combine with OR. Paths use doublestar;
+commands use Go regular expressions. Users are local names or uid:N, matched
+against the observed process UID, never file ownership. Missing identity
+evidence
+cannot match identity rules. Empty rules and invalid expressions are rejected.
+.PP
+Process command lines from procfs or Audit are used only in memory for local
+command_regex matching. Commits, catalog evidence and notifications omit process
+arguments while retaining the observed user, PID and executable. Git failures
+preserve exit status and cancellation without exposing command arguments or
+hook output in status, logs or notifications.
+.PP
+notifications.ignore suppresses only change notifications. Inventory, approved
+baselines, integrity violations, errors and recovery are unaffected.
+commit.defer waits without a deadline until a non-deferred Git change or an
+explicit
+fsledger flush request. The initial snapshot is always committed. Only the
+latest
+observed version per path is retained; intermediate deferred versions are not
+history and are not published. Pending decisions survive restart. Reconciliation
+and shutdown respect deferral. A policy change reevaluates pending versions.
+.PP
+Storage directories for all loaded repositories and runtime are always
+excluded. Source matches inside these directories are skipped and reported;
+watching their ancestors is allowed. Independent daemons need shared exclusions
+for each other's state.
+
+.SH OPTIONAL AI COMMIT SUMMARIES
+Named AI profiles are discovered in ai/ beside the canonical main configuration.
+Profiles define provider (openai, openai-compatible or anthropic), endpoint,
+model, api_key_env, timeout, max_diff_bytes and redact rules
+(pattern/replacement).
+No repository selection belongs in a profile.
+endpoint and model are required. HTTPS is required except for HTTP on loopback
+IP
+addresses. Credentials are read from api_key_env. timeout defaults to 5s and
+must
+be positive and no greater than 5s. max_diff_bytes defaults to 64 KiB and
+accepts
+1 byte through 1 MiB.
+.PP
+A Git repository opts in with ia_commit: [profile] and ia_include:
+[absolute-glob].
+Both lists must be nonempty to enable summaries; an empty selection leaves them
+disabled. There is no global inheritance. Multiple profiles
+are ordered alternatives. Their redaction rules are combined and applied to
+complete old and new blobs before creating a partial diff. Git bytes are
+unchanged.
+.PP
+Only regular UTF-8 text blobs without NUL bytes are eligible, with at most 64
+KiB
+per old or new blob. Each commit considers at most 32 selected paths and a
+bounded
+diff; binary files, symlinks and oversized blobs are omitted from AI input.
+Five seconds total per summary and two simultaneous summaries per daemon are
+allowed, shared with report AI. Busy capacity skips generation without waiting.
+Failed providers have a one-minute cooldown within their session; later profiles
+are attempted while the total deadline permits.
+Provider failure never prevents a commit. Initial snapshots, deferred-only
+changes
+and shutdown do not request AI.
+
+.SH SCHEDULED EMAIL REPORTS
+reports fields inherit globally and per repository, including DB repositories.
+Explicit lists replace inherited lists. enabled defaults to false; schedule to
+"0 8 * * *"; timezone to UTC; use to []; send_empty to false.
+format is detailed (default) or summary.
+Use existing email notifier names in reports.use. Five-field cron expressions
+are supported, without seconds or descriptors such as @daily. Timezone names
+require installed IANA timezone data. Missing local times are skipped; repeated
+local times can run twice at different UTC instants. Restart to apply changes.
+.PP
+Reports use a durable observation journal independent of immediate alerts.
+Neither notifications.events nor notifications.ignore filters reports.
+notifications.ignore suppresses only immediate change alerts, never report
+observations or integrity violations. Only metadata observed while enabled
+is
+recorded; no historical reconstruction or source content storage occurs.
+Periods include source observations, not necessarily successful Git commits.
+Deferred flags describe the known state at observation; the last known HEAD
+does not prove that a particular path version was committed.
+.PP
+Generation and SMTP run outside repository workers. With format=detailed a
+frozen period is split into
+numbered parts of at most 64 observations or approximately 16 KiB of serialized
+metadata, except that individual observations are never truncated. Rendering is
+limited to 16 MiB; oversized parts stay queued with an error. New observations
+belong to the next period. Each part has its own optional AI introduction and
+factual counts. Reports use a fixed plain-text format, not notifier templates.
+.PP
+With format=summary, a frozen period produces one logical message per
+destination,
+containing totals across all observations and a sample of at most 16 paths.
+Aggregation reuses the metadata journal in durable chunks of 256 entries; it
+does not rescan sources or load all observations into memory. Detailed evidence
+remains in the journal until every destination acknowledges delivery, then is
+removed in bounded transactions. Preview and failed delivery never consume it.
+Optional AI summarizes the sample only; factual totals cover the complete
+period.
+An active scan at period close marks the report incomplete. The report schedule
+is independent of scan schedules and does not wait for a scan to finish.
+Set notifications.events to [error, recovery] to deliver changes and baseline
+violations only through reports; this deliberately delays violation alerts.
+.PP
+After downtime one accumulated period is prepared, not a separate message for
+every missed schedule. Restart or incomplete observation sets a coverage
+warning.
+With send_empty false an empty period sends nothing even with that warning: the
+warning is carried to the next report that has observations. Missing evidence is
+never a guarantee that no changes occurred. Empty periods are omitted by
+default.
+Changing the schedule starts its next occurrence from reconfiguration time;
+pending observations and already frozen periods are preserved.
+.PP
+Evidence moves atomically from journal to draft to durable outbox. Generated
+text
+and Message-ID are reused for SMTP retries. A crash after SMTP acceptance can
+still cause duplicate delivery. A removed or changed notifier leaves its
+existing
+deliveries queued; they are never silently redirected. Disabled reporting
+retains
+pending journal/drafts; already queued messages still retry. There is no
+retained
+report archive after acknowledgement, nor automatic evidence-dropping retention.
+Notification backlog remains a soft watermark, not a data-loss limit.
+.PP
+reports.ai.enabled defaults to false. When true, profiles and include must both
+be nonempty. profiles references ordered alternatives from ai/. include uses
+absolute doublestar patterns. input currently accepts only metadata (default).
+Selection is independent of ia_commit and applies to Git and DB repositories.
+Only selected paths, change kinds, field names and deferred/violation flags are
+sent, never source contents, attribute values or actor commands. The union of
+profile redactions masks complete names before encoding and bounding the input.
+At most 32 observations per part and the smallest selected max_diff_bytes limit
+are sent. AI failures produce deterministic text without delaying local commits;
+the five-second deadline and two-request concurrency budget are shared with
+commit summaries. SMTP retries do not call AI again.
+.PP
+fsledger status reports next, since, pending, last_queued, last_delivered and
+coverage_gap under reports. Times are Unix nanoseconds; zero means unset.
+pending
+counts journal observations, not drafts or queued deliveries. last_delivered is
+the last confirmed destination/part, not confirmation of an entire report.
+For summary format, pending includes detailed evidence retained until all
+destinations acknowledge and background cleanup completes.
+fsledger report preview requires the daemon stopped and reads the first pending
+part (or aggregates the complete summary period) without consuming evidence,
+contacting AI or delivering mail.

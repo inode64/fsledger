@@ -1,0 +1,95 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "43 4 * * 4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: manual
+          - language: actions
+            build-mode: none
+    env:
+      VERSION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        if: matrix.language == 'go'
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4.38.2
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+      - name: Build Go executables for analysis
+        if: matrix.language == 'go'
+        run: make build
+      - name: Analyze and publish alerts
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4.38.2
+        with:
+          category: /language:${{ matrix.language }}
+          output: bin/codeql-results
+          upload: always
+          upload-database: false
+      # Uploading alerts alone does not fail the job on security findings.
+      - name: Reject high-severity findings
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+
+          reports = sorted(Path("bin/codeql-results").glob("*.sarif"))
+          if not reports:
+              raise SystemExit("CodeQL did not produce a SARIF report")
+          blocking = 0
+          for report in reports:
+              runs = json.loads(report.read_text())["runs"]
+              if not runs:
+                  raise SystemExit("CodeQL produced an empty analysis report")
+              for run in runs:
+                  driver = run["tool"]["driver"]
+                  components = [driver, *run["tool"].get("extensions", [])]
+                  rules = {rule["id"]: rule for component in components for rule in component.get("rules", [])}
+                  for result in run.get("results", []):
+                      if "ruleId" in result:
+                          rule = rules[result["ruleId"]]
+                      else:
+                          rule = driver["rules"][result["ruleIndex"]]
+                      level = result.get("level") or rule.get("defaultConfiguration", {}).get("level", "warning")
+                      severity = result.get("properties", {}).get("security-severity")
+                      if severity is None:
+                          severity = rule.get("properties", {}).get("security-severity", 0)
+                      score = float(severity)
+                      if not 0 <= score <= 10:
+                          raise SystemExit("CodeQL produced an invalid security severity")
+                      blocking += level == "error" or score >= 7.0
+          print(f"CodeQL: {blocking} blocking finding(s)")
+          if blocking:
+              raise SystemExit(1)

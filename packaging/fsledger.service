@@ -1,0 +1,23 @@
+[Unit]
+Description=Filesystem Git history with fsledger
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/fsledgerd -c /etc/fsledger/fsledger.yaml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=300s
+UMask=0077
+RuntimeDirectory=fsledger
+RuntimeDirectoryMode=0700
+LogsDirectory=fsledger
+LogsDirectoryMode=0700
+StateDirectory=fsledger
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/fsledger /run/fsledger /var/log/fsledger
+
+[Install]
+WantedBy=multi-user.target

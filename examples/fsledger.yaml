@@ -1,0 +1,87 @@
+# Named profiles are loaded from the directories below, relative to this file.
+# Both system and web-polling are active examples; review their paths and email settings.
+server:
+  # Replace this example identity, or use the HOST substitution documented in fsledger.yaml(5).
+  name: web01
+paths:
+  repositories:
+    - services
+  notifiers:
+    - notifiers
+  templates: templates
+  excludes:
+    - excludes
+runtime: /run/fsledger
+storage:
+  path: /var/lib/fsledger/repos
+  git:
+    timeout: 10m
+    # An empty remote disables publication. Credentials belong in SSH/Git configuration.
+    remote: ""
+    branch: main
+    push_interval: 1m
+    push_timeout: 30s
+    # Incoming writes require explicit opt-in, a remote and writable source paths.
+    bidirectional: false
+    fetch_interval: 1m
+    fetch_timeout: 30s
+scan:
+  workers: 2
+  max_concurrent: 2
+logging:
+  level: info
+  file: ""
+exclude: [common]
+watch:
+  backend: auto
+  reconcile:
+    enabled: true
+    # A repository may replace interval with a five-field schedule and explicit timezone.
+    # interval and schedule cannot coexist in the same document.
+    interval: 5m
+    timezone: UTC
+    on_start: true
+    on_stop: true
+attribution:
+  audit:
+    enabled: true
+    key: fsledger
+commit:
+  debounce: 2s
+  max_delay: 30s
+  # Matching Git changes wait for a non-deferred change or CLI flush, without a deadline.
+  defer: []
+  grouping:
+    by_process: true
+    by_user: true
+    prefer_login_uid: true
+integrity:
+  reference: baseline
+  compare: [hash, type, mode, uid, gid, size, mtime, ctime, xattrs, acl]
+  hash:
+    algorithm: sha256
+    on_event: true
+    full_scan_interval: 24h
+    full_scan_timezone: UTC
+notifications:
+  # No immediate alerts globally; repositories may select email-ops or slack-ops.
+  use: []
+  # Filters suppress change alerts only, not integrity violations or operational alerts.
+  ignore: []
+  events: [change, integrity_violation, error, recovery]
+  batch_window: 30s
+  max_batch_window: 15m
+  max_pending: 10000
+reports:
+  # Disabled globally; services/web-polling.yaml enables its own scheduled email.
+  enabled: false
+  format: detailed
+  schedule: "0 8 * * *"
+  timezone: UTC
+  use: []
+  send_empty: false
+  ai:
+    enabled: false
+    input: metadata
+    profiles: []
+    include: []

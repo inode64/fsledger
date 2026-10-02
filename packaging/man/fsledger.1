@@ -1,0 +1,230 @@
+.TH FSLEDGER 1 "2026-10-02" "fsledger" "User Commands"
+.SH NAME
+fsledger \- maintain Git histories and filesystem integrity inventories
+.SH SYNOPSIS
+.B fsledger
+.BR check | doctor | status | run | flush | verify | changes | baseline
+.RB [ \-c " configuration" ]
+.RB [ \-\-debug ]
+.br
+.B fsledger report preview
+.BI \-\-repository " NAME"
+.RB [ \-c " configuration" ]
+.br
+.B fsledger migrate_aide
+.I db_old repository
+.RB [ \-c " configuration" ]
+.br
+.B fsledger \-\-help
+.br
+.B fsledger \-\-version
+.SH DESCRIPTION
+fsledger mirrors configured source paths into private Git repositories.
+Source paths are relative to / inside each repository. Source directories never
+receive Git metadata. Changes without a known actor are still committed.
+Git must be installed for Git repositories. DB repositories store hashes and
+metadata without file contents. Root is optional when sources are readable and
+state
+locations are writable; fanotify and Audit require additional privileges.
+.SH COMMANDS
+.TP
+.B check
+Validate strict YAML, source patterns, exclusions and location conflicts.
+Report how many sources are present, absent or skipped; absent ones are valid.
+Does not create files, log destinations or repositories. --effective prints
+resolved repository settings with DSN and webhook credentials removed.
+.TP
+.B doctor
+Print JSON describing the kernel, mounts, watcher capabilities and passive
+Audit
+transport access. Only sources that currently exist are probed; absent and
+skipped entries are listed as missing_sources and skipped_sources. Opening an
+Audit socket does not establish rule coverage.
+When a selected fanotify group enables PIDFD, fanotify_pidfd_lifetime tests
+delivery after a writer is reaped. checked=false means the probe was
+inconclusive;
+checked=true with available=false confirms the missing capability.
+The probe writes and removes one private temporary file beneath runtime using a
+fixed /bin/sh script; it does not write source files. If runtime does not exist,
+doctor reports an inconclusive result. The daemon shares the first conclusive
+result across its repositories; inconclusive probes may be retried. Affected
+repositories record warnings in their log and status.
+A missing capability does not stop monitoring. Warnings link to the kernel fix:
+.UR https://lore.kernel.org/linux-fsdevel/20260607003343.425939-1-anonymemeow@gmail.com/#t
+fanotify PIDFD lifetime patch
+.UE
+Kernel versions alone cannot identify backported fixes. This test does not
+validate cgroup resolution or guarantee actor identity.
+For explicit polling, capabilities_probed=false: watcher groups and the PIDFD
+lifetime probe are not opened.
+.TP
+.B status
+Print one JSON object per repository from local status snapshots. paths are
+the sources selected at the snapshot time; missing_sources, skipped_sources and
+unavailable_sources explain the rest.
+scan describes the current daemon's scan times, duration, result, observed
+entries,
+hashes computed by the catalog scan and upcoming ordinary/full schedules.
+catalog.last_full_scan persists the last complete scan across restarts.
+Snapshots are published atomically but are volatile, without a durability
+guarantee across machine restarts. An updated timestamp older than five seconds
+sets running=false and adds a stale warning, even if the daemon is merely busy.
+This command is not a live daemon RPC.
+.TP
+.B run
+Run in the foreground until SIGINT or SIGTERM. Initialize repositories and, by
+default, reconcile offline changes at startup. Explicit polling with
+watch.reconcile.on_start=false defers observation to its scan schedule.
+Git repositories commit an initial snapshot when representable content exists.
+Never create empty commits.
+.TP
+.B flush --repository NAME
+Queue an asynchronous request for the running Git worker to commit deferred
+paths.
+Also refresh the source selection and reconcile it. Check status.catalog for
+deferred_paths and deferred_since; queuing does not confirm a commit or Git
+publication. Pending versions survive restart; the volatile request may not.
+.TP
+.B verify --repository NAME
+Recompute selected content hashes using the configured integrity policy.
+With reference=baseline, compare with the approved reference; a missing baseline
+or unresolved violations return 1. With reference=previous, update the current
+inventory and report changes without requiring an approved baseline.
+The repository daemon must be stopped.
+.TP
+.B changes --repository NAME
+Show up to 100 unresolved differences and their per-file approval IDs.
+.TP
+.B report preview --repository NAME
+Render the first pending scheduled-report part from an existing catalog opened
+read-only. Stop the repository daemon first. No source scan, Git initialization,
+AI call, mail delivery or report-cursor advancement occurs. See reports in
+fsledger.yaml(5). Status includes report scheduling and delivery timestamps.
+.TP
+.B baseline init --repository NAME
+Scan and explicitly approve the initial reference. No automatic approval occurs.
+.TP
+.B baseline accept --repository NAME --change ID
+Approve the identified observation without rereading source files. New
+observations
+that change a difference invalidate its old ID. Operation IDs may approve up to
+4096 paths while every member is still current; otherwise use per-file IDs.
+A change from another policy cannot be approved.
+.TP
+.B baseline replace --repository NAME
+Scan and explicitly replace the entire approved reference, including its policy.
+A failed scan retains the previous reference. All inventory commands require
+exclusive access to the repository.
+.TP
+.B baseline import --repository NAME --input FILE
+Import reviewed JSON observations into an empty catalog, without reading source
+files. Importing does not enqueue or send notifications. Failed imports remain
+unapproved. For AIDE databases use migrate_aide directly; other legacy database
+formats are not migrated.
+.TP
+.B migrate_aide <db_old> <repository>
+Import an AIDE reference into an empty catalog. Entries are selected by
+comparing them with the configured paths and patterns as text, without reading
+disk, so a source reached through a symlinked parent is not selected.
+The existing named repository
+selects sources, exclusions, integrity policy, destination and Git or DB
+storage.
+Reads plain or gzip databases using @@db_spec; does not execute AIDE
+configuration
+or depend on a web profile. No Python or AIDE executable is required.
+Preserves original hashes and metadata without reading source contents. Requires
+exclusive repository access and integrity.reference: baseline. Does not start
+services, send notifications, modify cron or rewrite the original database.
+Supported metadata: type, mode, uid, gid, size, inode, nlink, target and times.
+Supported AIDE hashes: SHA-256, SHA-512, SHA-512/256, SHA3-256 and SHA3-512;
+the configured algorithm must be present. AIDE timestamps retain second
+precision.
+Missing configured fields are errors. ACL/xattrs and other unrepresented columns
+are reported as ignored; they cannot satisfy configured comparisons.
+The JSON report includes counts, catalog path and the SHA-256 of the input
+database.
+With Git storage only metadata can be imported: an AIDE database contains no old
+file contents from which to create historical commits.
+.SH OPTIONS
+Options follow the command and may appear before or after subcommands and
+operands. Use -- to separate operands beginning with a dash.
+.TP
+.BI \-c " configuration"
+Read this YAML file. Default: /etc/fsledger/fsledger.yaml.
+.TP
+.B \-\-debug
+Override logging.level with debug for run. Does not change logging.file.
+.TP
+.B \-\-effective
+With check, print the resolved settings and the current sources of every
+repository instead of the summary line.
+.TP
+.BI \-\-repository " name"
+Repository for flush, verify, changes, baseline and report preview.
+.TP
+.BI \-\-change " id"
+Recorded change to approve with baseline accept.
+.TP
+.BI \-\-input " file"
+Reviewed JSON stream for baseline import.
+.TP
+.BR \-h , " \-\-help"
+Display help. Use after a command for its option help.
+.TP
+.B \-\-version
+Print the version, Git commit and Go toolchain on standard output and exit
+without reading the configuration. Accepted alone, as the version command,
+or after any command.
+.SH LOGGING
+The YAML keys logging.level and logging.file select severity and destination.
+The default is info on standard error. A configured file is opened in append
+mode; existing contents are retained. See
+.BR fsledger.yaml (5).
+JSON and check results use standard output. Configuration and startup failures
+are reported on standard error; daemon failures also reach the configured log.
+.SH SIGNALS
+.TP
+.BR SIGINT , " SIGTERM"
+Stop watchers, finish pending work and reconcile before exiting.
+Explicit polling with watch.reconcile.on_stop=false omits the final traversal.
+A reconciliation interrupted by shutdown is not repeated when startup
+reconciliation will resume it. The 270-second grace is counted from the stop
+request; blocked filesystem I/O may exceed it.
+.TP
+.B SIGHUP
+Log a notice at info level. Does not reload configuration or reopen logs.
+Restart to apply changes or reopen a renamed log file.
+.SH FILES
+.TP
+.I /etc/fsledger/fsledger.yaml
+Default configuration.
+.TP
+.I /var/lib/fsledger/repos
+Default private repository root.
+.TP
+.I /run/fsledger/REPOSITORY.json
+Default local status snapshots.
+.SH EXIT STATUS
+0 on success or clean shutdown; 1 on an invalid command, configuration error
+or runtime failure. Doctor reports unavailable capabilities in JSON and may
+succeed while individual capabilities are unavailable.
+.SH EXAMPLES
+.nf
+fsledger check -c /etc/fsledger/fsledger.yaml
+fsledger doctor -c /etc/fsledger/fsledger.yaml
+fsledger run -c /etc/fsledger/fsledger.yaml --debug
+fsledger status -c /etc/fsledger/fsledger.yaml
+.fi
+.SH SEE ALSO
+.BR fsledgerd (8),
+.BR fsledger.yaml (5),
+.BR git (1)
+
+.SH STORAGE
+Catalogs use Pebble with Protobuf and Snappy. They retain current observations,
+approved references, unresolved differences, deferred commit decisions and the
+durable notification outbox. Optional reports and inbound Git synchronization
+also retain pending journals and drafts until their work is complete.
+Git holds file history; the catalog has no permanent observation or approval
+history.
+Changing an observed difference invalidates its old approval ID.

@@ -14,10 +14,15 @@
 # Test binary, built with `go test -c`
 *.test
 /reports
+# Private working material must not enter public commits.
+/hosts
+/AGENTS.md
+/scripts/
+/docs/
 
 # Code coverage profiles and other test artifacts
 *.out
-coverage.*
+/coverage.*
 *.coverprofile
 profile.cov
 
@@ -42,4 +47,4 @@ go.work.sum
 # Graphify's knowledge graph is a regenerable local cache. Keeping the complete
 # directory out of Git prevents hook/update churn from entering functional
 # commits while preserving graphify query/path/explain in each working copy.
-/graphify-out/
+graphify-out/

@@ -1,0 +1,32 @@
+#!/sbin/openrc-run
+# OpenRC consumes these variables after sourcing this file.
+# shellcheck disable=SC2034
+
+description="Filesystem Git history with fsledger"
+supervisor="supervise-daemon"
+command="@SBINDIR@/fsledgerd"
+command_args="-c \"${fsledger_config:-@SYSCONFDIR@/fsledger/fsledger.yaml}\""
+required_files="${fsledger_config:-@SYSCONFDIR@/fsledger/fsledger.yaml}"
+respawn_delay=5
+respawn_max=5
+respawn_period=60
+# Longer than the daemon's 270 s shutdown grace, counted from SIGTERM, so it is never killed halfway.
+retry="TERM/300/KILL/5"
+umask=0077
+extra_commands="checkconfig"
+description_checkconfig="Validate fsledger configuration and report absent sources"
+
+# Remote sources must be mounted before starting the initial snapshot.
+depend() {
+    need localmount
+    use net netmount
+    after bootmisc
+}
+
+checkconfig() {
+    "@BINDIR@/fsledger" check -c "${fsledger_config:-@SYSCONFDIR@/fsledger/fsledger.yaml}"
+}
+
+start_pre() {
+    checkconfig
+}

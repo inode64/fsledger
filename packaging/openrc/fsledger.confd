@@ -1,0 +1,7 @@
+# OpenRC consumes these variables after sourcing this file.
+# shellcheck disable=SC2034
+# Daemon log destination and severity are configured in this YAML file.
+fsledger_config="@SYSCONFDIR@/fsledger/fsledger.yaml"
+
+# Reserve descriptors for concurrent catalogs and bursts of fanotify PIDFD events.
+rc_ulimit="-n 65536"
