@@ -277,7 +277,7 @@ func newWorker(
 }
 
 func (w *worker) run(ctx context.Context, initial bool) error {
-	w.initial = initial
+	w.initial = initial || w.catalog.InitialSnapshotPending()
 
 	stopped := context.AfterFunc(ctx, func() { w.stopRequested.Store(time.Now().UnixNano()) })
 	defer stopped()

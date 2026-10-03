@@ -155,6 +155,13 @@ func (w *worker) mirrorOperation(ctx context.Context, operation func() error) er
 }
 
 func (w *worker) reconcileRun(ctx context.Context, message string) error {
+	if w.initial {
+		err := w.catalog.SetInitialSnapshotPending(ctx, true)
+		if err != nil {
+			return err
+		}
+	}
+
 	err := w.resumeIncoming(ctx)
 	if err != nil {
 		return err
@@ -196,19 +203,34 @@ func (w *worker) reconcileRun(ctx context.Context, message string) error {
 		return err
 	}
 
-	if len(w.scanningUnstable) == 0 {
-		err = w.announceRecovery(ctx)
-		if err != nil {
-			return err
-		}
+	err = w.completeInitialScan(ctx)
+	if err != nil {
+		return err
 	}
 
 	w.finishUnstableScan()
-	w.initial = false
 	w.status.LastReconciliation = time.Now()
 	w.logger.Info("reconciliation completed", "unstable_paths", len(w.unstable))
 
 	return nil
+}
+
+func (w *worker) completeInitialScan(ctx context.Context) error {
+	if len(w.scanningUnstable) != 0 {
+		return nil
+	}
+
+	err := w.announceRecovery(ctx)
+	if err != nil || !w.initial {
+		return err
+	}
+
+	err = w.catalog.SetInitialSnapshotPending(ctx, false)
+	if err == nil {
+		w.initial = false
+	}
+
+	return err
 }
 
 func (w *worker) reconcileCatalog(ctx context.Context, message, identifier string) error {

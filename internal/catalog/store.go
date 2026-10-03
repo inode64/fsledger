@@ -113,13 +113,14 @@ type Stats struct {
 }
 
 type diskState struct {
-	Policy       string      `json:"policy"`
-	Reports      reportState `json:"reports"`
-	Stats        Stats       `json:"stats"`
-	Baseline     int         `json:"baseline"`
-	Generation   uint64      `json:"generation"`
-	NextDelivery int64       `json:"next_delivery"`
-	Complete     bool        `json:"complete"`
+	Policy                 string      `json:"policy"`
+	Reports                reportState `json:"reports"`
+	Stats                  Stats       `json:"stats"`
+	Baseline               int         `json:"baseline"`
+	Generation             uint64      `json:"generation"`
+	NextDelivery           int64       `json:"next_delivery"`
+	Complete               bool        `json:"complete"`
+	InitialSnapshotPending bool        `json:"initial_snapshot_pending,omitempty"`
 }
 
 // Open opens the current directory format.

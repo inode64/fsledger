@@ -10,6 +10,36 @@ import (
 
 const deferredPrefix = "f/"
 
+// InitialSnapshotPending survives partial initial commits and daemon restarts.
+func (store *Store) InitialSnapshotPending() bool {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
+	return store.state.InitialSnapshotPending
+}
+
+// SetInitialSnapshotPending retains the initial inclusion obligation until a stable scan finishes.
+func (store *Store) SetInitialSnapshotPending(ctx context.Context, pending bool) error {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
+	err := ctx.Err()
+	if err != nil {
+		return fault.Wrap("save initial snapshot state", err)
+	}
+
+	if store.state.InitialSnapshotPending == pending {
+		return nil
+	}
+
+	transaction := store.begin()
+	defer resource.Close(transaction.batch)
+
+	transaction.state.InitialSnapshotPending = pending
+
+	return transaction.commit()
+}
+
 // Deferred identifies the exact staged version whose commit was postponed.
 // Keys retain raw Linux path bytes; this is pending state, not history.
 type Deferred struct {

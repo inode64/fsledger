@@ -10,6 +10,7 @@ import (
 
 	"github.com/inode64/fsledger/internal/event"
 	"github.com/inode64/fsledger/internal/filter"
+	"github.com/inode64/fsledger/internal/integrity"
 )
 
 const noisePattern = "**/noise"
@@ -333,5 +334,56 @@ func TestChangedRulesReleaseUserDeferredPaths(t *testing.T) {
 
 	if commitCount(t, runner) != "2" || len(runner.deferred) != 0 {
 		t.Fatal("disabled rule kept changes deferred")
+	}
+}
+
+func TestInitialDeferralObligationSurvivesPartialSnapshot(t *testing.T) {
+	t.Parallel()
+	runner := makeWorker(t)
+	runner.initial = true
+	noise := writeSource(t, runner, "noise", "initial")
+
+	runner.cfg.Commit.Defer = []filter.Rule{{Paths: []string{noisePattern}, Users: nil, CommandRegex: nil}}
+
+	err := runner.loadDeferral(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mutations := 0
+
+	var mutationErr error
+
+	runner.catalog.BindCopiedHashes(func(record integrity.Record, _ string) (string, int64, bool) {
+		if string(record.Path) == noise {
+			mutations++
+			mutationErr = os.WriteFile(noise, make([]byte, mutations), 0o600)
+		}
+
+		return "", 0, false
+	})
+
+	err = runner.reconcile(t.Context(), "initial")
+	if err != nil || mutationErr != nil {
+		t.Fatal(err, mutationErr)
+	}
+
+	if !runner.initial || !runner.catalog.InitialSnapshotPending() {
+		t.Fatal("partial snapshot lost its initial obligation")
+	}
+
+	runner.initial = runner.catalog.InitialSnapshotPending()
+	runner.catalog.BindCopiedHashes(runner.mirror.CopiedHash)
+	writeSource(t, runner, "noise", "settled")
+
+	err = runner.reconcile(t.Context(), "retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checkGitContent(t, runner, noise, "settled")
+
+	if runner.initial || runner.catalog.InitialSnapshotPending() || len(runner.deferred) != 0 {
+		t.Fatal("complete snapshot did not retire its obligation")
 	}
 }
