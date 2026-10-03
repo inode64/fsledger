@@ -181,3 +181,30 @@ func TestRootGuardUnavailableForFileDirectlyBelowLostFilesystem(t *testing.T) {
 		t.Fatal("file below an unmounted mountpoint treated as deletion")
 	}
 }
+
+func TestRootGuardLearnsPreviouslyUnavailableMountID(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	guard := RootGuard{}
+
+	err := guard.Check([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	identity := guard.roots[root]
+	mount := identity.mount
+	identity.mount = 0
+
+	guard.roots[root] = identity
+
+	err = guard.Check([]string{root})
+	if err != nil {
+		t.Fatal("a newly available mount ID poisoned the root", err)
+	}
+
+	if guard.roots[root].mount != mount {
+		t.Fatal("mount ID was not learned")
+	}
+}

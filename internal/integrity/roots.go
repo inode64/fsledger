@@ -45,7 +45,12 @@ func (guard *RootGuard) Check(roots []string) error {
 			return fmt.Errorf("%w: %s: %w", ErrUnavailable, root, err)
 		}
 
-		if known && (expected.device != current.device || expected.mount != current.mount) {
+		if expected.mount != 0 && current.mount == 0 {
+			return fmt.Errorf("%w: mount identity unavailable at %s", ErrUnavailable, root)
+		}
+
+		if known && (expected.device != current.device ||
+			(expected.mount != 0 && current.mount != 0 && expected.mount != current.mount)) {
 			return fmt.Errorf("%w: filesystem changed at %s", ErrUnavailable, root)
 		}
 
@@ -114,7 +119,13 @@ func identify(path string) (rootIdentity, error) {
 	var extended unix.Statx_t
 
 	mount := uint64(0)
-	if unix.Statx(parent, name, unix.AT_SYMLINK_NOFOLLOW, unix.STATX_MNT_ID, &extended) == nil {
+
+	err = statxRetry(parent, name, unix.STATX_MNT_ID, &extended)
+	if err != nil && !errors.Is(err, unix.ENOSYS) && !errors.Is(err, unix.EOPNOTSUPP) {
+		return rootIdentity{}, fault.Wrap("stat source mount", err)
+	}
+
+	if err == nil && extended.Mask&unix.STATX_MNT_ID != 0 {
 		mount = extended.Mnt_id
 	}
 
@@ -152,11 +163,21 @@ func (guard *RootGuard) Unavailable(root string) bool {
 	for ; ; path, missing = filepath.Dir(path), true {
 		current, err := identify(path)
 		if err == nil {
-			return missing && (current.device != expected.device || current.mount != expected.mount)
+			return missing && (current.device != expected.device ||
+				(expected.mount != 0 && current.mount != expected.mount))
 		}
 
 		if !Missing(err) || path == "/" {
 			return true
+		}
+	}
+}
+
+func statxRetry(parent int, name string, mask int, stat *unix.Statx_t) error {
+	for {
+		err := unix.Statx(parent, name, unix.AT_SYMLINK_NOFOLLOW, mask, stat)
+		if !errors.Is(err, unix.EINTR) {
+			return fault.Wrap("statx source", err)
 		}
 	}
 }
