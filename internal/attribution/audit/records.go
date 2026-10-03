@@ -18,6 +18,8 @@ import (
 	"github.com/inode64/fsledger/internal/fault"
 )
 
+const syscallLinkAt = "linkat"
+
 func coalesce(messages []*auparse.AuditMessage, scopes map[string]func(string) bool) ([]observation, error) {
 	err := complete(messages)
 	if err != nil {
@@ -63,6 +65,11 @@ func recordedPaths(value *aucoalesce.Event, actor event.Actor, operationCode str
 		}
 
 		operation := operationCode
+		if (value.Data["syscall"] == "link" || value.Data["syscall"] == syscallLinkAt) && file["nametype"] == "NORMAL" {
+			// Linking changes the source's link count, not its contents.
+			operation = event.Attrib
+		}
+
 		if file["nametype"] == "DELETE" {
 			operation = event.Remove
 		}
@@ -170,7 +177,7 @@ func auditOperation(data map[string]string) string {
 	switch data["syscall"] {
 	case "write", "writev", "pwrite64", "pwritev", "pwritev2", "truncate", "ftruncate", "fallocate":
 		return event.Write
-	case "creat", "mkdir", "mkdirat", "mknod", "mknodat", "link", "linkat", "symlink", "symlinkat":
+	case "creat", "mkdir", "mkdirat", "mknod", "mknodat", "link", syscallLinkAt, "symlink", "symlinkat":
 		return event.Create
 	case "unlink", "unlinkat", "rmdir":
 		return event.Remove
@@ -216,7 +223,7 @@ func validateTransaction(messages []*auparse.AuditMessage) error {
 // Ambiguous relative *at paths remain unknown, including paths already deleted.
 func cwdRelative(data map[string]string) bool {
 	switch data["syscall"] {
-	case "renameat", "renameat2", "linkat":
+	case "renameat", "renameat2", syscallLinkAt:
 		return auditCWD(data["a0"]) && auditCWD(data["a2"])
 	case "symlinkat":
 		return auditCWD(data["a1"])
