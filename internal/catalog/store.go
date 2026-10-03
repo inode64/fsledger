@@ -77,26 +77,27 @@ func releaseCache() {
 
 // Store serializes writes per repository; scans and approvals share a separate operation lock.
 type Store struct {
-	reportCalendar  *reportclock.Schedule
-	now             func() time.Time
-	ignore          *filter.Matcher
-	copiedHashes    integrity.HashSource
-	database        *pebble.DB
-	versions        map[string]string
-	windows         map[string]notificationWindow
-	policyFields    []string
-	policyAlgorithm string
-	policyDigest    string
-	reportHead      string
-	Repository      string
-	Host            string
-	Policy          config.Integrity
-	reports         config.Reports
-	Notifications   config.Notifications
-	state           diskState
-	mutex           sync.Mutex
-	operation       sync.Mutex
-	scanActive      bool
+	reportCalendar    *reportclock.Schedule
+	now               func() time.Time
+	ignore            *filter.Matcher
+	copiedHashes      integrity.HashSource
+	database          *pebble.DB
+	versions          map[string]string
+	windows           map[string]notificationWindow
+	policyFields      []string
+	policyAlgorithm   string
+	policyDigest      string
+	reportHead        string
+	Repository        string
+	Host              string
+	Policy            config.Integrity
+	reports           config.Reports
+	Notifications     config.Notifications
+	state             diskState
+	mutex             sync.Mutex
+	operation         sync.Mutex
+	scanActive        bool
+	replacingBaseline bool
 }
 
 // Stats describes live state, never cumulative change history.

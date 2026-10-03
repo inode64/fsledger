@@ -3,7 +3,9 @@ package catalog
 import (
 	"context"
 
+	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/resource"
 )
 
@@ -15,10 +17,36 @@ func (store *Store) ReplaceBaseline(ctx context.Context) error {
 	return store.freezeBaseline(ctx, true)
 }
 
+// ScanAndReplaceBaseline permits a new policy while continuing to track differences
+// against the approved baseline. Failed scans never interpret those differences as resolved.
+func (store *Store) ScanAndReplaceBaseline(
+	ctx context.Context, scanner *integrity.Scanner, roots []string, matcher *exclude.Matcher,
+) (Result, error) {
+	store.operation.Lock()
+	defer store.operation.Unlock()
+
+	store.replacingBaseline = true
+	defer func() { store.replacingBaseline = false }()
+
+	store.setScanActive(true)
+	defer store.setScanActive(false)
+
+	result, err := store.reconcile(ctx, scanner, roots, matcher, true, "manual verification", "")
+	if err != nil {
+		return result, err
+	}
+
+	return result, store.freezeBaselineInventory(ctx, true)
+}
+
 func (store *Store) freezeBaseline(ctx context.Context, replace bool) error {
 	store.operation.Lock()
 	defer store.operation.Unlock()
 
+	return store.freezeBaselineInventory(ctx, replace)
+}
+
+func (store *Store) freezeBaselineInventory(ctx context.Context, replace bool) error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 

@@ -224,31 +224,23 @@ func verifyInventory(
 		return err
 	}
 
-	if command == commandBaseline && action == actionReplace {
-		// Explicit replacement may scan with a new policy while retaining the old approved data until success.
-		store.Policy.Reference = config.ReferencePrevious
+	scanner := integrity.NewScanner(cfg.Scan.Workers, cfg.Scan.MaxConcurrent)
+	replace := command == commandBaseline && action == actionReplace
+
+	var result catalog.Result
+
+	if replace {
+		result, err = store.ScanAndReplaceBaseline(ctx, scanner, sources.Roots, matcher)
+	} else {
+		result, err = store.Reconcile(ctx, scanner, sources.Roots, matcher, true, "manual verification", "")
 	}
 
-	result, err := store.Reconcile(
-		ctx,
-		integrity.NewScanner(cfg.Scan.Workers, cfg.Scan.MaxConcurrent),
-		sources.Roots,
-		matcher,
-		true,
-		"manual verification",
-		"",
-	)
 	if err != nil {
 		return err
 	}
 
-	if command == commandBaseline {
-		if action == actionReplace {
-			err = store.ReplaceBaseline(ctx)
-		} else {
-			err = store.InitBaseline(ctx)
-		}
-
+	if command == commandBaseline && !replace {
+		err = store.InitBaseline(ctx)
 		if err != nil {
 			return err
 		}

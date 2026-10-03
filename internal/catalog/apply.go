@@ -27,7 +27,8 @@ func (store *Store) apply(
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
 
-	if store.Policy.Reference == config.ReferenceBaseline && transaction.state.Stats.BaselineReady &&
+	if !store.replacingBaseline && store.Policy.Reference == config.ReferenceBaseline &&
+		transaction.state.Stats.BaselineReady &&
 		transaction.state.Policy != store.policyID() {
 		return 0, 0, fault.New("baseline policy differs from configuration")
 	}
@@ -136,7 +137,8 @@ func (store *Store) compare(transaction *transaction, update mutation) (comparis
 		return result, err
 	}
 
-	if transaction.state.Stats.BaselineReady && store.Policy.Reference == config.ReferenceBaseline {
+	if transaction.state.Stats.BaselineReady &&
+		(store.Policy.Reference == config.ReferenceBaseline || store.replacingBaseline) {
 		result.baseline, result.baselineData, err = readRecord(
 			transaction.batch,
 			baselinePrefix(transaction.state.Baseline),
