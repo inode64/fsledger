@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/inode64/fsledger/internal/pathutil"
 
@@ -66,6 +67,14 @@ func (w *worker) enrichAudit(ctx context.Context) {
 	}
 
 	w.manager.Enrich(func(raw event.Raw) event.Actor { return w.audit.Resolve(ctx, raw, w.cfg.Attribution.Audit.Key) })
+}
+
+func (w *worker) auditDelay() time.Duration {
+	if w.audit == nil || !w.cfg.Attribution.Audit.Enabled {
+		return 0
+	}
+
+	return audit.CorrelationDelay
 }
 
 func acceptsAuditScopes(scopes []auditScope) func(string) bool {

@@ -25,6 +25,9 @@ const (
 	readBudget          = 512
 )
 
+// CorrelationDelay is the minimum event age needed to collect competing Audit records.
+const CorrelationDelay = matchWindow
+
 type observation struct {
 	time      time.Time
 	path      string

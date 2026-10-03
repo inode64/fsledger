@@ -39,10 +39,17 @@ func (m *Manager) Add(raw event.Raw) { m.add(raw) }
 
 // Due drains expired groups in deterministic first-event order.
 func (m *Manager) Due(now time.Time, all bool) []event.Group {
+	return m.DueWithAttributionDelay(now, all, 0)
+}
+
+// DueWithAttributionDelay retains unresolved events until delayed attribution can run.
+// Explicit draining still takes precedence during reconciliation and shutdown.
+func (m *Manager) DueWithAttributionDelay(now time.Time, all bool, delay time.Duration) []event.Group {
 	var result []event.Group
 
 	for key, group := range m.groups {
-		if all || now.Sub(group.Last) >= m.debounce || now.Sub(group.First) >= m.timeLimit {
+		if all || now.Sub(group.First) >= max(m.timeLimit, delay) ||
+			(now.Sub(group.Last) >= m.debounce && attributionReady(group, now, delay)) {
 			result = append(result, *group)
 			for path := range group.Paths {
 				m.paths.Delete(path)
@@ -61,6 +68,20 @@ func (m *Manager) Due(now time.Time, all bool) []event.Group {
 	})
 
 	return result
+}
+
+func attributionReady(group *event.Group, now time.Time, delay time.Duration) bool {
+	if delay <= 0 || group.Actor.Known || group.Reason == conflictingActors {
+		return true
+	}
+
+	for _, raw := range group.Paths {
+		if !raw.Actor.Known && now.Sub(raw.Time) < delay {
+			return false
+		}
+	}
+
+	return true
 }
 
 func firstPath(group event.Group) string {

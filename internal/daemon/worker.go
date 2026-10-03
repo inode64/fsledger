@@ -174,7 +174,7 @@ func (w *worker) flush(ctx context.Context, now time.Time) {
 		w.dirty = true
 	}
 
-	for _, group := range w.manager.Due(now, w.dirty) {
+	for _, group := range w.manager.DueWithAttributionDelay(now, w.dirty, w.auditDelay()) {
 		w.checkLosses()
 
 		if w.contaminated {
