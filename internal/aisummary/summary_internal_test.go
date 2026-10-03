@@ -266,3 +266,24 @@ func TestIncludesHaveNoImplicitSelections(t *testing.T) {
 		t.Fatal("selected path omitted")
 	}
 }
+
+func TestOmittedPatchesProduceLocalSummary(t *testing.T) {
+	t.Parallel()
+	session := testSession(t, New(map[string]config.AIProfile{"local": testProfile("https://unused.invalid")}), "local")
+	patches := &preparedPatches{
+		patches: []preparedPatch{{text: strings.Repeat("x", config.DefaultAIDiffBytes), masked: false}},
+		omitted: 0,
+	}
+
+	text, status, err := session.attempt(t.Context(), "local", patches)
+	if err != nil || status != "omitted" || !strings.Contains(text, "1 archivos autorizados omitidos") {
+		t.Fatal("omitted diff was presented as unchanged", text, status, err)
+	}
+
+	patches.patches = []preparedPatch{{text: "visible", masked: false}, {text: "", masked: true}}
+
+	bounded := patches.bounded(config.DefaultAIDiffBytes)
+	if !strings.Contains(bounded.result(), "1 archivos autorizados omitidos") {
+		t.Fatal("hidden change omitted from partial summary")
+	}
+}

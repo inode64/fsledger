@@ -118,14 +118,20 @@ func (session *Session) attempt(
 ) (string, string, error) {
 	profile := session.manager.profiles[name]
 
-	prompt, hidden := patches.bounded(profile.MaxDiffBytes)
+	bounded := patches.bounded(profile.MaxDiffBytes)
+	prompt := bounded.result()
 
 	if prompt == "" {
-		if hidden {
+		return "", "no-visible-diff", nil
+	}
+
+	if bounded.output.Len() == 0 {
+		if bounded.redacted == bounded.omitted {
 			return "Resumen local: cambian valores ocultos por la política de IA.", "redacted", nil
 		}
 
-		return "", "no-visible-diff", nil
+		return fmt.Sprintf("Resumen local: %d archivos autorizados omitidos por límites o política de IA.",
+			bounded.omitted), "omitted", nil
 	}
 
 	text, err := providerSummary(ctx, profile, instruction, prompt)
@@ -180,27 +186,29 @@ func (session *Session) prepare(
 	return nil
 }
 
-func (prepared *preparedPatches) bounded(limit int) (string, bool) {
+func (prepared *preparedPatches) bounded(limit int) *patchBuilder {
 	builder := patchBuilder{
-		limit: max(0, limit-diffHeaderBudget), output: strings.Builder{}, omitted: prepared.omitted, hidden: false,
+		limit: max(0, limit-diffHeaderBudget), output: strings.Builder{}, omitted: prepared.omitted, redacted: 0,
 	}
 	for _, patch := range prepared.patches {
 		builder.add(patch.text, patch.masked)
 	}
 
-	return builder.result(), builder.hidden
+	return &builder
 }
 
 type patchBuilder struct {
-	output  strings.Builder
-	limit   int
-	omitted int
-	hidden  bool
+	output   strings.Builder
+	limit    int
+	omitted  int
+	redacted int
 }
 
 func (builder *patchBuilder) add(patch string, masked bool) {
-	builder.hidden = builder.hidden || masked
 	if patch == "" && masked {
+		builder.omitted++
+		builder.redacted++
+
 		return
 	}
 
@@ -214,7 +222,7 @@ func (builder *patchBuilder) add(patch string, masked bool) {
 }
 
 func (builder *patchBuilder) result() string {
-	if builder.output.Len() == 0 {
+	if builder.output.Len() == 0 && builder.omitted == 0 {
 		return ""
 	}
 
