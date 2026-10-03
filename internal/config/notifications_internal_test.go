@@ -22,3 +22,21 @@ func TestDuplicateNotifierNamesAreRejected(t *testing.T) {
 		t.Fatal("duplicated destination accepted", err)
 	}
 }
+
+func TestMailPortBounds(t *testing.T) {
+	t.Parallel()
+
+	for _, port := range []string{"0", "65536", "999999999999999999999999"} {
+		_, err := MailURL("smtps://mail.example:" + port)
+		if err == nil {
+			t.Fatal("accepted invalid port", port)
+		}
+	}
+
+	for _, port := range []string{"1", "465", "65535"} {
+		_, err := MailURL("smtps://mail.example:" + port)
+		if err != nil {
+			t.Fatal("rejected valid port", port, err)
+		}
+	}
+}

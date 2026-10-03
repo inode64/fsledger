@@ -6,6 +6,7 @@ import (
 	"net/mail"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -61,6 +62,15 @@ func MailURL(dsn string) (*url.URL, error) {
 
 	if endpoint.Scheme != MailSchemeSMTP && endpoint.Scheme != MailSchemeSMTPS {
 		return nil, fault.New("email DSN requires smtp or smtps")
+	}
+
+	if endpoint.Port() != "" {
+		const maximumPort = 65535
+
+		port, portErr := strconv.Atoi(endpoint.Port())
+		if portErr != nil || port < 1 || port > maximumPort {
+			return nil, fault.New("email port must be between 1 and 65535")
+		}
 	}
 
 	query, err := url.ParseQuery(endpoint.RawQuery)
