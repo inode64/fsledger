@@ -799,6 +799,14 @@ func (s *Sync) copyToTemporary(ctx context.Context, temp, source *os.File, sig s
 	}
 
 	copyErr := s.copyContent(ctx, output, io.LimitReader(source, sig.size))
+	if copyErr == nil {
+		info, statErr := temp.Stat()
+
+		copyErr = statErr
+		if statErr == nil {
+			copyErr = verifyCopiedContent(source, sig, info.Size())
+		}
+	}
 
 	modeErr := temp.Chmod(mirrorMode(sig.mode))
 	syncErr := temp.Sync()

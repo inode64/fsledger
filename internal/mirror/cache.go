@@ -115,6 +115,9 @@ func (s *Sync) sameContents(ctx context.Context, source *os.File, relative strin
 	}
 
 	equal, err := s.equalContent(ctx, input, destination, sig.size)
+	if err == nil && equal {
+		err = verifyCopiedContent(source, sig, sig.size)
+	}
 
 	return equal, digest, err
 }
@@ -245,4 +248,15 @@ func (s *Sync) ApplyPaths(ctx context.Context, paths []string) error {
 	}
 
 	return errors.Join(failure, s.roots.Check(s.sources))
+}
+
+func verifyCopiedContent(source *os.File, sig signature, count int64) error {
+	sizeErr := integrity.CheckContentSize(source, sig.size, count)
+
+	err := unchangedSource(source, sig, "during read")
+	if err != nil {
+		return err
+	}
+
+	return sizeErr
 }

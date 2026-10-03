@@ -226,7 +226,7 @@ func (workspace *readWorkspace) hashFile(
 		return err
 	}
 
-	_, err = io.CopyBuffer(digest, io.LimitReader(readerFunc(func(buffer []byte) (int, error) {
+	count, err := io.CopyBuffer(digest, io.LimitReader(readerFunc(func(buffer []byte) (int, error) {
 		ctxErr := ctx.Err()
 		if ctxErr != nil {
 			return 0, fault.Wrap("hash cancelled", ctxErr)
@@ -238,10 +238,32 @@ func (workspace *readWorkspace) hashFile(
 		return fault.Wrap("hash source", err)
 	}
 
+	err = verifyHashedFile(file, before, count)
+	if err != nil {
+		return err
+	}
+
 	record.HashedAt = time.Now().UnixNano()
 	record.Hash, record.Algorithm = hex.EncodeToString(digest.Sum(nil)), algorithm
 
 	return nil
+}
+
+func verifyHashedFile(file *os.File, before *unix.Stat_t, count int64) error {
+	sizeErr := CheckContentSize(file, before.Size, count)
+
+	var after unix.Stat_t
+
+	err := unix.Fstat(int(file.Fd()), &after)
+	if err != nil {
+		return fault.Wrap("stat hashed source", err)
+	}
+
+	if !sameVersion(before, &after) {
+		return fmt.Errorf("%w: source changed during hashing", ErrUnstable)
+	}
+
+	return sizeErr
 }
 
 func readAttributes(path string, record *Record) error {
