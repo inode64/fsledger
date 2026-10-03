@@ -290,7 +290,8 @@ func (w *worker) run(ctx context.Context, initial bool) error {
 		return err
 	}
 
-	if !w.cfg.Watch.Reconcile.OnStart {
+	// Journal recovery is mandatory work, independent of optional startup scans.
+	if !w.cfg.Watch.Reconcile.OnStart && !w.incomingActive() {
 		w.status.Scan.Result = "waiting"
 		w.saveStatus(ctx)
 

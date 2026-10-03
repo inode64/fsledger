@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inode64/fsledger/internal/event"
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/filter"
 	"github.com/inode64/fsledger/internal/inbound"
@@ -202,6 +204,9 @@ func TestIncomingDivergencePreservesLocal(t *testing.T) {
 func TestIncomingJournalRecovery(t *testing.T) {
 	t.Parallel()
 	runner, remote, editor := incomingWorker(t)
+	runner.cfg.Watch.Backend = event.Polling
+	runner.cfg.Watch.Reconcile.OnStart = false
+	runner.cfg.Watch.Reconcile.OnStop = false
 	incomingEdit(t, runner, editor, "a", "first incoming")
 	target := incomingEdit(t, runner, editor, "b", "second incoming")
 	base := runner.status.LastCommit
@@ -253,7 +258,10 @@ func TestIncomingJournalRecovery(t *testing.T) {
 		t.Fatal("invalid persisted journal", err)
 	}
 
-	err = runner.reconcile(t.Context(), "Startup recovery")
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	err = runner.run(ctx, false)
 	if err != nil {
 		t.Fatal(err)
 	}
