@@ -124,7 +124,10 @@ func (workspace *readWorkspace) read(
 
 	record := fromStat(path, &stat)
 
-	readBirthTime(parent, name, &record)
+	err = readBirthTime(parent, name, &record)
+	if err != nil {
+		return Record{}, err
+	}
 
 	if record.Type == TypeSymlink {
 		record.Target, err = readLink(parent, name)
@@ -140,30 +143,36 @@ func (workspace *readWorkspace) read(
 		}
 	}
 
+	err = finishObservation(parent, name, path, &stat, &record)
+
+	return record, err
+}
+
+func finishObservation(parent int, name, path string, before *unix.Stat_t, record *Record) error {
 	// /proc/self/fd anchors the parent; L* operations never dereference the final symlink.
 	anchored := fmt.Sprintf("/proc/self/fd/%d/%s", parent, name)
 
-	err = readAttributes(anchored, &record)
+	err := readAttributes(anchored, record)
 	if err != nil {
-		return Record{}, err
+		return err
 	}
 
 	var after unix.Stat_t
 
 	err = unix.Fstatat(parent, name, &after, unix.AT_SYMLINK_NOFOLLOW)
 	if err != nil {
-		return Record{}, fault.Wrap("restat source", err)
+		return fault.Wrap("restat source", err)
 	}
 
-	if !sameVersion(&stat, &after) {
-		return Record{}, fmt.Errorf("%w: %s", ErrUnstable, path)
+	if !sameVersion(before, &after) {
+		return fmt.Errorf("%w: %s", ErrUnstable, path)
 	}
 
 	// Hashing without O_NOATIME may have advanced access time. Persist the
 	// post-read value rather than stale metadata from before our own access.
 	record.Atime = after.Atim.Nano()
 
-	return record, nil
+	return nil
 }
 
 func fromStat(path string, stat *unix.Stat_t) Record {
@@ -352,13 +361,24 @@ func readAttribute(path string, name []byte, remaining int) (Attribute, error) {
 	return Attribute{Name: bytes.Clone(name), Value: value[:count]}, nil
 }
 
-func readBirthTime(parent int, name string, record *Record) {
+func readBirthTime(parent int, name string, record *Record) error {
 	var extended unix.Statx_t
-	if unix.Statx(parent, name, unix.AT_SYMLINK_NOFOLLOW, unix.STATX_BTIME, &extended) == nil &&
-		extended.Mask&unix.STATX_BTIME != 0 {
+
+	err := statxRetry(parent, name, unix.STATX_BTIME, &extended)
+	if errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.EOPNOTSUPP) {
+		return nil
+	}
+
+	if err != nil {
+		return fault.Wrap("stat source birth time", err)
+	}
+
+	if extended.Mask&unix.STATX_BTIME != 0 {
 		record.HasBtime = true
 		record.Btime = extended.Btime.Sec*int64(time.Second) + int64(extended.Btime.Nsec)
 	}
+
+	return nil
 }
 
 // A size query and the subsequent read are not atomic. Reject raced buffers and
