@@ -117,7 +117,9 @@ func (store *Store) reconcile(
 		}
 
 		result.Observed++
-		if update.record.Hash != "" && update.record.HashedAt >= update.record.Observed {
+		// Full scans also verify digests supplied by this operation's mirror copy,
+		// whose hash timestamp legitimately precedes the catalog observation.
+		if update.record.Hash != "" && (full || update.record.HashedAt >= update.record.Observed) {
 			result.Hashed++
 		}
 

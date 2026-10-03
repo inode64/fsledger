@@ -84,3 +84,32 @@ func checkHashWork(t *testing.T, store *Store, id, path string, want bool) {
 		t.Fatalf("refresh work = %q, expected file=%v", paths, want)
 	}
 }
+
+func TestFullScanCountsVerifiedMirrorDigests(t *testing.T) {
+	t.Parallel()
+	store := testStore(t)
+	root := t.TempDir()
+	path := filepath.Join(root, "file")
+	writeHashFixture(t, path, "content")
+
+	scanner := integrity.NewScanner(1, 1)
+
+	record, err := scanner.Observe(t.Context(), path, "sha256", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store.BindCopiedHashes(func(integrity.Record, string) (string, int64, bool) {
+		return record.Hash, record.HashedAt, true
+	})
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := store.Reconcile(t.Context(), scanner, []string{root}, matcher, true, "mirror", "")
+	if err != nil || result.Hashed != 1 {
+		t.Fatal("verified mirror digest missing from full-scan count", result, err)
+	}
+}
