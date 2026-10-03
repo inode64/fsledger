@@ -80,7 +80,13 @@ func differences(previous, current integrity.Record, oldData, data []byte, selec
 		return []string{changeDeleted}
 	}
 
-	return integrity.Differences(previous, current, selected)
+	fields := integrity.Differences(previous, current, selected)
+	if current.Type == integrity.TypeRegular && current.Hash == "" {
+		// A deferred hash is unknown, not a content difference.
+		fields = slices.DeleteFunc(fields, func(field string) bool { return field == fieldHash })
+	}
+
+	return fields
 }
 
 func changeKind(fields []string) string {

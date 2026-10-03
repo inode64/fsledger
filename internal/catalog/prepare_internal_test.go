@@ -36,3 +36,45 @@ func TestPreparedObservationsRespectEarlierBatchWrites(t *testing.T) {
 		t.Fatalf("reversion left pending differences: %v", ids)
 	}
 }
+
+func TestDeferredHashCannotApproveChangedMetadata(t *testing.T) {
+	t.Parallel()
+	store := testStore(t)
+	store.Policy.Hash.OnEvent = false
+	store.Policy.Compare = append(store.Policy.Compare, fieldSize)
+	original := workloadRecord(0)
+	reference(t, store, original)
+	metadata := original
+	metadata.Size++
+	metadata.Hash, metadata.Algorithm = "", ""
+
+	prepared, _, err := store.prepare(t.Context(), integrity.NewScanner(1, 1), metadata, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if prepared.Hash != "" || prepared.HashedAt != 0 {
+		t.Fatal("new metadata retained an old digest")
+	}
+
+	observeRecords(t, store, "deferred-hash", prepared)
+
+	err = store.Accept(t.Context(), "deferred-hash")
+	if err == nil {
+		t.Fatal("approved content that has not been hashed")
+	}
+
+	prepared.Hash, prepared.Algorithm = strings.Repeat("f", 64), original.Algorithm
+	observeRecords(t, store, "verified-hash", prepared)
+
+	err = store.Accept(t.Context(), "verified-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	observeRecords(t, store, "repeated-verification", prepared)
+
+	if len(pendingIDs(t, store)) != 0 {
+		t.Fatal("verified approval raised another violation")
+	}
+}

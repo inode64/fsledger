@@ -259,9 +259,18 @@ func (store *Store) prepare(
 			),
 		) == 0 &&
 		previous.Algorithm == store.Policy.Hash.Algorithm
-	if unchanged || (exists && !store.Policy.Hash.OnEvent) {
+	if unchanged {
 		record.Hash, record.Algorithm = previous.Hash, previous.Algorithm
 		record.HashedAt, record.NoAtime = previous.HashedAt, previous.NoAtime
+
+		return record, cached, nil
+	}
+
+	if exists && !store.Policy.Hash.OnEvent {
+		// Metadata now describes another version. Its content remains unverified
+		// until a full scan; the old digest is not evidence for this observation.
+		record.Hash, record.Algorithm = "", ""
+		record.HashedAt, record.NoAtime = 0, false
 
 		return record, cached, nil
 	}

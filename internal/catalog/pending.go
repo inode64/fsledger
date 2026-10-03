@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/resource"
 )
 
@@ -201,10 +202,33 @@ func (store *Store) acceptOne(transaction *transaction, path []byte, token strin
 	if data == nil {
 		transaction.remove(reference)
 	} else {
+		err = store.checkApprovalHash(data, path)
+		if err != nil {
+			return err
+		}
+
 		transaction.set(reference, data)
 	}
 
 	removePending(transaction, path, item, invalidate)
+
+	return nil
+}
+
+func (store *Store) checkApprovalHash(data, path []byte) error {
+	if !slices.Contains(store.Policy.Compare, fieldHash) {
+		return nil
+	}
+
+	record, err := unpack(data, path)
+	if err != nil {
+		return err
+	}
+
+	if record.Type == integrity.TypeRegular &&
+		(record.Hash == "" || record.Algorithm != store.Policy.Hash.Algorithm) {
+		return fault.New("approval requires a verified content hash; run a full verification first")
+	}
 
 	return nil
 }
