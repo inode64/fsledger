@@ -59,3 +59,42 @@ func TestSubtreePruneDoesNotReadUnrelatedMirrorDirectory(t *testing.T) {
 		t.Fatal("scoped prune entered unrelated directory", err)
 	}
 }
+
+func TestGitMetadataFileDoesNotSkipPruningSiblings(t *testing.T) {
+	t.Parallel()
+	source := t.TempDir()
+	repository := t.TempDir()
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	syncer, err := Open(repository, []string{source}, matcher, "sha256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(syncer)
+
+	for _, name := range []string{".git", "obsolete"} {
+		err = os.WriteFile(filepath.Join(repository, name), []byte("retained"), 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	err = syncer.prune(t.Context(), []string{source}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = os.Stat(filepath.Join(repository, "obsolete"))
+	if !os.IsNotExist(err) {
+		t.Fatal("metadata file skipped stale sibling", err)
+	}
+
+	_, err = os.Stat(filepath.Join(repository, ".git"))
+	if err != nil {
+		t.Fatal("metadata file was removed", err)
+	}
+}

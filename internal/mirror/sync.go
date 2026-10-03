@@ -587,7 +587,7 @@ func (s *Sync) prune(ctx context.Context, roots []string, seen map[string]bool, 
 
 		protected := pathutil.Within(unstable, "/"+path)
 		if skipPrune(path, entry, protected, !full && !s.overlapsRoots("/"+path, roots)) {
-			return filepath.SkipDir
+			return skipDirectory(entry)
 		}
 
 		if protected || !staleEntry(path, roots, seen, full) {
@@ -607,6 +607,14 @@ func (s *Sync) prune(ctx context.Context, roots []string, seen map[string]bool, 
 	}
 
 	return s.removeStale(ctx, stale)
+}
+
+func skipDirectory(entry fs.DirEntry) error {
+	if entry.IsDir() {
+		return filepath.SkipDir
+	}
+
+	return nil
 }
 
 func skipPrune(path string, entry fs.DirEntry, protected, outside bool) bool {
