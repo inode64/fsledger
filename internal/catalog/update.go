@@ -419,22 +419,29 @@ func (batch *batcher) flush(ctx context.Context) error {
 	return err
 }
 
-// addObservation expands a deleted name into every catalog path below it; unrelated roots are not walked.
+// addObservation removes descendants of missing names and non-directory replacements.
 func (batch *batcher) addObservation(ctx context.Context, update mutation) error {
-	if !update.deleted {
+	if !update.deleted && update.record.Type == integrity.TypeDirectory {
 		return batch.add(ctx, update)
-	}
-	// Pending observations below this name must be stored before the catalog is searched for them.
-	err := batch.flush(ctx)
-	if err == nil {
-		err = batch.add(ctx, update)
-	}
-
-	if err != nil {
-		return err
 	}
 
 	prefix := string(update.record.Path) + "/"
+	// Only pending descendants require a flush; ordinary file events retain batching.
+	for _, pending := range batch.pending {
+		if strings.HasPrefix(string(pending.record.Path), prefix) {
+			err := batch.flush(ctx)
+			if err != nil {
+				return err
+			}
+
+			break
+		}
+	}
+
+	err := batch.add(ctx, update)
+	if err != nil {
+		return err
+	}
 
 	return batch.store.iterate(ctx, currentPrefix+prefix, func(suffix, _ []byte) error {
 		return batch.add(ctx, mutation{
