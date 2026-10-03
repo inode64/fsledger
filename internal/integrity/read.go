@@ -159,6 +159,10 @@ func (workspace *readWorkspace) read(
 		return Record{}, fmt.Errorf("%w: %s", ErrUnstable, path)
 	}
 
+	// Hashing without O_NOATIME may have advanced access time. Persist the
+	// post-read value rather than stale metadata from before our own access.
+	record.Atime = after.Atim.Nano()
+
 	return record, nil
 }
 
