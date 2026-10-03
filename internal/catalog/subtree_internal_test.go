@@ -347,3 +347,32 @@ func TestReportClosedDuringSubtreeScanMarksCoverageGap(t *testing.T) {
 		t.Fatal("finished subtree left scan active")
 	}
 }
+
+func TestObservationErrorPreservesEarlierValidPaths(t *testing.T) {
+	t.Parallel()
+	store, scanner, matcher, root := subtreeFixture(t)
+
+	path := filepath.Join(root, "direct-before")
+
+	err := os.WriteFile(path, []byte("changed"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := store.Observe(
+		t.Context(),
+		scanner,
+		[]string{path, "invalid-relative-path"},
+		[]string{root},
+		matcher,
+		"actor",
+		"partial",
+	)
+	if err == nil || result.Changed != 1 {
+		t.Fatal("failed group discarded an earlier valid observation", result, err)
+	}
+
+	if pendingIDs(t, store)[path] == "" {
+		t.Fatal("earlier valid change lost its baseline violation")
+	}
+}

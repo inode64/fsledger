@@ -339,7 +339,10 @@ func (store *Store) observePaths(
 
 		_, fatal := integrity.SplitUnstable(err)
 		if fatal != nil {
-			return result, failure
+			// Keep earlier valid observations when a later path cannot be read.
+			flushErr := batch.flush(ctx)
+
+			return result, errors.Join(failure, flushErr)
 		}
 
 		if err != nil {
