@@ -61,9 +61,6 @@ func (store *Store) Reconcile(
 	store.operation.Lock()
 	defer store.operation.Unlock()
 
-	store.setScanActive(true)
-	defer store.setScanActive(false)
-
 	return store.reconcile(ctx, scanner, roots, matcher, full, actor, identifier)
 }
 
@@ -98,6 +95,9 @@ func (store *Store) reconcile(
 	full bool, actor, identifier string,
 	paths ...string,
 ) (Result, error) {
+	store.setScanActive(true)
+	defer store.setScanActive(false)
+
 	result := observationResult(identifier)
 
 	operationErr1 := store.beginOperation(ctx, true)

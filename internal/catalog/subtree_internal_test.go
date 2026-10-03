@@ -294,3 +294,56 @@ func TestDirectoryObservationWorkload(t *testing.T) {
 		store.database.Metrics().WAL.BytesWritten-wal,
 	)
 }
+
+func TestReportClosedDuringSubtreeScanMarksCoverageGap(t *testing.T) {
+	t.Parallel()
+	store, scanner, matcher, root := subtreeFixture(t)
+	now := configureReportClock(t, store)
+	settings := reportSettings()
+
+	settings.SendEmpty = true
+
+	err := store.ConfigureReports(t.Context(), settings, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	*now = now.Add(time.Minute)
+
+	err = os.WriteFile(filepath.Join(root, "a", "kept"), []byte("changed"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		draft     *ReportDraft
+		reportErr error
+	)
+
+	store.BindCopiedHashes(func(integrity.Record, string) (string, int64, bool) {
+		draft, reportErr = store.NextReport(t.Context())
+
+		return "", 0, false
+	})
+
+	_, err = store.Observe(
+		t.Context(),
+		scanner,
+		[]string{filepath.Join(root, "a")},
+		[]string{root},
+		matcher,
+		"actor",
+		"subtree",
+	)
+	if err != nil || reportErr != nil {
+		t.Fatal(err, reportErr)
+	}
+
+	if draft == nil || !draft.Message.Report.CoverageGap {
+		t.Fatal("subtree scan was reported as complete")
+	}
+
+	if store.scanActive {
+		t.Fatal("finished subtree left scan active")
+	}
+}

@@ -28,9 +28,6 @@ func (store *Store) ScanAndReplaceBaseline(
 	store.replacingBaseline = true
 	defer func() { store.replacingBaseline = false }()
 
-	store.setScanActive(true)
-	defer store.setScanActive(false)
-
 	result, err := store.reconcile(ctx, scanner, roots, matcher, true, "manual verification", "")
 	if err != nil {
 		return result, err
