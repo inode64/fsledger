@@ -143,7 +143,7 @@ func (entry *Entry) decodeMetadata(fields map[string]string, mask uint64) error 
 	}
 
 	entry.available["type"] = true
-	if entry.Record.Type == integrity.TypeSymlink && entry.available["target"] && len(entry.Record.Target) == 0 {
+	if entry.Record.Type == integrity.TypeSymlink && entry.available["target"] && entry.Record.Target == nil {
 		return fault.New("missing AIDE symlink target")
 	}
 
@@ -216,7 +216,13 @@ func setField(record *integrity.Record, column, value string) error {
 
 func setPath(record *integrity.Record, column, value string) error {
 	if column == fieldLname {
-		if value == "0" || value == "0-" {
+		if value == "0" {
+			return nil
+		}
+
+		if value == "0-" {
+			record.Target = []byte{}
+
 			return nil
 		}
 
