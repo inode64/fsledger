@@ -94,7 +94,7 @@ paths: {repositories: [system.yaml]}`, root, runtime),
 	cfg.Commit.Debounce = time.Millisecond
 	cfg.Commit.MaxDelay = time.Second
 
-	return newWorker(
+	runner := newWorker(
 		cfg,
 		"system",
 		slog.New(slog.DiscardHandler),
@@ -107,6 +107,10 @@ paths: {repositories: [system.yaml]}`, root, runtime),
 		newActiveRoots(cfg.Repositories["system"].Paths),
 		sharedPIDFDProbe(fanotify.ProbePIDFDLifetime),
 	)
+	// Recoveries are immediate unless a test exercises the quiet period.
+	runner.recoveryQuiet = 0
+
+	return runner
 }
 
 func writeSource(t *testing.T, runner *worker, name, value string) string {

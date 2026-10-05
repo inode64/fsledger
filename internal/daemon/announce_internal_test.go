@@ -4,11 +4,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inode64/fsledger/internal/catalog"
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/watcher/fanotify"
 )
+
+const opsNotifier = "ops"
 
 // announced returns the message of the single due delivery, which must carry the expected event.
 func announced(t *testing.T, runner *worker, event string) catalog.Message {
@@ -31,7 +34,7 @@ func announced(t *testing.T, runner *worker, event string) catalog.Message {
 func TestErrorAndRecoveryAnnouncementsCarryWarningReasons(t *testing.T) {
 	t.Parallel()
 	runner := makeWorker(t)
-	runner.catalog.Notifications.Use = []string{"ops"}
+	runner.catalog.Notifications.Use = []string{opsNotifier}
 	runner.catalog.Notifications.BatchWindow = 0
 
 	runner.warn("fanotify event loss or coverage loss; reconciliation required")
@@ -57,7 +60,7 @@ func TestErrorAndRecoveryAnnouncementsCarryWarningReasons(t *testing.T) {
 func TestErrorAnnouncementDropsRecoveredReasons(t *testing.T) {
 	t.Parallel()
 	runner := makeWorker(t)
-	runner.catalog.Notifications.Use = []string{"ops"}
+	runner.catalog.Notifications.Use = []string{opsNotifier}
 	runner.catalog.Notifications.BatchWindow = 0
 
 	runner.warn("fanotify event loss or coverage loss; reconciliation required")
@@ -103,5 +106,77 @@ func TestRecoveryClearsWarningsButKeepsAdvisories(t *testing.T) {
 
 	if want := []string{advisory.Warning()}; !slices.Equal(runner.status.Warnings, want) {
 		t.Fatalf("recovered status still carries warnings: %v; want %v", runner.status.Warnings, want)
+	}
+}
+
+// A storm of losses, each healed by its own reconciliation, is one incident: one error when it starts and
+// one recovery once the quiet period passes without a relapse.
+func TestRecoveryWaitsForQuietPeriod(t *testing.T) {
+	t.Parallel()
+	runner := makeWorker(t)
+	runner.catalog.Notifications.Use = []string{opsNotifier}
+	runner.catalog.Notifications.BatchWindow = 0
+	runner.recoveryQuiet = time.Hour
+
+	const loss = "event loss or watcher coverage loss (event queue overflow); reconciliation required"
+
+	for range 3 {
+		runner.warn(loss)
+		runner.announceError(t.Context())
+
+		err := runner.announceRecovery(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if runner.pendingError || !runner.recovered || len(runner.status.Warnings) != 1 {
+			t.Fatalf("healed loss not held as recovered: %v", runner.status.Warnings)
+		}
+	}
+
+	_ = announced(t, runner, config.NotificationError)
+
+	err := runner.settleRecovery(t.Context(), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if reason := announced(t, runner, config.NotificationRecovery).Reason; reason != loss {
+		t.Fatalf("recovery does not say what it recovered from: %q", reason)
+	}
+
+	if runner.announcedError || runner.recovered || len(runner.status.Warnings) != 0 {
+		t.Fatalf("settled recovery left state behind: %v", runner.status.Warnings)
+	}
+}
+
+// A relapse inside the quiet period cancels the held recovery without a second error.
+func TestRelapseCancelsHeldRecovery(t *testing.T) {
+	t.Parallel()
+	runner := makeWorker(t)
+	runner.catalog.Notifications.Use = []string{opsNotifier}
+	runner.catalog.Notifications.BatchWindow = 0
+	runner.recoveryQuiet = time.Hour
+
+	runner.warn("kernel loss")
+	runner.announceError(t.Context())
+	_ = announced(t, runner, config.NotificationError)
+
+	err := runner.announceRecovery(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.warn("kernel loss")
+	runner.announceError(t.Context())
+
+	err = runner.settleRecovery(t.Context(), time.Now().Add(2*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deliveries, err := runner.catalog.Due(t.Context())
+	if err != nil || len(deliveries) != 0 || !runner.pendingError || !runner.announcedError {
+		t.Fatalf("relapse announced again or recovered early: %d %v", len(deliveries), err)
 	}
 }

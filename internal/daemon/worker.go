@@ -193,6 +193,11 @@ func (w *worker) flush(ctx context.Context, now time.Time) {
 	}
 
 	w.flushReconciliation(ctx, now)
+
+	err := w.settleRecovery(ctx, now)
+	if err != nil {
+		w.logger.Warn("cannot queue repository recovery", "error", err)
+	}
 }
 
 func (w *worker) transfer(ctx context.Context, detector watcher.Watcher) {
@@ -277,6 +282,12 @@ func (w *worker) finishShutdown(ctx, shutdown context.Context, err error) error 
 		w.warn("shutdown grace period exhausted; startup reconciliation will resume unfinished work")
 
 		err = nil
+	}
+
+	// A held recovery would be forgotten with the process, leaving its error unanswered.
+	settleErr := w.settleRecovery(context.WithoutCancel(ctx), time.Now().Add(w.recoveryQuiet))
+	if settleErr != nil {
+		w.logger.Warn("cannot queue repository recovery", "error", settleErr)
 	}
 
 	w.status.Running = false

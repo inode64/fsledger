@@ -49,6 +49,7 @@ type worker struct {
 	fetchNext        time.Time
 	unstableRetry    time.Time
 	lastPrune        time.Time
+	lastWarning      time.Time
 	logger           *slog.Logger
 	queue            *watcher.Queue
 	scanningUnstable map[string]struct{}
@@ -80,6 +81,9 @@ type worker struct {
 	publishDelay     time.Duration
 	fetchDelay       time.Duration
 	retryDelay       time.Duration
+	// recoveryQuiet is how long a repository must stay free of new warnings before its recovery is
+	// announced; lastWarning starts that period again.
+	recoveryQuiet time.Duration
 	// stopRequested holds the UnixNano time when shutdown began; zero until then.
 	stopRequested     atomic.Int64
 	fullScanRequested bool
@@ -90,6 +94,8 @@ type worker struct {
 	initial        bool
 	announcedError bool
 	pendingError   bool
+	// recovered marks a healthy repository whose recovery announcement waits for the quiet period.
+	recovered      bool
 	dirty          bool
 	forceReconcile bool
 	contaminated   bool
@@ -270,6 +276,7 @@ func newWorker(
 		roots:          published.load(),
 		published:      published,
 		stopForwarding: func() {},
+		recoveryQuiet:  recoveryQuietPeriod,
 		status: Status{
 			Repository: name, Type: cfg.Repositories[name].Type, Paths: published.load(), Running: true,
 		},

@@ -18,7 +18,10 @@ const (
 	statusInterval    = time.Second
 	gitStatusInterval = 30 * time.Second
 	statusTimeout     = 2 * time.Second
-	warningLimit      = 16
+	// recoveryQuietPeriod damps flapping: a storm of event losses, each healed by its own reconciliation,
+	// yields one error and one recovery instead of a pair per reconciliation.
+	recoveryQuietPeriod = 5 * time.Minute
+	warningLimit        = 16
 )
 
 // Status is an atomic local snapshot; Updated permits stale-daemon detection. Paths are the sources
@@ -64,6 +67,8 @@ func (w *worker) warn(message string) {
 	w.logger.Warn("repository warning", "reason", message)
 
 	w.pendingError = true
+	w.recovered = false
+	w.lastWarning = time.Now()
 
 	// Reasons travel with the error and recovery alerts and stay in the status until the repository recovers;
 	// repeats (one per lost directory) add nothing.

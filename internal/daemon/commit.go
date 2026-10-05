@@ -298,8 +298,22 @@ func (w *worker) rememberChange(result catalog.Result) {
 	}
 }
 
+// announceRecovery runs after a complete reconciliation. The announcement itself waits for the quiet
+// period: a relapse inside it belongs to the error already announced.
 func (w *worker) announceRecovery(ctx context.Context) error {
 	if !w.announcedError {
+		return nil
+	}
+
+	w.recovered = true
+	w.pendingError = false
+
+	return w.settleRecovery(ctx, time.Now())
+}
+
+// settleRecovery delivers a held recovery once no warning has interrupted the quiet period.
+func (w *worker) settleRecovery(ctx context.Context, now time.Time) error {
+	if !w.recovered || now.Sub(w.lastWarning) < w.recoveryQuiet {
 		return nil
 	}
 
@@ -310,7 +324,7 @@ func (w *worker) announceRecovery(ctx context.Context) error {
 
 	w.errorReasons = nil
 	w.announcedError = false
-	w.pendingError = false
+	w.recovered = false
 	w.refreshWarnings()
 
 	return nil
