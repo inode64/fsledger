@@ -232,3 +232,59 @@ func TestAnnounceCarriesReason(t *testing.T) {
 		}
 	}
 }
+
+// Clearing a queue must reach delayed retries too, keep the counter exact and leave the store usable.
+func TestDiscardPendingDropsDueAndDelayedDeliveries(t *testing.T) {
+	t.Parallel()
+
+	store := testStore(t)
+	store.Notifications.Use = []string{fixtureDestinationFirst}
+
+	for range 3 {
+		err := store.Announce(t.Context(), config.NotificationError, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	deliveries, err := store.Due(t.Context())
+	if err != nil || len(deliveries) != 3 {
+		t.Fatalf("deliveries=%d error=%v", len(deliveries), err)
+	}
+
+	err = store.RetryMany(t.Context(), []int64{deliveries[0].ID}, time.Hour, "SMTP unavailable")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	discarded, err := store.DiscardPending(t.Context())
+	if err != nil || discarded != 3 {
+		t.Fatalf("discarded=%d error=%v", discarded, err)
+	}
+
+	stats, err := store.Stats(t.Context())
+	if err != nil || stats.PendingNotifications != 0 {
+		t.Fatalf("pending=%d error=%v", stats.PendingNotifications, err)
+	}
+
+	remaining := 0
+
+	err = store.iterate(t.Context(), outboxPrefix, func(_, _ []byte) error {
+		remaining++
+
+		return nil
+	})
+	if err != nil || remaining != 0 {
+		t.Fatalf("outbox keeps %d deliveries: %v", remaining, err)
+	}
+
+	err = store.Announce(t.Context(), config.NotificationError, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deliveries, err = store.Due(t.Context())
+	if err != nil || len(deliveries) != 1 {
+		t.Fatalf("queue unusable after discard: deliveries=%d error=%v", len(deliveries), err)
+	}
+}

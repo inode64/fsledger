@@ -322,6 +322,53 @@ func (store *Store) updateDeliveries(
 	return transaction.commit()
 }
 
+// DiscardPending drops every queued delivery, due or delayed, in one durable transaction. Summary
+// evidence held for a discarded report is released as if it had been sent, but no report is recorded
+// as delivered. Recorded changes, baselines and violations are untouched.
+func (store *Store) DiscardPending(ctx context.Context) (int, error) {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
+	var deliveries []Delivery
+
+	err := store.iterate(ctx, outboxPrefix, func(_, data []byte) error {
+		var delivery Delivery
+
+		err := json.Unmarshal(data, &delivery)
+		if err != nil {
+			return fault.Wrap("decode delivery", err)
+		}
+
+		deliveries = append(deliveries, delivery)
+
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	transaction := store.begin()
+	defer resource.Close(transaction.batch)
+
+	for _, delivery := range deliveries {
+		transaction.remove(deliveryDue(delivery))
+
+		if delivery.Message.Event == ReportEvent {
+			transaction.acknowledgeReportSummary(delivery.Message)
+		}
+
+		transaction.remove(numberKey(outboxPrefix, delivery.ID))
+		transaction.state.Stats.PendingNotifications--
+	}
+
+	err = transaction.commit()
+	if err != nil {
+		return 0, err
+	}
+
+	return len(deliveries), nil
+}
+
 func (transaction *transaction) acknowledge(delivery Delivery, now time.Time) {
 	if delivery.Message.Event == ReportEvent {
 		transaction.state.Reports.LastDelivered = now.UnixNano()

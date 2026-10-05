@@ -57,7 +57,7 @@ func runConfigured(command string, arguments []string, stdout, stderr io.Writer)
 		return err
 	}
 
-	if (command == commandBaseline || command == commandReport) && len(operands) > 0 {
+	if (command == commandBaseline || command == commandReport || command == commandOutbox) && len(operands) > 0 {
 		action, operands = operands[0], operands[1:]
 	}
 
@@ -122,6 +122,12 @@ func dispatch(
 		}
 
 		return previewReport(context.Background(), stdout, cfg, repository)
+	case commandOutbox:
+		if action != "clear" {
+			return fault.New("outbox requires clear")
+		}
+
+		return clearOutbox(context.Background(), stdout, cfg, repository)
 	case commandBaseline, commandVerify, "changes":
 		return inventoryCommand(context.Background(), stdout, cfg, command, action, repository, change)
 	default:
@@ -131,6 +137,7 @@ func dispatch(
 
 const (
 	commandReport   = "report"
+	commandOutbox   = "outbox"
 	commandBaseline = "baseline"
 	actionImport    = "import"
 	commandVerify   = "verify"

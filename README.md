@@ -449,6 +449,14 @@ calling AI, or sending email:
 fsledger report preview --repository system
 ```
 
+Also with the daemon stopped, `outbox clear` discards every notification queued by a
+repository without sending it, for example when its mail relay cannot accept them.
+Recorded changes stay in the catalog:
+
+```sh
+fsledger outbox clear --repository system
+```
+
 The service logs to stderr by default. To write a log file, set `logging.file` to an
 absolute path; `logging.level` accepts `debug`, `info`, `warning`, and `error`.
 Rotation is external and requires a restart to reopen the file.

@@ -161,6 +161,53 @@ func previewReport(ctx context.Context, writer io.Writer, cfg *config.Config, na
 	return fault.Wrap("write report preview", err)
 }
 
+// clearOutbox discards the notifications queued by one repository. It takes the repository lock, so the
+// daemon must be stopped, and never creates a catalog: a repository without one has nothing queued.
+func clearOutbox(ctx context.Context, writer io.Writer, cfg *config.Config, name string) error {
+	repo, exists := cfg.Repositories[name]
+	if !exists {
+		return fault.New("select an existing repository with --repository")
+	}
+
+	err := cfg.CheckStoragePaths()
+	if err != nil {
+		return err
+	}
+
+	root := cfg.RepositoryPath(name)
+
+	lock, err := resource.LockDirectory(root)
+	if err != nil {
+		return err
+	}
+	defer resource.Close(lock)
+
+	err = config.CheckRepositoryStorage(root, repo.Type)
+	if err != nil {
+		return err
+	}
+
+	info, err := os.Lstat(cfg.CatalogPath(name))
+	if err != nil || !info.IsDir() {
+		return fault.New("repository has no catalog: " + name)
+	}
+
+	store, err := catalog.OpenRepository(ctx, cfg, name)
+	if err != nil {
+		return err
+	}
+	defer resource.Close(store)
+
+	discarded, err := store.DiscardPending(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(writer, "Discarded %d pending notifications from %s\n", discarded, name)
+
+	return fault.Wrap("write outbox result", err)
+}
+
 func executeInventory(
 	ctx context.Context,
 	writer io.Writer,

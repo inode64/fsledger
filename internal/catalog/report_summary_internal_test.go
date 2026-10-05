@@ -214,3 +214,31 @@ func TestSummaryEmptyGapDeferredToNextPeriod(t *testing.T) {
 		t.Fatal("carried coverage gap missing from the next summary", draft)
 	}
 }
+
+// A discarded summary releases its retained evidence but is never recorded as delivered.
+func TestDiscardPendingReleasesSummaryEvidence(t *testing.T) {
+	t.Parallel()
+	store := testStore(t)
+
+	const count = 10
+
+	summaryFixture(t, store, count)
+	publishReport(t, store, nextReport(t, store))
+	assertReportJournal(t, store, count)
+
+	discarded, err := store.DiscardPending(t.Context())
+	if err != nil || discarded != 2 {
+		t.Fatalf("discarded=%d error=%v", discarded, err)
+	}
+
+	if store.Reports().LastDelivered != 0 {
+		t.Fatal("discarded summary recorded as delivered")
+	}
+
+	_, err = store.NextReport(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertReportJournal(t, store, 0)
+}

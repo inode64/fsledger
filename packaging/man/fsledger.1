@@ -1,4 +1,4 @@
-.TH FSLEDGER 1 "2026-10-02" "fsledger" "User Commands"
+.TH FSLEDGER 1 "2026-10-03" "fsledger" "User Commands"
 .SH NAME
 fsledger \- maintain Git histories and filesystem integrity inventories
 .SH SYNOPSIS
@@ -8,6 +8,10 @@ fsledger \- maintain Git histories and filesystem integrity inventories
 .RB [ \-\-debug ]
 .br
 .B fsledger report preview
+.BI \-\-repository " NAME"
+.RB [ \-c " configuration" ]
+.br
+.B fsledger outbox clear
 .BI \-\-repository " NAME"
 .RB [ \-c " configuration" ]
 .br
@@ -101,6 +105,13 @@ read-only. Stop the repository daemon first. No source scan, Git initialization,
 AI call, mail delivery or report-cursor advancement occurs. See reports in
 fsledger.yaml(5). Status includes report scheduling and delivery timestamps.
 .TP
+.B outbox clear --repository NAME
+Discard every notification queued by the repository, including delayed
+retries, without sending it. Summary evidence held for a discarded report is
+released, but no delivery is recorded. Recorded changes, baselines and
+violations are kept. The catalog must already exist and the repository daemon
+must be stopped.
+.TP
 .B baseline init --repository NAME
 Scan and explicitly approve the initial reference. No automatic approval occurs.
 .TP
@@ -160,7 +171,7 @@ With check, print the resolved settings and the current sources of every
 repository instead of the summary line.
 .TP
 .BI \-\-repository " name"
-Repository for flush, verify, changes, baseline and report preview.
+Repository for flush, verify, changes, baseline, report preview and outbox clear.
 .TP
 .BI \-\-change " id"
 Recorded change to approve with baseline accept.

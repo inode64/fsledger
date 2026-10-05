@@ -452,6 +452,14 @@ llamar a la IA ni enviar correo:
 fsledger report preview --repository system
 ```
 
+También con el daemon detenido, `outbox clear` descarta sin enviarlos todos los avisos
+encolados de un repositorio, por ejemplo cuando su relay de correo no puede aceptarlos.
+Los cambios registrados se conservan en el catálogo:
+
+```sh
+fsledger outbox clear --repository system
+```
+
 El servicio registra en stderr por defecto. Para guardar un log, configura
 `logging.file` con una ruta absoluta; `logging.level` admite `debug`, `info`, `warning`
 y `error`. La rotación es externa y requiere reiniciar para reabrir el archivo.
