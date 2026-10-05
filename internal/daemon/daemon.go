@@ -195,6 +195,9 @@ func runRepository(
 		defer resource.Close(syncer)
 	}
 
+	// Every repository announces the same count, so whichever opens first sizes the shared cache.
+	catalog.ExpectStores(len(cfg.Repositories))
+
 	store, err := catalog.OpenRepository(ctx, cfg, name)
 	if err != nil {
 		return err

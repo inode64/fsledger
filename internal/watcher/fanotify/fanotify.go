@@ -88,7 +88,7 @@ func (*Watcher) Name() string { return event.Fanotify }
 func (w *Watcher) LossReason() string { return w.queue.LossReason() }
 
 // Events exposes a nonblocking bounded stream.
-func (w *Watcher) Events() <-chan event.Raw { return w.queue.Channel }
+func (w *Watcher) Events() <-chan *event.Raw { return w.queue.Channel }
 
 // Dirty consumes dropped events and kernel overflow state.
 func (w *Watcher) Dirty() bool {

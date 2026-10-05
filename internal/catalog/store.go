@@ -39,41 +39,65 @@ const (
 	formatKey        = "meta/format"
 	sharedCacheBytes = 32 << 20
 	memtableBytes    = 512 << 10
-	maximumByte      = 0xff
+	// Pebble charges a store's memtables to its cache: the mutable one and the arena kept for recycling.
+	storeMemtableBytes = 2 * memtableBytes
+	maximumByte        = 0xff
 )
 
 // A process-wide cache bounds block memory across independently locked repositories.
 //
+// Pebble reserves every store's memtables out of the cache it is given. With a fixed capacity a few dozen
+// stores reserve all of it, no block stays cached and each lookup reloads and decompresses its blocks.
+// The capacity therefore adds a memtable allowance per expected store, which leaves sharedCacheBytes
+// for blocks however many repositories the daemon serves.
+type sharedCache struct {
+	cache    *pebble.Cache
+	users    int
+	expected int
+	mutex    sync.Mutex
+}
+
 //nolint:gochecknoglobals // Shared ownership is protected by the mutex and released after the last store closes.
-var caches struct {
-	cache *pebble.Cache
-	users int
-	mutex sync.Mutex
+var caches sharedCache
+
+// ExpectStores declares how many catalogs this process keeps open together. It sizes the next shared
+// cache, so the daemon calls it before opening its repositories.
+func ExpectStores(count int) { caches.expect(count) }
+
+func (shared *sharedCache) expect(count int) {
+	shared.mutex.Lock()
+	defer shared.mutex.Unlock()
+
+	shared.expected = count
 }
 
-func acquireCache() *pebble.Cache {
-	caches.mutex.Lock()
-	defer caches.mutex.Unlock()
+func (shared *sharedCache) acquire() *pebble.Cache {
+	shared.mutex.Lock()
+	defer shared.mutex.Unlock()
 
-	if caches.cache == nil {
-		caches.cache = pebble.NewCache(sharedCacheBytes)
+	if shared.cache == nil {
+		shared.cache = pebble.NewCache(sharedCacheBytes + int64(max(shared.expected, 1))*storeMemtableBytes)
 	}
 
-	caches.users++
+	shared.users++
 
-	return caches.cache
+	return shared.cache
 }
 
-func releaseCache() {
-	caches.mutex.Lock()
-	defer caches.mutex.Unlock()
+func (shared *sharedCache) release() {
+	shared.mutex.Lock()
+	defer shared.mutex.Unlock()
 
-	caches.users--
-	if caches.users == 0 {
-		caches.cache.Unref()
-		caches.cache = nil
+	shared.users--
+	if shared.users == 0 {
+		shared.cache.Unref()
+		shared.cache = nil
 	}
 }
+
+func acquireCache() *pebble.Cache { return caches.acquire() }
+
+func releaseCache() { caches.release() }
 
 // Store serializes writes per repository; scans and approvals share a separate operation lock.
 type Store struct {

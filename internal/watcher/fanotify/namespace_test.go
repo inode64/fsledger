@@ -155,7 +155,7 @@ func awaitNamespaceAny(t *testing.T, detector *fanotify.Watcher, path string, op
 			}
 
 			if raw.Path == path && slices.Contains(operations, raw.Operation) {
-				return raw
+				return *raw
 			}
 		case <-timer.C:
 			t.Fatalf("missing %v for %s", operations, path)
@@ -180,7 +180,7 @@ func awaitNamespace(t *testing.T, detector *fanotify.Watcher, path, operation st
 					t.Fatalf("wrong actor PID: %+v", raw)
 				}
 
-				return raw
+				return *raw
 			}
 		case <-timer.C:
 			t.Fatalf("missing %s for %s", operation, path)

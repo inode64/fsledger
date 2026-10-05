@@ -36,7 +36,7 @@ func (w *worker) loop(ctx context.Context) error {
 		case <-ctx.Done():
 			return w.shutdown(ctx)
 		case raw := <-w.queue.Channel:
-			w.accept(raw)
+			w.accept(*raw)
 		case now := <-tick.C:
 			w.checkScanSchedule(now)
 			w.flush(ctx, now)
@@ -115,7 +115,7 @@ func (w *worker) stopWatching() {
 	for {
 		select {
 		case raw := <-w.queue.Channel:
-			w.accept(raw)
+			w.accept(*raw)
 		default:
 			return
 		}
@@ -206,15 +206,13 @@ func (w *worker) transfer(ctx context.Context, detector watcher.Watcher) {
 		case <-ctx.Done():
 			return
 		case raw := <-detector.Events():
-			if w.nativeCovers(raw) {
+			if w.nativeCovers(*raw) {
 				resource.OptionalFile(raw.PIDFD)
 
 				continue
 			}
 
-			raw = w.resolveProcess(ctx, raw)
-
-			w.queue.Send(raw)
+			w.queue.Send(w.resolveProcess(ctx, *raw))
 		}
 	}
 }

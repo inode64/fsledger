@@ -61,7 +61,7 @@ func (*Watcher) Name() string { return event.Inotify }
 func (w *Watcher) LossReason() string { return w.queue.LossReason() }
 
 // Events exposes normalized raw notifications.
-func (w *Watcher) Events() <-chan event.Raw { return w.queue.Channel }
+func (w *Watcher) Events() <-chan *event.Raw { return w.queue.Channel }
 
 // Dirty consumes overflow/loss of coverage notifications.
 func (w *Watcher) Dirty() bool {

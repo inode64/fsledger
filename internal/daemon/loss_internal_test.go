@@ -17,10 +17,10 @@ import (
 // queuedDetector models a native detector whose control requests stay outside Events.
 type queuedDetector struct{ *watcher.Queue }
 
-func (*queuedDetector) Start(context.Context) error       { return nil }
-func (*queuedDetector) Close() error                      { return nil }
-func (*queuedDetector) Name() string                      { return event.Fanotify }
-func (detector *queuedDetector) Events() <-chan event.Raw { return detector.Channel }
+func (*queuedDetector) Start(context.Context) error        { return nil }
+func (*queuedDetector) Close() error                       { return nil }
+func (*queuedDetector) Name() string                       { return event.Fanotify }
+func (detector *queuedDetector) Events() <-chan *event.Raw { return detector.Channel }
 
 func TestOverflowInvalidatesPendingActor(t *testing.T) {
 	t.Parallel()

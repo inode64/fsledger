@@ -55,7 +55,7 @@ func TestKernelWrite(t *testing.T) {
 	for {
 		select {
 		case raw := <-detector.Events():
-			actor := (procattr.Provider{}).Resolve(t.Context(), raw)
+			actor := (procattr.Provider{}).Resolve(t.Context(), *raw)
 
 			hasPIDFD := raw.PIDFD != nil
 			if raw.PIDFD != nil {

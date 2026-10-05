@@ -1,6 +1,7 @@
 package watcher_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/inode64/fsledger/internal/event"
@@ -56,5 +57,18 @@ func TestScheduledReconciliationIsNotLoss(t *testing.T) {
 
 	if !queue.Dirty() {
 		t.Fatal("real queue overflow was hidden")
+	}
+}
+
+// Every repository keeps several queues for its whole life: an idle slot must cost a word, not a whole
+// event, or a host with many repositories fills its memory limit with empty buffers.
+func TestIdleQueueSlotsHoldPointers(t *testing.T) {
+	t.Parallel()
+
+	queue := watcher.NewQueue(1)
+
+	slot := reflect.TypeOf(queue.Channel).Elem().Size()
+	if word := reflect.TypeFor[uintptr]().Size(); slot > word {
+		t.Fatalf("an idle queue slot holds %d bytes; want at most %d", slot, word)
 	}
 }

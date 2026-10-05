@@ -16,7 +16,7 @@ const QueueSize = 4096
 // Watcher owns kernel resources until Close is called.
 type Watcher interface {
 	Start(ctx context.Context) error
-	Events() <-chan event.Raw
+	Events() <-chan *event.Raw
 	Dirty() bool
 	Close() error
 	Name() string
@@ -34,7 +34,9 @@ func PollingRequired(done <-chan struct{}, coverageLost *atomic.Bool) bool {
 
 // Queue never blocks a kernel reader; dropped events latch a reconciliation flag.
 type Queue struct {
-	Channel   chan event.Raw
+	// Channel carries pointers: every repository keeps several queues, and slots sized for whole events
+	// would pin megabytes of idle heap in each of them.
+	Channel   chan *event.Raw
 	reason    atomic.Pointer[string]
 	lost      atomic.Bool
 	reconcile atomic.Bool
@@ -43,7 +45,7 @@ type Queue struct {
 // NewQueue creates a bounded queue.
 func NewQueue(size int) *Queue {
 	return &Queue{
-		Channel: make(chan event.Raw, size), reason: atomic.Pointer[string]{},
+		Channel: make(chan *event.Raw, size), reason: atomic.Pointer[string]{},
 		lost: atomic.Bool{}, reconcile: atomic.Bool{},
 	}
 }
@@ -62,8 +64,10 @@ func (q *Queue) Send(raw event.Raw) {
 		return
 	}
 
+	queued := raw
+
 	select {
-	case q.Channel <- raw:
+	case q.Channel <- &queued:
 	default:
 		resource.OptionalFile(raw.PIDFD)
 		q.lose("event queue overflow")
