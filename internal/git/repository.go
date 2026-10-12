@@ -165,8 +165,37 @@ func (r *Repository) run(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 func (r *Repository) runInput(ctx context.Context, input string, args ...string) ([]byte, error) {
+	git := r.command(ctx, args)
+	git.cmd.Stdin = strings.NewReader(input)
+
+	var stdout bytes.Buffer
+
+	git.cmd.Stdout = &stdout
+
+	err := git.start()
+	if err != nil {
+		return nil, err
+	}
+
+	err = git.wait()
+	if err != nil {
+		return nil, err
+	}
+
+	return stdout.Bytes(), nil
+}
+
+// process is a prepared Git subprocess whose timeout and error shaping are shared by every caller.
+type process struct {
+	// expired reports the timeout cause once the command has been reaped.
+	expired func() error
+	cancel  context.CancelFunc
+	cmd     *exec.Cmd
+}
+
+// command prepares a Git subprocess with the repository environment and timeout.
+func (r *Repository) command(ctx context.Context, args []string) process {
 	ctx, cancel := context.WithTimeout(ctx, r.commandTimeout(args))
-	defer cancel()
 
 	//nolint:gosec // Git receives explicit argument elements without a shell; paths belong to this repository.
 	command := exec.CommandContext(ctx, "git", append([]string{
@@ -178,8 +207,6 @@ func (r *Repository) runInput(ctx context.Context, input string, args ...string)
 	command.SysProcAttr.Setpgid = true
 	command.Cancel = func() error { return cancelGit(command) }
 	command.WaitDelay = commandWaitDelay
-
-	command.Stdin = strings.NewReader(input)
 
 	command.Env = make([]string, 0, len(os.Environ()))
 	for _, value := range os.Environ() {
@@ -199,20 +226,30 @@ func (r *Repository) runInput(ctx context.Context, input string, args ...string)
 		"GIT_COMMITTER_EMAIL=fsledger@"+r.Host,
 	)
 
-	var stdout bytes.Buffer
-
-	command.Stdout = &stdout
-
 	// Hooks and helpers may print credentials. Keep their output out of errors and persistent diagnostics.
 	command.Stderr = io.Discard
 
-	err := command.Run()
+	return process{expired: ctx.Err, cancel: cancel, cmd: command}
+}
+
+// start launches Git; a failed launch releases the timeout immediately.
+func (p process) start() error {
+	err := p.cmd.Start()
 	if err != nil {
-		// Arguments may also contain secrets. Preserve exit status and cancellation without echoing them.
-		return nil, fault.Wrap("Git command failed", errors.Join(err, ctx.Err()))
+		p.cancel()
+
+		return fault.Wrap("Git command failed", err)
 	}
 
-	return stdout.Bytes(), nil
+	return nil
+}
+
+// wait collects the exit status once. Arguments may contain secrets, so the status and the
+// cancellation cause are preserved without echoing them.
+func (p process) wait() error {
+	defer p.cancel()
+
+	return fault.Wrap("Git command failed", errors.Join(p.cmd.Wait(), p.expired()))
 }
 
 func (r *Repository) commandTimeout(args []string) time.Duration {

@@ -12,7 +12,6 @@ import (
 	"github.com/inode64/fsledger/internal/catalog"
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/fault"
-	gitrepo "github.com/inode64/fsledger/internal/git"
 	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/notify"
 	"github.com/inode64/fsledger/internal/resource"
@@ -77,12 +76,11 @@ func inventoryCommand(
 	cfg *config.Config,
 	command, action, name, change string,
 ) error {
-	repo, exists := cfg.Repositories[name]
-	if !exists {
-		return fault.New("select an existing repository with --repository")
+	repo, err := selectRepository(cfg, name)
+	if err != nil {
+		return err
 	}
 
-	var err error
 	if command == commandBaseline && action == actionImport {
 		err = cfg.CheckStoragePaths()
 	} else {
@@ -121,27 +119,22 @@ func inventoryCommand(
 }
 
 func initializeInventoryGit(ctx context.Context, cfg *config.Config, name string) error {
-	repo := cfg.Repositories[name]
-	if repo.Type != config.RepositoryGit {
+	if cfg.Repositories[name].Type != config.RepositoryGit {
 		return nil
 	}
 
-	backend := gitrepo.Repository{
-		Path:    cfg.RepositoryPath(name),
-		Host:    cfg.Server.Name,
-		Timeout: repo.Storage.Git.Timeout,
-	}
-	_, err := backend.Init(ctx)
+	_, err := gitBackend(cfg, name).Init(ctx)
 
 	return err
 }
 
 func previewReport(ctx context.Context, writer io.Writer, cfg *config.Config, name string) error {
-	if _, exists := cfg.Repositories[name]; !exists {
-		return fault.New("select an existing repository with --repository")
+	_, err := selectRepository(cfg, name)
+	if err != nil {
+		return err
 	}
 
-	err := cfg.CheckStoragePaths()
+	err = cfg.CheckStoragePaths()
 	if err != nil {
 		return err
 	}
@@ -164,12 +157,12 @@ func previewReport(ctx context.Context, writer io.Writer, cfg *config.Config, na
 // clearOutbox discards the notifications queued by one repository. It takes the repository lock, so the
 // daemon must be stopped, and never creates a catalog: a repository without one has nothing queued.
 func clearOutbox(ctx context.Context, writer io.Writer, cfg *config.Config, name string) error {
-	repo, exists := cfg.Repositories[name]
-	if !exists {
-		return fault.New("select an existing repository with --repository")
+	repo, err := selectRepository(cfg, name)
+	if err != nil {
+		return err
 	}
 
-	err := cfg.CheckStoragePaths()
+	err = cfg.CheckStoragePaths()
 	if err != nil {
 		return err
 	}

@@ -457,6 +457,21 @@ Recorded changes stay in the catalog:
 fsledger outbox clear --repository system
 ```
 
+`restore` recovers the contents of a path from the Git mirror as they were on a given
+date and writes them on the server. It works while the daemon runs because it only
+reads Git objects. The source is a repository path (`/etc/ssh` and `etc/ssh` are
+equivalent); the destination defaults to the original location. The date accepts
+`YYYY-MM-DD` (meaning the end of that day), `YYYY-MM-DD HH:MM[:SS]` in local time, or
+RFC 3339. With `--overwrite off` (the default) existing files are left alone; `always`
+replaces them keeping their mode and owner; `newer` replaces them only when the chosen
+commit is later than the file. `--dry-run` prints the plan without writing. Ownership,
+ACLs and extended attributes are not restored:
+
+```sh
+sudo fsledger restore --repository system --date "2026-10-01 09:00" /etc/ssh /tmp/rescue
+sudo fsledger restore --repository system --date 2026-10-01 --overwrite always /etc/ssh/sshd_config
+```
+
 The service logs to stderr by default. To write a log file, set `logging.file` to an
 absolute path; `logging.level` accepts `debug`, `info`, `warning`, and `error`.
 Rotation is external and requires a restart to reopen the file.

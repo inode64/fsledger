@@ -1,4 +1,4 @@
-.TH FSLEDGER 1 "2026-10-03" "fsledger" "User Commands"
+.TH FSLEDGER 1 "2026-10-09" "fsledger" "User Commands"
 .SH NAME
 fsledger \- maintain Git histories and filesystem integrity inventories
 .SH SYNOPSIS
@@ -13,6 +13,15 @@ fsledger \- maintain Git histories and filesystem integrity inventories
 .br
 .B fsledger outbox clear
 .BI \-\-repository " NAME"
+.RB [ \-c " configuration" ]
+.br
+.B fsledger restore
+.BI \-\-repository " NAME"
+.BI \-\-date " DATE"
+.RB [ \-\-overwrite " off|always|newer" ]
+.RB [ \-\-dry\-run ]
+.I SOURCE
+.RI [ DESTINATION ]
 .RB [ \-c " configuration" ]
 .br
 .B fsledger migrate_aide
@@ -112,6 +121,21 @@ released, but no delivery is recorded. Recorded changes, baselines and
 violations are kept. The catalog must already exist and the repository daemon
 must be stopped.
 .TP
+.B restore --repository NAME --date DATE [--overwrite off|always|newer] [--dry-run] SOURCE [DESTINATION]
+Write the contents of SOURCE as recorded in the last commit at or before DATE
+into DESTINATION on this host. SOURCE is a path inside the Git mirror, with or
+without the leading slash; DESTINATION defaults to the original location. DATE
+is YYYY-MM-DD (meaning the end of that day), YYYY-MM-DD HH:MM[:SS] in local
+time, or RFC 3339. Existing entries are kept with
+.B off
+(the default), replaced with
+.B always
+keeping their mode and owner, or replaced only when the commit is newer with
+.BR newer .
+Type conflicts are reported and skipped, and the command then exits with an
+error. Ownership, ACLs and extended attributes are not restored. Only Git
+objects are read, so the daemon may keep running.
+.TP
 .B baseline init --repository NAME
 Scan and explicitly approve the initial reference. No automatic approval occurs.
 .TP
@@ -171,7 +195,8 @@ With check, print the resolved settings and the current sources of every
 repository instead of the summary line.
 .TP
 .BI \-\-repository " name"
-Repository for flush, verify, changes, baseline, report preview and outbox clear.
+Repository for flush, verify, changes, baseline, report preview, outbox clear and
+restore.
 .TP
 .BI \-\-change " id"
 Recorded change to approve with baseline accept.

@@ -35,6 +35,10 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return runAIDEMigration(args[1:], stdout, stderr)
 	}
 
+	if command == commandRestore {
+		return runRestore(args[1:], stdout, stderr)
+	}
+
 	return runConfigured(command, args[1:], stdout, stderr)
 }
 
@@ -137,6 +141,7 @@ func dispatch(
 
 const (
 	commandReport   = "report"
+	commandRestore  = "restore"
 	commandOutbox   = "outbox"
 	commandBaseline = "baseline"
 	actionImport    = "import"

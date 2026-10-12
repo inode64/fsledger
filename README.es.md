@@ -460,6 +460,21 @@ Los cambios registrados se conservan en el catálogo:
 fsledger outbox clear --repository system
 ```
 
+`restore` recupera desde el mirror Git el contenido de una ruta tal como estaba en una
+fecha y lo escribe en el servidor. Funciona con el daemon en marcha porque solo lee
+objetos Git. El origen es una ruta del repositorio (`/etc/ssh` y `etc/ssh` son
+equivalentes); el destino, si se omite, es la ubicación original. La fecha admite
+`AAAA-MM-DD` (hasta el final de ese día), `AAAA-MM-DD HH:MM[:SS]` en hora local o
+RFC 3339. Con `--overwrite off` (por defecto) no se tocan los archivos existentes;
+`always` los sustituye conservando modo y propietario; `newer` solo si el commit elegido
+es posterior al archivo. `--dry-run` muestra el plan sin escribir. Propietario, ACL y
+atributos extendidos no se restauran:
+
+```sh
+sudo fsledger restore --repository system --date "2026-10-01 09:00" /etc/ssh /tmp/rescate
+sudo fsledger restore --repository system --date 2026-10-01 --overwrite always /etc/ssh/sshd_config
+```
+
 El servicio registra en stderr por defecto. Para guardar un log, configura
 `logging.file` con una ruta absoluta; `logging.level` admite `debug`, `info`, `warning`
 y `error`. La rotación es externa y requiere reiniciar para reabrir el archivo.
