@@ -83,13 +83,14 @@ type observation struct {
 }
 
 // ScanPaths walks only the requested paths while guarding configured roots, not
-// temporary subdirectories which may legitimately disappear between events.
+// temporary subdirectories which may legitimately disappear between events. Without
+// directories, directory entries are walked into but never observed or visited.
 func (scanner *Scanner) ScanPaths(
 	ctx context.Context,
 	roots, paths []string,
 	matcher *exclude.Matcher,
 	algorithm string,
-	content bool,
+	content, directories bool,
 	visit func(Record) error,
 	copied ...HashSource,
 ) error {
@@ -119,7 +120,7 @@ func (scanner *Scanner) ScanPaths(
 	go func() {
 		defer close(jobs)
 
-		walkDone <- scanner.walkPaths(ctx, paths, matcher, jobs)
+		walkDone <- scanner.walkPaths(ctx, paths, scanWalk{matcher: matcher, jobs: jobs, directories: directories})
 	}()
 
 	var workers sync.WaitGroup
@@ -222,16 +223,36 @@ func (scanner *Scanner) checkPaths(roots, paths []string) error {
 	return scanner.CheckRoots(roots)
 }
 
+// scanWalk is shared by every step of one walk.
+type scanWalk struct {
+	matcher     *exclude.Matcher
+	jobs        chan<- string
+	directories bool
+}
+
+// queue hands one path to the observation workers.
+func (walk scanWalk) queue(ctx context.Context, path string) error {
+	select {
+	case walk.jobs <- path:
+		return nil
+	case <-ctx.Done():
+		return fault.Wrap("scan cancelled", ctx.Err())
+	}
+}
+
 // walk checks entries by name only: walkPaths checked the root's ancestors and no excluded directory is entered.
-func (scanner *Scanner) walk(ctx context.Context, path string, matcher *exclude.Matcher, jobs chan<- string) error {
-	if matcher.MatchEntry(path) {
+// Directories are queued before they are opened unless the walk leaves them out; a path that turns out
+// not to be a directory is then queued as an ordinary entry.
+func (scanner *Scanner) walk(ctx context.Context, path string, walk scanWalk) error {
+	if walk.matcher.MatchEntry(path) {
 		return nil
 	}
 
-	select {
-	case jobs <- path:
-	case <-ctx.Done():
-		return fault.Wrap("scan cancelled", ctx.Err())
+	if walk.directories {
+		err := walk.queue(ctx, path)
+		if err != nil {
+			return err
+		}
 	}
 
 	parent, name, err := OpenParent(path)
@@ -246,7 +267,15 @@ func (scanner *Scanner) walk(ctx context.Context, path string, matcher *exclude.
 	fd, err := unix.Openat(parent, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	resource.FD(parent)
 
-	if errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) || errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) {
+		if walk.directories {
+			return nil
+		}
+
+		return walk.queue(ctx, path)
+	}
+
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 
@@ -257,22 +286,16 @@ func (scanner *Scanner) walk(ctx context.Context, path string, matcher *exclude.
 	directory := os.NewFile(uintptr(fd), path)
 	defer resource.Close(directory)
 
-	return scanner.walkChildren(ctx, directory, path, matcher, jobs)
+	return scanner.walkChildren(ctx, directory, path, walk)
 }
 
-func (scanner *Scanner) walkChildren(
-	ctx context.Context,
-	directory *os.File,
-	path string,
-	matcher *exclude.Matcher,
-	jobs chan<- string,
-) error {
+func (scanner *Scanner) walkChildren(ctx context.Context, directory *os.File, path string, walk scanWalk) error {
 	for {
 		entries, readErr := directory.ReadDir(directoryBatchSize)
 		for _, entry := range entries {
 			child := filepath.Join(path, entry.Name())
 
-			err := scanner.walkEntry(ctx, child, entry, matcher, jobs)
+			err := scanner.walkEntry(ctx, child, entry, walk)
 			if err != nil {
 				return err
 			}
@@ -296,27 +319,16 @@ func firstHashSource(sources []HashSource) HashSource {
 	return sources[0]
 }
 
-func (scanner *Scanner) walkEntry(
-	ctx context.Context,
-	path string,
-	entry os.DirEntry,
-	matcher *exclude.Matcher,
-	jobs chan<- string,
-) error {
+func (scanner *Scanner) walkEntry(ctx context.Context, path string, entry os.DirEntry, walk scanWalk) error {
 	if entry.IsDir() {
-		return scanner.walk(ctx, path, matcher, jobs)
+		return scanner.walk(ctx, path, walk)
 	}
 
-	if matcher.MatchEntry(path) {
+	if walk.matcher.MatchEntry(path) {
 		return nil
 	}
 
-	select {
-	case jobs <- path:
-		return nil
-	case <-ctx.Done():
-		return fault.Wrap("scan cancelled", ctx.Err())
-	}
+	return walk.queue(ctx, path)
 }
 
 // Admission is independent of file slots: prepare() may observe a file again
@@ -330,18 +342,13 @@ func (scanner *Scanner) admitScan(ctx context.Context) error {
 	}
 }
 
-func (scanner *Scanner) walkPaths(
-	ctx context.Context,
-	paths []string,
-	matcher *exclude.Matcher,
-	jobs chan<- string,
-) error {
+func (scanner *Scanner) walkPaths(ctx context.Context, paths []string, walk scanWalk) error {
 	for _, root := range paths {
-		if matcher.Match(root) {
+		if walk.matcher.Match(root) {
 			continue
 		}
 
-		err := scanner.walk(ctx, root, matcher, jobs)
+		err := scanner.walk(ctx, root, walk)
 		if err != nil {
 			return err
 		}

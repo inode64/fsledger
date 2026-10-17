@@ -32,6 +32,7 @@ func policy(fields ...string) config.Integrity {
 			Algorithm: sha256Algorithm, FullScanInterval: time.Hour, OnEvent: true,
 			FullScanSchedule: "", FullScanTimezone: "",
 		},
+		Directories: true,
 	}
 }
 

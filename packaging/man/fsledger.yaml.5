@@ -182,6 +182,15 @@ size, mtime, ctime, atime, btime, xattrs, acl, inode, device, nlink, target.
 Default comparison excludes atime, btime, inode, device, nlink and target.
 ctime is metadata change time. btime availability is stored explicitly.
 .TP
+.B integrity.directories
+true (default) records directory entries like any other path. false keeps
+them out of the inventory: files, links and other entries inside are still
+observed, but creating, removing or changing a directory produces no change,
+report or reference difference, and directory entries stored earlier are
+retired silently. A file replaced by a directory is still reported as deleted.
+Useful for web trees, where directories carry no evidence of tampering. The
+setting is part of the baseline policy: changing it requires baseline replace.
+.TP
 .B integrity.hash
 algorithm is sha256 (default), sha512, sha512_256, sha3_256, sha3_512,
 blake3 or xxhash64. xxhash64 requires previous,

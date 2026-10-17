@@ -29,7 +29,7 @@ func TestScopedScanGuardsConfiguredRootsOnly(t *testing.T) {
 
 	visit := func(Record) error { return nil }
 
-	err = scanner.ScanPaths(t.Context(), []string{root}, []string{child}, matcher, "sha256", false, visit)
+	err = scanner.ScanPaths(t.Context(), []string{root}, []string{child}, matcher, "sha256", false, true, visit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestScopedScanGuardsConfiguredRootsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = scanner.ScanPaths(t.Context(), []string{root}, []string{child}, matcher, "sha256", false, visit)
+	err = scanner.ScanPaths(t.Context(), []string{root}, []string{child}, matcher, "sha256", false, true, visit)
 	if err != nil {
 		t.Fatal("temporary directory was pinned as a configured root", err)
 	}
@@ -49,7 +49,7 @@ func TestScopedScanGuardsConfiguredRootsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = scanner.ScanPaths(t.Context(), []string{root}, []string{child}, matcher, "sha256", false, visit)
+	err = scanner.ScanPaths(t.Context(), []string{root}, []string{child}, matcher, "sha256", false, true, visit)
 	if !errors.Is(err, ErrUnavailable) {
 		t.Fatal("missing configured root accepted", err)
 	}
@@ -82,6 +82,7 @@ func TestScopedScanRejectsEscapesAndSymlinkParents(t *testing.T) {
 			matcher,
 			"sha256",
 			false,
+			true,
 			func(Record) error {
 				visited = true
 
@@ -113,7 +114,7 @@ func TestScopedScanPreservesSourceNamesAndTemporaryFiles(t *testing.T) {
 
 	observed := make(map[string]bool)
 
-	err = NewScanner(1, 2).ScanPaths(t.Context(), []string{root}, []string{root}, matcher, "sha256", true,
+	err = NewScanner(1, 2).ScanPaths(t.Context(), []string{root}, []string{root}, matcher, "sha256", true, true,
 		func(record Record) error {
 			observed[filepath.Base(string(record.Path))] = true
 

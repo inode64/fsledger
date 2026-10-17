@@ -173,6 +173,7 @@ func (store *Store) applyOne(
 	generation uint64,
 	identifier, actor string,
 ) (bool, bool, error) {
+	update = store.withoutDirectory(update)
 	record := update.record
 
 	compared, err := store.compare(transaction, update)
@@ -180,12 +181,8 @@ func (store *Store) applyOne(
 		return false, false, err
 	}
 
-	if update.excluded {
-		if compared.pendingExists {
-			removePending(transaction, record.Path, compared.old, true)
-		}
-
-		persistEntry(transaction, record.Path, nil, compared.oldData, generation)
+	if update.excluded || store.untrackedDirectory(update, &compared) {
+		retireEntry(transaction, record.Path, &compared, generation)
 
 		return false, false, nil
 	}
@@ -233,6 +230,46 @@ func (store *Store) applyOne(
 // ignored is asked only about changes, so unchanged entries of a full scan never reach the rules.
 func (store *Store) ignored(ctx context.Context, path []byte) bool {
 	return store.ignore.Match(string(path), filter.Actor(ctx, string(path)))
+}
+
+// retireEntry stops tracking a path without announcing anything: exclusions and untracked directories.
+func retireEntry(transaction *transaction, path []byte, compared *comparison, generation uint64) {
+	if compared.pendingExists {
+		removePending(transaction, path, compared.old, true)
+	}
+
+	persistEntry(transaction, path, nil, compared.oldData, generation)
+}
+
+// withoutDirectory turns a directory observation into the disappearance of whatever this repository
+// stored at that path when directories are not tracked: a stored directory is then retired silently,
+// while a file replaced by a directory is still reported as deleted.
+func (store *Store) withoutDirectory(update mutation) mutation {
+	if store.Policy.Directories || update.deleted || update.record.Type != integrity.TypeDirectory {
+		return update
+	}
+
+	return mutation{
+		record:      integrity.Record{Path: update.record.Path},
+		previous:    nil,
+		deleted:     true,
+		excluded:    update.excluded,
+		refreshHash: false,
+	}
+}
+
+// untrackedDirectory reports a stored directory entry, kept from before directories stopped being
+// tracked or from the approved reference, that must leave the inventory without any announcement.
+func (store *Store) untrackedDirectory(update mutation, compared *comparison) bool {
+	if store.Policy.Directories || !update.deleted {
+		return false
+	}
+
+	if compared.oldData != nil {
+		return compared.previous.Type == integrity.TypeDirectory
+	}
+
+	return compared.baseline.Type == integrity.TypeDirectory
 }
 
 func persistEntry(transaction *transaction, path, data, oldData []byte, generation uint64) {

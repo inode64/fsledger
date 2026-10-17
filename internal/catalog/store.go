@@ -122,6 +122,7 @@ type Store struct {
 	operation         sync.Mutex
 	scanActive        bool
 	replacingBaseline bool
+	policyDirectories bool
 }
 
 // Stats describes live state, never cumulative change history.
@@ -292,10 +293,11 @@ func (store *Store) initialize() error {
 
 func (store *Store) policyID() string {
 	if store.policyDigest == "" || store.policyAlgorithm != store.Policy.Hash.Algorithm ||
-		!slices.Equal(store.policyFields, store.Policy.Compare) {
+		store.policyDirectories != store.Policy.Directories || !slices.Equal(store.policyFields, store.Policy.Compare) {
 		store.policyFields = slices.Clone(store.Policy.Compare)
 		store.policyAlgorithm = store.Policy.Hash.Algorithm
-		store.policyDigest = integrity.PolicyID(store.policyFields, store.policyAlgorithm)
+		store.policyDirectories = store.Policy.Directories
+		store.policyDigest = integrity.PolicyID(store.policyFields, store.policyAlgorithm, store.policyDirectories)
 	}
 
 	return store.policyDigest

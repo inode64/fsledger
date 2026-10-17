@@ -63,10 +63,13 @@ var IntegrityFields = []string{
 }
 
 // Integrity selects the approved reference and metadata comparison policy.
+// Directories false keeps directory entries themselves out of the inventory: files inside are still
+// observed, but creating, removing or changing a directory produces no change, report or violation.
 type Integrity struct {
-	Reference string   `yaml:"reference"`
-	Compare   []string `yaml:"compare"`
-	Hash      Hash     `yaml:"hash"`
+	Reference   string   `yaml:"reference"`
+	Compare     []string `yaml:"compare"`
+	Hash        Hash     `yaml:"hash"`
+	Directories bool     `yaml:"directories"`
 }
 
 // Hash algorithm names are shared by policy validation and digest selection.

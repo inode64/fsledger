@@ -110,21 +110,22 @@ func (store *Store) reconcile(
 
 	algorithm := store.Policy.Hash.Algorithm
 	content := full && slices.Contains(store.Policy.Compare, fieldHash)
-	err := scanner.ScanPaths(ctx, roots, paths, matcher, algorithm, content, func(record integrity.Record) error {
-		update, err := store.scanMutation(ctx, scanner, record, full)
-		if err != nil {
-			return err
-		}
+	err := scanner.ScanPaths(ctx, roots, paths, matcher, algorithm, content, store.Policy.Directories,
+		func(record integrity.Record) error {
+			update, err := store.scanMutation(ctx, scanner, record, full)
+			if err != nil {
+				return err
+			}
 
-		result.Observed++
-		// Full scans also verify digests supplied by this operation's mirror copy,
-		// whose hash timestamp legitimately precedes the catalog observation.
-		if update.record.Hash != "" && (full || update.record.HashedAt >= update.record.Observed) {
-			result.Hashed++
-		}
+			result.Observed++
+			// Full scans also verify digests supplied by this operation's mirror copy,
+			// whose hash timestamp legitimately precedes the catalog observation.
+			if update.record.Hash != "" && (full || update.record.HashedAt >= update.record.Observed) {
+				result.Hashed++
+			}
 
-		return batch.add(ctx, update)
-	},
+			return batch.add(ctx, update)
+		},
 		store.copiedHashes,
 	)
 	// Keep successfully observed paths even when another path is temporarily unstable.

@@ -31,7 +31,7 @@ func TestScanAdmissionLeavesFileBudgetAvailable(t *testing.T) {
 	defer once.Do(func() { close(release) })
 
 	go func() {
-		done <- scanner.ScanPaths(ctx, []string{root}, nil, matcher, "sha256", false, func(Record) error {
+		done <- scanner.ScanPaths(ctx, []string{root}, nil, matcher, "sha256", false, true, func(Record) error {
 			close(entered)
 
 			select {
@@ -62,6 +62,7 @@ func TestScanAdmissionLeavesFileBudgetAvailable(t *testing.T) {
 		[]string{root}, nil, matcher,
 		"sha256",
 		false,
+		true,
 		func(Record) error {
 			t.Error("scan exceeded limit")
 
@@ -79,7 +80,7 @@ func TestScanAdmissionLeavesFileBudgetAvailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A released permit must remain usable, including nested file observation.
-	err = scanner.ScanPaths(ctx, []string{root}, nil, matcher, "sha256", false, func(record Record) error {
+	err = scanner.ScanPaths(ctx, []string{root}, nil, matcher, "sha256", false, true, func(record Record) error {
 		_, observeErr := scanner.Observe(ctx, string(record.Path), "sha256", false)
 
 		return observeErr
