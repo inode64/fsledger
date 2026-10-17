@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/humanize"
 )
 
 // MailSchemeSMTP and MailSchemeSMTPS keep DSN validation and transport selection aligned.
@@ -189,8 +190,10 @@ func NotifierVersion(notifier Notifier) string {
 }
 
 // NotificationTemplate shares validation and rendering functions across the config and sender adapters.
+// time keeps the documented UTC RFC 3339 output; localtime is the human rendering in the server zone.
 func NotificationTemplate(name string) *template.Template {
 	return template.New(name).Funcs(template.FuncMap{
-		"time": func(value int64) string { return time.Unix(0, value).UTC().Format(time.RFC3339Nano) },
+		"time":      func(value int64) string { return time.Unix(0, value).UTC().Format(time.RFC3339Nano) },
+		"localtime": humanize.Time,
 	}).Option("missingkey=error")
 }

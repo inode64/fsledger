@@ -14,7 +14,7 @@ import (
 
 const reportBody = `Informe de cambios observados
 Servidor: {{printf "%q" .Host}} / repositorio: {{printf "%q" .Repository}}
-Periodo (UTC): {{time .Report.From}} — {{time .Report.Until}}
+Periodo: {{localtime .Report.From}} — {{localtime .Report.Until}}
 Informe: {{.Report.ID}} / parte {{.Report.Part}}{{if .Report.More}} (continúa){{else}} (última){{end}}
 {{if .Report.CoverageGap}}ADVERTENCIA: cobertura incompleta durante este periodo;
 la ausencia de registros no demuestra ausencia de cambios.
@@ -37,19 +37,21 @@ El detalle siguiente es evidencia independiente del resumen. Son observaciones, 
 Detalle de cambios
 {{range .Report.Items}}
 Ruta: {{printf "%q" .Detail.Path}} / {{.Detail.Code}}
-Observado: {{time .Detail.Observed}} / cambio: {{.Detail.ChangeID}}
-Actor: {{printf "%q" .Detail.Actor}}
+Observado: {{localtime .Detail.Observed}} / cambio: {{.Detail.ChangeID}}
+{{with .Detail.Detection}}Detección: {{.}}
+{{end}}Actor:{{with .Detail.ActorLines}}{{range .}}
+    {{.}}{{end}}{{else}} sin evidencia{{end}}
 Diferido al observar: {{.Deferred}} / violación de referencia: {{.Violation}}
 {{if .Head}}Último HEAD conocido al observar (no prueba de commit de esta versión): {{.Head}}
-{{end}}{{range .Detail.VisibleFields}}{{.Field}}: {{printf "%q" .Before}} -> {{printf "%q" .After}}
+{{end}}{{range .Detail.DisplayFields}}{{.Field}}: {{.Before}} -> {{.After}}
 {{else}}Sin diferencias de campos visibles.
-{{end}}{{with .Detail.VisibleBaseline}}Comparación con referencia aprobada:
-{{range .}}{{.Field}}: {{printf "%q" .Before}} -> {{printf "%q" .After}}
+{{end}}{{with .Detail.DisplayBaseline}}Comparación con referencia aprobada:
+{{range .}}{{.Field}}: {{.Before}} -> {{.After}}
 {{end}}{{end}}{{end}}`
 
 const summaryReportBody = `Resumen de cambios observados
 Servidor: {{printf "%q" .Host}} / repositorio: {{printf "%q" .Repository}}
-Periodo (UTC): {{time .Report.From}} — {{time .Report.Until}}
+Periodo: {{localtime .Report.From}} — {{localtime .Report.Until}}
 Informe: {{.Report.ID}}
 {{if .Report.CoverageGap}}ADVERTENCIA: cobertura incompleta durante este periodo;
 la ausencia de registros no demuestra ausencia de cambios.

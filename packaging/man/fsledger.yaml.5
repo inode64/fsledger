@@ -226,7 +226,9 @@ actor, observed time, field values and approved-reference differences) and
 Reason
 (error and recovery events only: the repository warnings behind the error, or
 what the recovery recovered from). The time
-function formats Unix nanoseconds as UTC. Subject and body share a 16 MiB output
+function formats Unix nanoseconds as UTC in RFC 3339; localtime formats them as
+YYYY-MM-DD HH:MM:SS ZONE in the server time zone, which the default templates
+and reports use. Subject and body share a 16 MiB output
 limit. Email uses each field directly;
 Slack sends the subject followed by the body and splits long output into parts.
 Due change and integrity notices are summarized by repository, destination and
@@ -248,9 +250,20 @@ approved-reference differences do not change the classification of an
 observation.
 Detail.VisibleFields and Detail.VisibleBaseline omit inode and equal
 before/after
-values. Raw Fields and Baseline remain available to custom templates; stored
-evidence is unchanged. Existing custom templates must opt into these methods.
-Scheduled reports use the same list-first layout and visible-field filtering.
+values. Detail.DisplayFields and Detail.DisplayBaseline render those values for
+people: timestamps with localtime, size in IEC units, mode as ls-style
+permissions with octal bits, the absent side of a creation or deletion as an em
+dash, and no attributes_status, has_btime, or xattrs and ACL whose only change
+is their availability. Detail.ActorLines returns the actor evidence as lines
+without the detection method or the Git change trailer, with control
+characters escaped; Detail.Detection returns the detection method and
+Message.CommonDetection the method shared by every detail, or nothing when
+they differ. Raw Fields, Baseline and Actor remain available to custom
+templates; stored evidence is unchanged. Existing custom templates must opt
+into these methods. The default template states a shared detection method once;
+above 250 paths it lists every path grouped by actor and change ID without
+per-path fields, so one email carries up to 2000 paths.
+Scheduled reports use the same list-first layout and display filtering.
 .TP
 .B exclude
 Select exclusion profile names globally or per repository. Profile files contain

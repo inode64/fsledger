@@ -8,10 +8,22 @@ import (
 	"strconv"
 	"strings"
 
+	procattr "github.com/inode64/fsledger/internal/attribution/proc"
 	"github.com/inode64/fsledger/internal/event"
+	"github.com/inode64/fsledger/internal/humanize"
 )
 
 const unknownActorMessage = "unknown: filesystem changes detected\n\nActor: unknown"
+
+// processStart annotates the raw start time (the identity evidence, kept as is) with wall-clock time.
+func processStart(ticks uint64) string {
+	started, ok := procattr.StartTime(ticks)
+	if !ok {
+		return ""
+	}
+
+	return " (" + humanize.Time(started.UnixNano()) + ")"
+}
 
 func userName(uid uint32) string {
 	identifier := strconv.FormatUint(uint64(uid), 10)
@@ -75,9 +87,10 @@ User:
 
 Process:
   pid: %d
-  start_time: %d
+  start_time: %d%s
   executable: %q`,
-		observed, executable, realUser, login, effective, actor.PID, actor.StartTime, actor.Executable)
+		observed, executable, realUser, login, effective, actor.PID, actor.StartTime,
+		processStart(actor.StartTime), actor.Executable)
 }
 
 func reconciliationMessage(reason string) string {
