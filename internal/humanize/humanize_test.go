@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inode64/fsledger/internal/humanize"
 )
@@ -52,22 +53,42 @@ func TestMode(t *testing.T) {
 
 	for mode, want := range map[uint32]string{
 		0:        humanize.Absent,
-		0o100644: "-rw-r--r-- (0644)",
-		0o100440: "-r--r----- (0440)",
-		0o100674: "-rw-rwxr-- (0674)",
-		0o040755: "drwxr-xr-x (0755)",
-		0o120777: "lrwxrwxrwx (0777)",
-		0o104755: "-rwsr-xr-x (4755)",
-		0o102644: "-rw-r-Sr-- (2644)",
-		0o041777: "drwxrwxrwt (1777)",
-		0o041776: "drwxrwxrwT (1776)",
-		0o020620: "crw--w---- (0620)",
-		0o060660: "brw-rw---- (0660)",
-		0o010600: "prw------- (0600)",
-		0o140755: "srwxr-xr-x (0755)",
+		0o100644: "-rw-r--r-- (0x81a4)",
+		0o100440: "-r--r----- (0x8120)",
+		0o100674: "-rw-rwxr-- (0x81bc)",
+		0o040755: "drwxr-xr-x (0x41ed)",
+		0o120777: "lrwxrwxrwx (0xa1ff)",
+		0o104755: "-rwsr-xr-x (0x89ed)",
+		0o102644: "-rw-r-Sr-- (0x85a4)",
+		0o041777: "drwxrwxrwt (0x43ff)",
+		0o041776: "drwxrwxrwT (0x43fe)",
+		0o020620: "crw--w---- (0x2190)",
+		0o060660: "brw-rw---- (0x61b0)",
+		0o010600: "prw------- (0x1180)",
+		0o140755: "srwxr-xr-x (0xc1ed)",
 	} {
 		if got := humanize.Mode(mode); got != want {
 			t.Errorf("Mode(%o) = %q, want %q", mode, got, want)
+		}
+	}
+}
+
+func TestDuration(t *testing.T) {
+	t.Parallel()
+
+	for _, fixture := range []struct {
+		want string
+		span time.Duration
+	}{
+		{"0 min", 30 * time.Second},
+		{"1 h", 90 * time.Minute},
+		{"47 h", 47 * time.Hour},
+		{"2 d", 48 * time.Hour},
+		{"1095 d", 1095 * 24 * time.Hour},
+		{"2 h", 61*time.Minute + time.Hour},
+	} {
+		if got := humanize.Duration(fixture.span); got != fixture.want {
+			t.Errorf("Duration(%v) = %q, want %q", fixture.span, got, fixture.want)
 		}
 	}
 }

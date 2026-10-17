@@ -41,7 +41,9 @@ Observado: {{localtime .Detail.Observed}} / cambio: {{.Detail.ChangeID}}
 {{with .Detail.Detection}}Detección: {{.}}
 {{end}}Actor:{{with .Detail.ActorLines}}{{range .}}
     {{.}}{{end}}{{else}} sin evidencia{{end}}
-Diferido al observar: {{.Deferred}} / violación de referencia: {{.Violation}}
+{{with .Detail.BackdatedBy}}AVISO: mtime es {{duration .}} anterior a btime, la creación de esta versión del fichero:
+fecha conservada al copiar (tar, rsync -a, cp -p) o falseada.
+{{end}}Diferido al observar: {{.Deferred}} / violación de referencia: {{.Violation}}
 {{if .Head}}Último HEAD conocido al observar (no prueba de commit de esta versión): {{.Head}}
 {{end}}{{range .Detail.DisplayFields}}{{.Field}}: {{.Before}} -> {{.After}}
 {{else}}Sin diferencias de campos visibles.

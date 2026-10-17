@@ -48,9 +48,7 @@ func Compile(rules []Rule) (*Matcher, error) {
 
 func compileRule(rule Rule) (compiled, error) {
 	result := compiled{paths: nil, users: nil, commands: nil, requireUser: len(rule.Users) > 0}
-	if len(rule.Users)+len(rule.CommandRegex)+len(rule.Paths) == 0 ||
-		(rule.Users != nil && len(rule.Users) == 0) || (rule.CommandRegex != nil && len(rule.CommandRegex) == 0) ||
-		(rule.Paths != nil && len(rule.Paths) == 0) {
+	if emptyRule(rule) {
 		return result, fault.New("filter rule must not be empty")
 	}
 
@@ -61,17 +59,9 @@ func compileRule(rule Rule) (compiled, error) {
 
 	result.users = users
 
-	for _, pattern := range rule.CommandRegex {
-		if pattern == "" {
-			return result, fault.New("command_regex must not be empty")
-		}
-
-		expression, err := regexp.Compile(pattern)
-		if err != nil {
-			return result, fault.Wrap("invalid command_regex", err)
-		}
-
-		result.commands = append(result.commands, expression)
+	result.commands, err = compileCommands(rule.CommandRegex)
+	if err != nil {
+		return result, err
 	}
 
 	if len(rule.Paths) > 0 {
@@ -84,6 +74,32 @@ func compileRule(rule Rule) (compiled, error) {
 	}
 
 	return result, nil
+}
+
+// emptyRule rejects rules that would match everything and explicitly empty fields.
+func emptyRule(rule Rule) bool {
+	return len(rule.Users)+len(rule.CommandRegex)+len(rule.Paths) == 0 ||
+		(rule.Users != nil && len(rule.Users) == 0) || (rule.CommandRegex != nil && len(rule.CommandRegex) == 0) ||
+		(rule.Paths != nil && len(rule.Paths) == 0)
+}
+
+func compileCommands(patterns []string) ([]*regexp.Regexp, error) {
+	var commands []*regexp.Regexp
+
+	for _, pattern := range patterns {
+		if pattern == "" {
+			return nil, fault.New("command_regex must not be empty")
+		}
+
+		expression, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, fault.Wrap("invalid command_regex", err)
+		}
+
+		commands = append(commands, expression)
+	}
+
+	return commands, nil
 }
 
 // Match treats missing actor evidence as a nonmatch for identity-dependent fields.

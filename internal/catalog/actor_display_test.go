@@ -3,8 +3,11 @@ package catalog_test
 import (
 	"reflect"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inode64/fsledger/internal/catalog"
 )
@@ -147,6 +150,8 @@ func TestDisplayFieldsHideCreationNoise(t *testing.T) {
 		displayField(fieldNameHash, ":", "sha256:abc"),
 		displayField(fieldNameSize, "0", "9475"),
 		displayField(fieldNameMode, "0", "33212"),
+		displayField("device", "0", "64514"),
+		displayField("nlink", "0", "1"),
 		displayField("mtime", "0", "1792230241202511342"),
 		displayField("btime", "0 (known=false)", "1792230241202511342 (known=true)"),
 		displayField("has_btime", "false", "true"),
@@ -160,14 +165,14 @@ func TestDisplayFieldsHideCreationNoise(t *testing.T) {
 		shown[change.Field] = change
 	}
 
-	for _, hidden := range []string{"has_btime", "xattrs", displayACL, "attributes_status"} {
+	for _, hidden := range []string{"has_btime", "xattrs", displayACL, "attributes_status", "device", "nlink"} {
 		if _, found := shown[hidden]; found {
 			t.Errorf("creation shows %s", hidden)
 		}
 	}
 
 	for name, after := range map[string]string{
-		"type": "regular", fieldNameHash: "sha256:abc", fieldNameSize: "9.3 KiB", fieldNameMode: "-rw-rwxr-- (0674)",
+		"type": "regular", fieldNameHash: "sha256:abc", fieldNameSize: "9.3 KiB", fieldNameMode: "-rw-rwxr-- (0x81bc)",
 	} {
 		if shown[name].Before != "—" || shown[name].After != after {
 			t.Errorf("creation %s = %q -> %q, want — -> %q", name, shown[name].Before, shown[name].After, after)
@@ -204,7 +209,7 @@ func TestDisplayFieldsKeepSmallDifferencesVisible(t *testing.T) {
 	)
 
 	got := modified.DisplayFields()
-	if len(got) != 3 || !displayPrecise.MatchString(got[0].Before) || got[0].Before == got[0].After {
+	if len(got) != 4 || !displayPrecise.MatchString(got[0].Before) || got[0].Before == got[0].After {
 		t.Fatalf("same-second mtime lost its difference: %q", got)
 	}
 
@@ -212,7 +217,134 @@ func TestDisplayFieldsKeepSmallDifferencesVisible(t *testing.T) {
 		t.Errorf("small size change = %q -> %q", got[1].Before, got[1].After)
 	}
 
-	if !displayStamp.MatchString(got[2].Before) || got[2].After != "—" {
-		t.Errorf("btime = %q -> %q", got[2].Before, got[2].After)
+	if want := displayField("attributes_status", "available", "denied"); got[2] != want {
+		t.Errorf("failed ACL read = %q, want %q", got[2], want)
+	}
+
+	if !displayStamp.MatchString(got[3].Before) || got[3].After != "—" {
+		t.Errorf("btime = %q -> %q", got[3].Before, got[3].After)
+	}
+}
+
+func displayNames(fields []catalog.FieldChange) []string {
+	names := make([]string, len(fields))
+	for index, field := range fields {
+		names[index] = field.Field
+	}
+
+	return names
+}
+
+func TestDisplayFieldsShowLinksOnlyForSharedRegularFiles(t *testing.T) {
+	t.Parallel()
+
+	for _, fixture := range []struct {
+		name   string
+		detail catalog.Detail
+		want   bool
+	}{
+		{
+			"single-link",
+			displayDetail("added", displayField("type", `""`, `"regular"`), displayField("nlink", "0", "1")),
+			false,
+		},
+		{
+			"hard-link",
+			displayDetail("added", displayField("type", `""`, `"regular"`), displayField("nlink", "0", "2")),
+			true,
+		},
+		{
+			"directory",
+			displayDetail("added", displayField("type", `""`, `"directory"`), displayField("nlink", "0", "5")),
+			false,
+		},
+		{
+			"deleted-link",
+			displayDetail("deleted", displayField("type", `"regular"`, `""`), displayField("nlink", "3", "0")),
+			true,
+		},
+		{"compared-change", displayDetail("modified", displayField("nlink", "1", "2")), true},
+	} {
+		got := slices.Contains(displayNames(fixture.detail.DisplayFields()), "nlink")
+		if got != fixture.want {
+			t.Errorf("%s: nlink shown = %v, want %v", fixture.name, got, fixture.want)
+		}
+	}
+}
+
+func TestDisplayFieldsShowAttributeStatusOnlyWhenReadingFails(t *testing.T) {
+	t.Parallel()
+
+	created := displayDetail("added",
+		displayField("xattrs", "null ()", "null (unsupported)"),
+		displayField(displayACL, "null ()", "null (unsupported)"),
+		displayField("attributes_status", `""`, `"unsupported"`),
+	)
+	if got := created.DisplayFields(); len(got) != 1 ||
+		got[0] != displayField("attributes_status", "—", "unsupported") {
+		t.Errorf("unsupported creation = %q", got)
+	}
+
+	recovered := displayDetail("modified", displayField(displayACL, "[] (unsupported)", "[] (available)"))
+	if got := recovered.DisplayFields(); len(got) != 1 || got[0].Before != "unsupported" {
+		t.Errorf("recovered read = %q", got)
+	}
+
+	readable := displayDetail("added", displayField("attributes_status", `""`, `"available"`))
+	if got := readable.DisplayFields(); len(got) != 0 {
+		t.Errorf("successful read shown: %q", got)
+	}
+}
+
+func TestDisplayFieldsKeepComparedDevice(t *testing.T) {
+	t.Parallel()
+
+	moved := displayDetail("modified", displayField("device", "64514", "2049"))
+	if got := moved.DisplayFields(); len(got) != 1 || got[0] != displayField("device", "64514", "2049") {
+		t.Errorf("compared device change = %q", got)
+	}
+}
+
+func TestBackdatedBy(t *testing.T) {
+	t.Parallel()
+
+	const (
+		btime     = "1792230241202511342 (known=true)"
+		threeYear = 1095 * 24 * time.Hour
+	)
+
+	born := time.Unix(0, 1792230241202511342)
+	stamp := func(at time.Time) string { return strconv.FormatInt(at.UnixNano(), 10) }
+
+	for _, fixture := range []struct {
+		name   string
+		detail catalog.Detail
+		want   time.Duration
+	}{
+		{
+			"backdated-creation", displayDetail("added",
+				displayField("mtime", "0", stamp(born.Add(-threeYear))), displayField("btime", "0 (known=false)", btime)),
+			threeYear,
+		},
+		{"fresh-creation", displayDetail("added",
+			displayField("mtime", "0", stamp(born)), displayField("btime", "0 (known=false)", btime)), 0},
+		{
+			"short-copy-delay", displayDetail("added",
+				displayField("mtime", "0", stamp(born.Add(-30*time.Minute))), displayField("btime", "0 (known=false)", btime)),
+			0,
+		},
+		{
+			"backdated-deletion", displayDetail("deleted",
+				displayField("mtime", stamp(born.Add(-threeYear)), "0"), displayField("btime", btime, "0 (known=false)")),
+			threeYear,
+		},
+		{"unknown-btime", displayDetail("added",
+			displayField("mtime", "0", stamp(born.Add(-threeYear))),
+			displayField("btime", "0 (known=false)", "0 (known=false)")), 0},
+		{"no-times", displayDetail("modified", displayField(fieldNameHash, "sha256:a", "sha256:b")), 0},
+	} {
+		if got := fixture.detail.BackdatedBy(); got != fixture.want {
+			t.Errorf("%s: BackdatedBy = %v, want %v", fixture.name, got, fixture.want)
+		}
 	}
 }

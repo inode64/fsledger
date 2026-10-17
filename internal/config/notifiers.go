@@ -195,5 +195,6 @@ func NotificationTemplate(name string) *template.Template {
 	return template.New(name).Funcs(template.FuncMap{
 		"time":      func(value int64) string { return time.Unix(0, value).UTC().Format(time.RFC3339Nano) },
 		"localtime": humanize.Time,
+		"duration":  humanize.Duration,
 	}).Option("missingkey=error")
 }

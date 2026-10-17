@@ -17,7 +17,8 @@ const (
 	timeLayout        = "2006-01-02 15:04:05 MST"
 	preciseTimeLayout = "2006-01-02 15:04:05.000000000 MST"
 	sizeUnit          = 1024
-	permissionBits    = 0o7777
+	day               = 24 * time.Hour
+	daysThreshold     = 2 * day
 )
 
 // Time renders Unix nanoseconds in the local time zone with second precision. Zero means absent.
@@ -84,8 +85,20 @@ const (
 	ownerShift     = 2 * classBits
 )
 
-// Mode renders a raw st_mode as ls-style permissions followed by the octal permission bits.
-// Zero means absent.
+// Duration renders a span in its largest whole unit: days from two days on, then hours, then minutes.
+func Duration(span time.Duration) string {
+	switch {
+	case span >= daysThreshold:
+		return strconv.FormatInt(int64(span/day), 10) + " d"
+	case span >= time.Hour:
+		return strconv.FormatInt(int64(span/time.Hour), 10) + " h"
+	default:
+		return strconv.FormatInt(int64(span/time.Minute), 10) + " min"
+	}
+}
+
+// Mode renders a raw st_mode as ls-style permissions followed by the whole st_mode in hexadecimal,
+// as stat -c %f prints it. Zero means absent.
 func Mode(mode uint32) string {
 	if mode == 0 {
 		return Absent
@@ -110,7 +123,7 @@ func Mode(mode uint32) string {
 	special(text, groupExecIndex, mode&setGID != 0, mode&groupExec != 0, 's')
 	special(text, otherExecIndex, mode&sticky != 0, mode&otherExec != 0, 't')
 
-	return fmt.Sprintf("%s (%04o)", text, mode&permissionBits)
+	return fmt.Sprintf("%s (0x%x)", text, mode)
 }
 
 func typeLetter(mode uint32) byte {

@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	readableHash = "hash"
-	readableMode = "mode"
-	readablePHP  = "apache (81): php-fpm modified files\n\nUser:\n  real: apache (81)\n  login: unknown\n" +
+	readableHash  = "hash"
+	readableMode  = "mode"
+	readableMtime = "mtime"
+	readablePHP   = "apache (81): php-fpm modified files\n\nUser:\n  real: apache (81)\n  login: unknown\n" +
 		"  effective: apache (81)\n\nProcess:\n  pid: 3785335\n  start_time: 17173045\n" +
 		"  executable: \"/usr/lib64/php7.4/bin/php-fpm\"\n\nDetection:\n  backend: fanotify"
 	readableConflict = "unknown: filesystem changes detected\n\nActor: unknown\n\nDetection:\n  backend: fanotify\n" +
@@ -71,7 +72,7 @@ func TestDefaultBodyIsReadable(t *testing.T) {
 			catalog.FieldChange{Field: "type", Before: `""`, After: `"regular"`},
 			catalog.FieldChange{Field: "size", Before: "0", After: "9475"},
 			catalog.FieldChange{Field: readableMode, Before: "0", After: "33188"},
-			catalog.FieldChange{Field: "mtime", Before: "0", After: "1792230241202511342"},
+			catalog.FieldChange{Field: readableMtime, Before: "0", After: "1792230241202511342"},
 			catalog.FieldChange{Field: "xattrs", Before: "null ()", After: "null (available)"},
 			catalog.FieldChange{Field: "acl", Before: "null ()", After: "null (available)"},
 			catalog.FieldChange{Field: "attributes_status", Before: `""`, After: `"available"`}),
@@ -89,7 +90,7 @@ func TestDefaultBodyIsReadable(t *testing.T) {
 		"Actor:\n    apache (81): php-fpm modified files\n    User:\n      real: apache (81)\n",
 		"      executable: /usr/lib64/php7.4/bin/php-fpm\n",
 		"Actor:\n    unknown: filesystem changes detected\n    Reason: conflicting actors\n",
-		"size: — -> 9.3 KiB\n", "mode: — -> -rw-r--r-- (0644)\n", "type: — -> regular\n",
+		"size: — -> 9.3 KiB\n", "mode: — -> -rw-r--r-- (0x81a4)\n", "type: — -> regular\n",
 	} {
 		if !strings.Contains(body, wanted) {
 			t.Errorf("body lacks %q", wanted)
@@ -135,7 +136,7 @@ func readableDetails(count int) []catalog.Detail {
 			kind, actor,
 			catalog.FieldChange{Field: readableHash, Before: "sha256:ea5ca52f2881c1015d17dfd85d3196b9", After: ":"},
 			catalog.FieldChange{Field: "size", Before: "182422", After: "0"},
-			catalog.FieldChange{Field: "mtime", Before: "1790027051609144111", After: "0"},
+			catalog.FieldChange{Field: readableMtime, Before: "1790027051609144111", After: "0"},
 			catalog.FieldChange{Field: "ctime", Before: "1790027051609144111", After: "0"},
 		)
 		details[index].ChangeID = fmt.Sprintf("CHANGE%04d", index/64)
@@ -186,5 +187,42 @@ func TestLargeUpdateFitsTwoEmails(t *testing.T) {
 
 	if emails != 2 {
 		t.Fatalf("3500 paths took %d emails, want 2", emails)
+	}
+}
+
+// A file whose mtime predates its birth was copied with preserved times or backdated on purpose.
+func TestBackdatedFilesAreFlagged(t *testing.T) {
+	t.Parallel()
+
+	backdated := readableDetail("/var/www/site/htdocs/wp-content/uploads/shell.php", "added", readableFTP,
+		catalog.FieldChange{Field: readableMtime, Before: "0", After: "1697622241202511342"},
+		catalog.FieldChange{Field: "btime", Before: "0 (known=false)", After: "1792230241202511342 (known=true)"})
+
+	body := renderDefault(t, readableMessage(backdated))
+	if !strings.Contains(body, "AVISO: mtime es 1095 d anterior a btime") {
+		t.Fatal("backdated file not flagged\n" + body)
+	}
+
+	details := append(readableDetails(250), backdated)
+	if compact := renderDefault(
+		t,
+		readableMessage(details...),
+	); strings.Count(
+		compact,
+		"[mtime anterior a btime]",
+	) != 1 {
+		t.Fatal("compact listing must flag only the backdated path")
+	}
+
+	message := readableMessage()
+	message.Report = &catalog.ReportInfo{
+		Aggregate: nil, ID: "period", Summary: "", AIStatus: "disabled", From: 1, Until: 2, Part: 1,
+		More: false, CoverageGap: false,
+		Items: []catalog.ReportItem{{Detail: backdated, Head: "", Deferred: false, Violation: false}},
+	}
+
+	_, report, err := ReportText(message)
+	if err != nil || !strings.Contains(report, "AVISO: mtime es 1095 d anterior a btime") {
+		t.Fatal("report does not flag the backdated file", err, report)
 	}
 }
