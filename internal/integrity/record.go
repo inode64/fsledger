@@ -106,21 +106,24 @@ func Differences(previous, current Record, fields []string) []string {
 		case "nlink":
 			different = previous.Nlink != current.Nlink
 		case "atime":
-			different = differentTime(previous.Atime, current.Atime, previous.TimesInSeconds || current.TimesInSeconds)
+			// Zero is an access time the mount does not maintain; it is not evidence.
+			different = previous.Atime != 0 && current.Atime != 0 &&
+				differentTime(previous.Atime, current.Atime, previous.TimesInSeconds || current.TimesInSeconds)
 		case "mtime":
 			different = differentTime(previous.Mtime, current.Mtime, previous.TimesInSeconds || current.TimesInSeconds)
 		case "ctime":
 			different = differentTime(previous.Ctime, current.Ctime, previous.TimesInSeconds || current.TimesInSeconds)
 		case "btime":
-			different = previous.Btime != current.Btime || previous.HasBtime != current.HasBtime
+			// A birth time only one side's filesystem provides cannot be compared.
+			different = previous.HasBtime && current.HasBtime && previous.Btime != current.Btime
 		case "target":
 			different = !bytes.Equal(previous.Target, current.Target)
 		case "xattrs":
-			different = !AttributesEqual(previous.Xattrs, current.Xattrs) ||
-				previous.AttributesStatus != current.AttributesStatus
+			different = comparableAttributes(previous, current) && (!AttributesEqual(previous.Xattrs, current.Xattrs) ||
+				previous.AttributesStatus != current.AttributesStatus)
 		case "acl":
-			different = !AttributesEqual(previous.ACL, current.ACL) ||
-				previous.AttributesStatus != current.AttributesStatus
+			different = comparableAttributes(previous, current) && (!AttributesEqual(previous.ACL, current.ACL) ||
+				previous.AttributesStatus != current.AttributesStatus)
 		}
 
 		if different {
@@ -129,6 +132,11 @@ func Differences(previous, current Record, fields []string) []string {
 	}
 
 	return changed
+}
+
+// comparableAttributes requires attribute support on both sides; otherwise nothing can be compared.
+func comparableAttributes(previous, current Record) bool {
+	return AttributesSupported(previous.AttributesStatus) && AttributesSupported(current.AttributesStatus)
 }
 
 func differentTime(first, second int64, seconds bool) bool {

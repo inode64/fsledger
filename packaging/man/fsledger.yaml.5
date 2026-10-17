@@ -181,6 +181,11 @@ Reference is baseline (default) or previous. Fields: hash, type, mode, uid, gid,
 size, mtime, ctime, atime, btime, xattrs, acl, inode, device, nlink, target.
 Default comparison excludes atime, btime, inode, device, nlink and target.
 ctime is metadata change time. btime availability is stored explicitly.
+Attributes the filesystem does not provide are not recorded: atime only where
+the mount keeps access times current (not noatime or relatime, and not
+nodiratime for directories), btime only where statx returns it, and xattrs and
+ACLs only where they are supported. Such attributes are neither stored nor
+shown, and a value only one side provides is never a difference.
 .TP
 .B integrity.directories
 true (default) records directory entries like any other path. false keeps

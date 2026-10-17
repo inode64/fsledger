@@ -11,14 +11,13 @@ import (
 )
 
 const (
-	unknownValue    = "desconocido"
-	absentHash      = ":"
-	knownTrue       = " (known=true)"
-	knownFalse      = " (known=false)"
-	statusOpening   = " ("
-	statusClosing   = ")"
-	statusAvailable = "available"
-	fileTypeMask    = 0o170000
+	unknownValue  = "desconocido"
+	absentHash    = ":"
+	knownTrue     = " (known=true)"
+	knownFalse    = " (known=false)"
+	statusOpening = " ("
+	statusClosing = ")"
+	fileTypeMask  = 0o170000
 	// backdatedThreshold ignores clock granularity and short copy delays; real backdating spans far more.
 	backdatedThreshold = time.Hour
 )
@@ -86,6 +85,10 @@ type fieldView struct {
 }
 
 func (view *fieldView) show(field FieldChange) (FieldChange, bool) {
+	if !view.supported(field) {
+		return field, false
+	}
+
 	switch field.Field {
 	case fieldHasBtime:
 		return field, false
@@ -107,6 +110,35 @@ func (view *fieldView) show(field FieldChange) (FieldChange, bool) {
 	}
 
 	return presentable(field, view.kind), true
+}
+
+// supported reports whether every existing side of a field is evidence its filesystem provides: an
+// access time the mount does not keep, an unknown birth time or unsupported attributes are not shown.
+func (view *fieldView) supported(field FieldChange) bool {
+	for _, value := range presentValues(field, view.kind) {
+		if !supportedValue(field.Field, value) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func supportedValue(name, value string) bool {
+	switch name {
+	case fieldAtime:
+		return value != "0"
+	case fieldBtime:
+		return !strings.HasSuffix(value, knownFalse)
+	case fieldXattrs, fieldACL:
+		_, status := splitStatus(value)
+
+		return integrity.AttributesSupported(status)
+	case fieldAttributesStatus:
+		return integrity.AttributesSupported(unquoted(value))
+	default:
+		return true
+	}
 }
 
 func (view *fieldView) status(field FieldChange) (FieldChange, bool) {
@@ -181,10 +213,12 @@ func extraLinks(field FieldChange, kind, fileType string) bool {
 	return false
 }
 
-// readFailed reports whether an existing version could not have its attributes read.
+// readFailed reports whether an existing version could not have its attributes read. A filesystem
+// without attribute support is not a failure: those attributes are simply not shown.
 func readFailed(field FieldChange, kind string) bool {
 	for _, value := range presentValues(field, kind) {
-		if status := unquoted(value); status != "" && status != statusAvailable {
+		status := unquoted(value)
+		if status != "" && status != integrity.AttributesAvailable && integrity.AttributesSupported(status) {
 			return true
 		}
 	}

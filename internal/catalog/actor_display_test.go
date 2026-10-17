@@ -205,7 +205,7 @@ func TestDisplayFieldsKeepSmallDifferencesVisible(t *testing.T) {
 		displayField("mtime", "1792230241202511342", "1792230241702511342"),
 		displayField(fieldNameSize, "18374", "18380"),
 		displayField(displayACL, "[] (available)", "[] (denied)"),
-		displayField("btime", "1792230241202511342 (known=true)", "0 (known=false)"),
+		displayField("btime", "1792230241202511342 (known=true)", "1792230241902511342 (known=true)"),
 	)
 
 	got := modified.DisplayFields()
@@ -221,8 +221,35 @@ func TestDisplayFieldsKeepSmallDifferencesVisible(t *testing.T) {
 		t.Errorf("failed ACL read = %q, want %q", got[2], want)
 	}
 
-	if !displayStamp.MatchString(got[3].Before) || got[3].After != "—" {
+	if !displayPrecise.MatchString(got[3].Before) || got[3].Before == got[3].After {
 		t.Errorf("btime = %q -> %q", got[3].Before, got[3].After)
+	}
+}
+
+// Attributes a filesystem does not provide are not evidence: they are hidden on any existing side.
+func TestDisplayFieldsHideUnsupportedAttributes(t *testing.T) {
+	t.Parallel()
+
+	for _, fixture := range []struct {
+		name   string
+		detail catalog.Detail
+	}{
+		{"noatime-creation", displayDetail("added", displayField("atime", "0", "0"))},
+		{"atime-lost", displayDetail("modified", displayField("atime", "1792230241202511342", "0"))},
+		{"unknown-btime", displayDetail("modified",
+			displayField("btime", "1792230241202511342 (known=true)", "0 (known=false)"))},
+		{"btime-deleted-unknown", displayDetail("deleted", displayField("btime", "0 (known=false)", "0 (known=false)"))},
+		{"unsupported-xattrs", displayDetail("added", displayField("xattrs", "null ()", "null (unsupported)"))},
+		{"aide-acl", displayDetail("modified", displayField(displayACL, "null (not_recorded_by_aide)", "[] (available)"))},
+	} {
+		if got := fixture.detail.DisplayFields(); len(got) != 0 {
+			t.Errorf("%s shown: %q", fixture.name, got)
+		}
+	}
+
+	kept := displayDetail("modified", displayField("atime", "1792230241202511342", "1792230300202511342"))
+	if got := kept.DisplayFields(); len(got) != 1 {
+		t.Errorf("maintained atime hidden: %q", got)
 	}
 }
 
@@ -275,18 +302,26 @@ func TestDisplayFieldsShowLinksOnlyForSharedRegularFiles(t *testing.T) {
 func TestDisplayFieldsShowAttributeStatusOnlyWhenReadingFails(t *testing.T) {
 	t.Parallel()
 
-	created := displayDetail("added",
+	unsupported := displayDetail("added",
 		displayField("xattrs", "null ()", "null (unsupported)"),
 		displayField(displayACL, "null ()", "null (unsupported)"),
 		displayField("attributes_status", `""`, `"unsupported"`),
 	)
-	if got := created.DisplayFields(); len(got) != 1 ||
-		got[0] != displayField("attributes_status", "—", "unsupported") {
-		t.Errorf("unsupported creation = %q", got)
+	if got := unsupported.DisplayFields(); len(got) != 0 {
+		t.Errorf("missing filesystem support shown as a failed read: %q", got)
 	}
 
-	recovered := displayDetail("modified", displayField(displayACL, "[] (unsupported)", "[] (available)"))
-	if got := recovered.DisplayFields(); len(got) != 1 || got[0].Before != "unsupported" {
+	denied := displayDetail("added",
+		displayField("xattrs", "null ()", "null (denied)"),
+		displayField(displayACL, "null ()", "null (denied)"),
+		displayField("attributes_status", `""`, `"denied"`),
+	)
+	if got := denied.DisplayFields(); len(got) != 1 || got[0] != displayField("attributes_status", "—", "denied") {
+		t.Errorf("failed read = %q", got)
+	}
+
+	recovered := displayDetail("modified", displayField(displayACL, "[] (denied)", "[] (available)"))
+	if got := recovered.DisplayFields(); len(got) != 1 || got[0].Before != "denied" {
 		t.Errorf("recovered read = %q", got)
 	}
 

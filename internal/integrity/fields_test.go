@@ -13,8 +13,10 @@ import (
 func TestEveryConfigurableFieldIsCompared(t *testing.T) {
 	t.Parallel()
 
+	// Both sides carry every attribute: unsupported values (zero atime, unknown btime) are never compared.
 	first := integrity.Record{
 		Type: integrity.TypeRegular, Algorithm: hashSHA256, Hash: "a", Target: []byte("a"),
+		Atime: 1_000_000_000, Btime: 1_000_000_000, HasBtime: true,
 		Xattrs: []integrity.Attribute{{Name: []byte("user.a"), Value: []byte("1")}},
 		ACL:    []integrity.Attribute{{Name: []byte("system.posix_acl_access"), Value: []byte("1")}},
 	}

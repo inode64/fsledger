@@ -331,27 +331,11 @@ func describeFields(previous, current integrity.Record, fields []string) ([]Fiel
 		return nil, nil
 	}
 
-	if slices.Contains(fields, changeAdded) || slices.Contains(fields, changeDeleted) {
-		fields = []string{
-			fieldType,
-			fieldHash,
-			fieldSize,
-			fieldInode,
-			fieldDevice,
-			fieldMode,
-			fieldUID,
-			fieldGID,
-			fieldNlink,
-			fieldMtime,
-			fieldCtime,
-			fieldAtime,
-			fieldBtime,
-			fieldHasBtime,
-			fieldTarget,
-			fieldXattrs,
-			fieldACL,
-			fieldAttributesStatus,
-		}
+	switch {
+	case slices.Contains(fields, changeAdded):
+		fields = snapshotFields(current)
+	case slices.Contains(fields, changeDeleted):
+		fields = snapshotFields(previous)
 	}
 
 	result := make([]FieldChange, 0, len(fields))
@@ -370,6 +354,31 @@ func describeFields(previous, current integrity.Record, fields []string) ([]Fiel
 	}
 
 	return result, nil
+}
+
+// snapshotFields lists what a created or deleted entry records about the version that exists, leaving
+// out attributes its filesystem does not provide: they would only show and store empty placeholders.
+func snapshotFields(existing integrity.Record) []string {
+	fields := []string{
+		fieldType, fieldHash, fieldSize, fieldInode, fieldDevice, fieldMode, fieldUID, fieldGID, fieldNlink,
+		fieldMtime, fieldCtime,
+	}
+
+	if existing.Atime != 0 {
+		fields = append(fields, fieldAtime)
+	}
+
+	if existing.HasBtime {
+		fields = append(fields, fieldBtime, fieldHasBtime)
+	}
+
+	fields = append(fields, fieldTarget)
+
+	if integrity.AttributesSupported(existing.AttributesStatus) {
+		fields = append(fields, fieldXattrs, fieldACL, fieldAttributesStatus)
+	}
+
+	return fields
 }
 
 // ChangedHashes streams temporary work for the current Git reconciliation.
