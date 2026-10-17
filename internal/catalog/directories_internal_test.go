@@ -258,3 +258,27 @@ func TestImportSkipsUntrackedDirectories(t *testing.T) {
 		t.Fatal("directory imported into the reference", err)
 	}
 }
+
+// A reference that only holds untracked directories imports nothing and must not become a baseline.
+func TestImportOfOnlyUntrackedDirectoriesIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	store := testStore(t)
+	store.Notifications.Use = nil
+	store.Policy.Directories = false
+
+	data, err := json.Marshal(integrity.Record{Path: []byte("/srv/www"), Type: integrity.TypeDirectory})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = store.ImportBaseline(t.Context(), bytes.NewReader(data))
+	if err == nil {
+		t.Fatal("reference without trackable records accepted")
+	}
+
+	stats, err := store.Stats(t.Context())
+	if err != nil || stats.BaselineReady || stats.Entries != 0 {
+		t.Fatalf("empty import changed the catalog: %+v %v", stats, err)
+	}
+}

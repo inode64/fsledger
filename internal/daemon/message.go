@@ -13,7 +13,7 @@ import (
 	"github.com/inode64/fsledger/internal/humanize"
 )
 
-const unknownActorMessage = "unknown: filesystem changes detected\n\nActor: unknown"
+const unknownActorMessage = event.Unknown + ": " + event.ActorChangesDetected + "\n\n" + event.ActorUnknownLine
 
 // processStart annotates the raw start time (the identity evidence, kept as is) with wall-clock time.
 func processStart(ticks uint64) string {
@@ -58,7 +58,7 @@ func actorMessage(actor event.Actor, preferLogin bool) string {
 
 	if actor.PID == 0 {
 		return fmt.Sprintf(
-			`%s: filesystem changes detected
+			`%s: `+event.ActorChangesDetected+`
 
 User:
   real: %s
@@ -87,14 +87,16 @@ User:
 
 Process:
   pid: %d
-  start_time: %d%s
-  executable: %q`,
+  `+event.ActorStartTime+` %d%s
+  `+event.ActorExecutable+` %q`,
 		observed, executable, realUser, login, effective, actor.PID, actor.StartTime,
 		processStart(actor.StartTime), actor.Executable)
 }
 
 func reconciliationMessage(reason string) string {
-	return unknownActorMessage + "\nDetection: " + event.Reconciliation + "\nReason: " + reason
+	return unknownActorMessage +
+		"\n" + event.ActorDetection + " " + event.Reconciliation +
+		"\n" + event.ActorReason + " " + reason
 }
 
 func groupMessage(group event.Group, preferLogin bool) string {
@@ -115,9 +117,9 @@ func groupMessage(group event.Group, preferLogin bool) string {
 		message += "\n\nAttribution:\n  evidence: " + group.Actor.Evidence
 	}
 
-	message += "\n\nDetection:\n  backend: " + strings.Join(detection, ",")
+	message += "\n\n" + event.ActorDetection + "\n  " + event.ActorBackend + " " + strings.Join(detection, ",")
 	if group.Reason != "" {
-		message += "\nReason: " + group.Reason
+		message += "\n" + event.ActorReason + " " + group.Reason
 	}
 
 	return message

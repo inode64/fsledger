@@ -48,12 +48,12 @@ func (store *Store) ImportBaseline(ctx context.Context, input io.Reader) error {
 			return fault.Wrap("import cancelled", err)
 		}
 
-		err = store.importBatch(records)
+		imported, err := store.importBatch(records)
 		if err != nil {
 			return err
 		}
 
-		count += int64(len(records))
+		count += imported
 	}
 
 	if count == 0 {
@@ -94,9 +94,12 @@ func importRecords(decoder *json.Decoder) ([]integrity.Record, error) {
 	return records, nil
 }
 
-func (store *Store) importBatch(records []integrity.Record) error {
+// importBatch stores one batch of reference records and returns how many it kept.
+func (store *Store) importBatch(records []integrity.Record) (int64, error) {
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
+
+	imported := int64(0)
 
 	for _, record := range records {
 		// A repository that does not track directories keeps none in its reference either.
@@ -106,23 +109,24 @@ func (store *Store) importBatch(records []integrity.Record) error {
 
 		old, err := get(transaction.batch, key(currentPrefix, record.Path))
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		if old != nil {
-			return fault.New("duplicate reference path")
+			return 0, fault.New("duplicate reference path")
 		}
 
 		data, err := packRecord(record)
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		transaction.set(key(currentPrefix, record.Path), data)
 		transaction.set(key(baselinePrefix(transaction.state.Baseline), record.Path), data)
 		transaction.set(key(seenPrefix, record.Path), binary.BigEndian.AppendUint64(nil, 0))
 		transaction.state.Stats.Entries++
+		imported++
 	}
 
-	return transaction.commit()
+	return imported, transaction.commit()
 }

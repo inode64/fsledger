@@ -180,18 +180,20 @@ func finishObservation(parent int, name, path string, before *unix.Stat_t, recor
 }
 
 // accessTimesMaintained asks the mount of the observed entry whether access times are kept current.
-// Statfs follows a final symlink, so a link is asked through its parent directory, whose mount it
-// shares. When the mount cannot be asked, the observed access time is kept.
+// Directories may root another mount and are asked by path; other entries share their parent's
+// mount (file bind mounts aside) and are asked through the parent descriptor already open, which
+// avoids a path lookup and never follows a final symlink.
+// When the mount cannot be asked, the observed access time is kept.
 func accessTimesMaintained(parent int, anchored, kind string) bool {
 	var (
 		stat unix.Statfs_t
 		err  error
 	)
 
-	if kind == TypeSymlink {
-		err = unix.Fstatfs(parent, &stat)
-	} else {
+	if kind == TypeDirectory {
 		err = unix.Statfs(anchored, &stat)
+	} else {
+		err = unix.Fstatfs(parent, &stat)
 	}
 
 	if err != nil {

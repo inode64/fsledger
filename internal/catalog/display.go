@@ -94,8 +94,8 @@ func classifyFields(fields []FieldChange) changeClasses {
 
 func changedACL(field FieldChange) bool {
 	// Losing the ability to read ACLs is not evidence that permissions changed.
-	before, beforeKnown := strings.CutSuffix(field.Before, " (available)")
-	after, afterKnown := strings.CutSuffix(field.After, " (available)")
+	before, beforeKnown := strings.CutSuffix(field.Before, availableSuffix)
+	after, afterKnown := strings.CutSuffix(field.After, availableSuffix)
 
 	return beforeKnown && afterKnown && before != after
 }
