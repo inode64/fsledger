@@ -44,6 +44,7 @@ func defaults() *Config {
 			Algorithm: HashSHA256, OnEvent: true, FullScanInterval: defaultFullScanInterval,
 			FullScanSchedule: "", FullScanTimezone: defaultTimezone,
 		},
+		Directories: true,
 	}
 	cfg.Notifications = Notifications{
 		Ignore: nil,

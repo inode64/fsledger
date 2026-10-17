@@ -148,11 +148,18 @@ func AttributesEqual(first, second []Attribute) bool {
 	)
 }
 
-// PolicyID prevents approving observations made under an obsolete comparison policy.
-func PolicyID(fields []string, algorithm string) string {
+// PolicyID prevents approving observations made under an obsolete comparison policy. Leaving
+// directories out of the inventory is part of the policy; tracking them keeps the historical digest.
+func PolicyID(fields []string, algorithm string, directories bool) string {
 	ordered := slices.Clone(fields)
 	slices.Sort(ordered)
-	sum := sha256.Sum256([]byte(strings.Join(ordered, "\x00") + "\x01" + algorithm))
+
+	policy := strings.Join(ordered, "\x00") + "\x01" + algorithm
+	if !directories {
+		policy += "\x02without-directories"
+	}
+
+	sum := sha256.Sum256([]byte(policy))
 
 	return hex.EncodeToString(sum[:])
 }

@@ -59,7 +59,7 @@ func TestFileTypesAndMetadata(t *testing.T) {
 	found := make(map[string]integrity.Record)
 
 	err = integrity.NewScanner(2, 2).
-		ScanPaths(t.Context(), []string{root}, nil, matcher, "sha256", true, func(record integrity.Record) error {
+		ScanPaths(t.Context(), []string{root}, nil, matcher, "sha256", true, true, func(record integrity.Record) error {
 			found[filepath.Base(string(record.Path))] = record
 
 			return nil

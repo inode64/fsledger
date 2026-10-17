@@ -59,7 +59,7 @@ func benchmarkScanBatch(b *testing.B, scanner *integrity.Scanner, roots []string
 	failures := make(chan error, len(roots))
 	for _, root := range roots {
 		wait.Go(func() {
-			failures <- scanner.ScanPaths(b.Context(), []string{root}, nil, matcher, "sha256", false,
+			failures <- scanner.ScanPaths(b.Context(), []string{root}, nil, matcher, "sha256", false, true,
 				func(integrity.Record) error { return nil })
 		})
 	}

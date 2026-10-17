@@ -99,6 +99,11 @@ func (store *Store) importBatch(records []integrity.Record) error {
 	defer resource.Close(transaction.batch)
 
 	for _, record := range records {
+		// A repository that does not track directories keeps none in its reference either.
+		if !store.Policy.Directories && record.Type == integrity.TypeDirectory {
+			continue
+		}
+
 		old, err := get(transaction.batch, key(currentPrefix, record.Path))
 		if err != nil {
 			return err

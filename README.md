@@ -320,7 +320,9 @@ adds email alerts and reports.
 
 Git and DB repositories maintain an inventory of hashes and attributes. Choose
 `integrity.reference: baseline` to compare against an approved baseline, or `previous`
-to track changes relative to the previous observation.
+to track changes relative to the previous observation. In web trees,
+`integrity.directories: false` leaves directory entries out of the inventory while
+the files inside are still monitored.
 
 With the daemon stopped, explicitly establish an initial baseline from a state
 you have reviewed and consider trustworthy:

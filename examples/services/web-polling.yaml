@@ -12,6 +12,8 @@ watch:
     on_start: false
     on_stop: false
 integrity:
+  # Directory entries carry no evidence in a web tree; files inside are still observed.
+  directories: false
   hash:
     full_scan_schedule: "15 3 * * *"
     full_scan_timezone: UTC

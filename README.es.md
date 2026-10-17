@@ -323,7 +323,9 @@ añade avisos e informes por correo.
 
 Los repositorios Git y DB mantienen un inventario de hashes y atributos. Puedes elegir
 `integrity.reference: baseline` para comparar con una referencia aprobada o `previous`
-para seguir los cambios respecto a la observación anterior.
+para seguir los cambios respecto a la observación anterior. En árboles web,
+`integrity.directories: false` deja fuera del inventario las entradas de directorio
+y se siguen vigilando los ficheros que contienen.
 
 Con el daemon detenido, establece explícitamente una referencia inicial del estado
 que hayas revisado y consideres confiable:
