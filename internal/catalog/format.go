@@ -6,6 +6,17 @@ import (
 	"github.com/inode64/fsledger/internal/integrity"
 )
 
+// Markers of stored field values. Display and classification parse values back with the same
+// markers, so formatting and parsing cannot drift apart.
+const (
+	hashSeparator = ":"
+	suffixOpening = " ("
+	suffixClosing = ")"
+	knownLabel    = "known="
+	knownTrue     = suffixOpening + knownLabel + "true" + suffixClosing
+	knownFalse    = suffixOpening + knownLabel + "false" + suffixClosing
+)
+
 // printableField encodes only requested evidence, preserving JSON's byte and string
 // escaping without serializing the entire record and decoding it into two maps.
 //
@@ -17,7 +28,7 @@ func printableField(record integrity.Record, field string) (string, error) {
 
 	switch field {
 	case fieldHash:
-		return record.Algorithm + ":" + record.Hash, nil
+		return record.Algorithm + hashSeparator + record.Hash, nil
 	case fieldType:
 		value = record.Type
 	case fieldSize:
@@ -42,7 +53,7 @@ func printableField(record integrity.Record, field string) (string, error) {
 		value = record.Atime
 	case fieldBtime:
 		value = record.Btime
-		suffix = " (known=" + strconv.FormatBool(record.HasBtime) + ")"
+		suffix = suffixOpening + knownLabel + strconv.FormatBool(record.HasBtime) + suffixClosing
 	case fieldHasBtime:
 		value = record.HasBtime
 	case fieldTarget:
@@ -53,10 +64,10 @@ func printableField(record integrity.Record, field string) (string, error) {
 		value = record.Target
 	case fieldXattrs:
 		value = record.Xattrs
-		suffix = " (" + record.AttributesStatus + ")"
+		suffix = suffixOpening + record.AttributesStatus + suffixClosing
 	case fieldACL:
 		value = record.ACL
-		suffix = " (" + record.AttributesStatus + ")"
+		suffix = suffixOpening + record.AttributesStatus + suffixClosing
 	case fieldAttributesStatus:
 		value = record.AttributesStatus
 	default:

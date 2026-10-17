@@ -2,16 +2,16 @@
 # Same as the built-in template. DisplayFields/DisplayBaseline render timestamps, sizes and modes
 # for people and hide fields without evidence for a reader; BackdatedBy flags an mtime earlier
 # than btime; ActorLines shows the actor evidence as lines; CommonDetection states the detection
-# method once when every path shares it. Up to 250 paths every detail is listed; larger summaries
-# group paths by actor without per-path fields. Stored evidence is unchanged.
+# method once when every path shares it. Up to DetailLimit paths (Detailed) every detail is
+# listed; larger summaries group paths by actor without per-path fields. Stored evidence is unchanged.
 subject: 'fsledger {{.Host}} / {{.Repository}}: {{.Event}} ({{.Count}}: +{{.Added}} ~{{.Modified}} -{{.Deleted}})'
 body: |-
-  Servidor: {{.Host}} ({{.Hostname}})
+  {{$common := .CommonDetection}}Servidor: {{.Host}} ({{.Hostname}})
   Observaciones: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})
   {{if .ChangeID}}Cambio: {{.ChangeID}}
-  {{end}}{{with .CommonDetection}}Detección: {{.}}
+  {{end}}{{with $common}}Detección: {{.}}
   {{end}}{{if .Reason}}Motivo: {{.Reason}}
-  {{end}}{{if le .Count 250}}
+  {{end}}{{if .Detailed}}
   Elementos cambiados
   Clave  Ruta
   {{range .Details}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}
@@ -25,7 +25,7 @@ body: |-
   Ruta: {{printf "%q" .Path}} / {{.Code}}
   {{if .ChangeID}}ID de cambio: {{.ChangeID}}
   {{end}}Observado: {{localtime .Observed}}
-  {{if not $.CommonDetection}}{{with .Detection}}Detección: {{.}}
+  {{if not $common}}{{with .Detection}}Detección: {{.}}
   {{end}}{{end}}Actor:{{with .ActorLines}}{{range .}}
       {{.}}{{end}}{{else}} sin evidencia{{end}}
   {{with .BackdatedBy}}AVISO: mtime es {{duration .}} anterior a btime, la creación de esta versión del fichero:
@@ -36,13 +36,13 @@ body: |-
   {{range .}}{{.Field}}: {{.Before}} -> {{.After}}
   {{end}}{{end}}{{end}}{{else}}
   Elementos cambiados, agrupados por actor
-  Más de 250 rutas: se omite el detalle de campos por ruta; el catálogo conserva la evidencia completa.
+  Más de {{.DetailLimit}} rutas: se omite el detalle de campos por ruta; el catálogo conserva la evidencia completa.
   C = Creado; D = Borrado; M = Contenido; P = Solo permisos; MP = Contenido y permisos.
   — = Otros metadatos o sin evidencia suficiente para clasificar.
   {{$actor := "\x00"}}{{$change := "\x00"}}{{range .Details}}
   {{- if or (ne .Actor $actor) (ne .ChangeID $change)}}{{$actor = .Actor}}{{$change = .ChangeID}}
   {{if .ChangeID}}ID de cambio: {{.ChangeID}}
-  {{end}}{{if not $.CommonDetection}}{{with .Detection}}Detección: {{.}}
+  {{end}}{{if not $common}}{{with .Detection}}Detección: {{.}}
   {{end}}{{end}}Actor:{{with .ActorLines}}{{range .}}
       {{.}}{{end}}{{else}} sin evidencia{{end}}
   Clave  Ruta

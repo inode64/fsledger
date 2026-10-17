@@ -11,13 +11,11 @@ import (
 )
 
 const (
-	unknownValue  = "desconocido"
-	absentHash    = ":"
-	knownTrue     = " (known=true)"
-	knownFalse    = " (known=false)"
-	statusOpening = " ("
-	statusClosing = ")"
-	fileTypeMask  = 0o170000
+	// availableSuffix marks attributes that were readable.
+	availableSuffix = suffixOpening + integrity.AttributesAvailable + suffixClosing
+	// untrackedTime is how a timestamp the filesystem does not keep is stored.
+	untrackedTime = "0"
+	bytesUnit     = " B"
 	// backdatedThreshold ignores clock granularity and short copy delays; real backdating spans far more.
 	backdatedThreshold = time.Hour
 )
@@ -127,7 +125,7 @@ func (view *fieldView) supported(field FieldChange) bool {
 func supportedValue(name, value string) bool {
 	switch name {
 	case fieldAtime:
-		return value != "0"
+		return value != untrackedTime
 	case fieldBtime:
 		return !strings.HasSuffix(value, knownFalse)
 	case fieldXattrs, fieldACL:
@@ -228,12 +226,12 @@ func readFailed(field FieldChange, kind string) bool {
 
 // splitStatus separates a value from its " (available)" style readability suffix.
 func splitStatus(value string) (string, string) {
-	trimmed, found := strings.CutSuffix(value, statusClosing)
+	trimmed, found := strings.CutSuffix(value, suffixClosing)
 	if !found {
 		return value, ""
 	}
 
-	before, status, found := strings.CutLast(trimmed, statusOpening)
+	before, status, found := strings.CutLast(trimmed, suffixOpening)
 	if !found {
 		return value, ""
 	}
@@ -311,17 +309,13 @@ func displayTimes(before, after string, parse func(string) (timeValue, bool)) (s
 		return before, after
 	}
 
+	// Unknown birth times never reach this point: fields a filesystem does not provide are hidden.
 	render := func(value timeValue, precise bool) string {
-		switch {
-		case value.nanoseconds == 0:
-			return humanize.Absent
-		case !value.known:
-			return unknownValue
-		case precise:
+		if precise {
 			return humanize.PreciseTime(value.nanoseconds)
-		default:
-			return humanize.Time(value.nanoseconds)
 		}
+
+		return humanize.Time(value.nanoseconds)
 	}
 
 	shownBefore, shownAfter := render(beforeTime, false), render(afterTime, false)
@@ -343,8 +337,8 @@ func displaySizes(before, after string) (string, string) {
 
 	shownBefore, shownAfter := humanize.Size(beforeSize), humanize.Size(afterSize)
 	if shownBefore == shownAfter {
-		shownBefore += " (" + before + " B)"
-		shownAfter += " (" + after + " B)"
+		shownBefore += suffixOpening + before + bytesUnit + suffixClosing
+		shownAfter += suffixOpening + after + bytesUnit + suffixClosing
 	}
 
 	return shownBefore, shownAfter
@@ -352,8 +346,8 @@ func displaySizes(before, after string) (string, string) {
 
 func displayMode(value string) string {
 	mode, err := strconv.ParseUint(value, 10, 32)
-	// Recorded modes are complete st_mode values; anything without file type bits is shown as is.
-	if err != nil || mode&fileTypeMask == 0 {
+	// Recorded modes are complete st_mode values; anything without a file type is shown as is.
+	if err != nil || integrity.FileType(uint32(mode)) == "" {
 		return value
 	}
 
@@ -379,7 +373,7 @@ func displayStatus(value string) string {
 }
 
 func displayHash(value string) string {
-	if value == "" || value == absentHash {
+	if value == "" || value == hashSeparator {
 		return humanize.Absent
 	}
 

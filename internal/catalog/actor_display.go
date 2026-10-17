@@ -6,23 +6,18 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/inode64/fsledger/internal/event"
 	gitrepo "github.com/inode64/fsledger/internal/git"
 	"github.com/inode64/fsledger/internal/humanize"
 )
 
-// The daemon stores the actor as the rendered commit message (internal/daemon/message.go).
+// The daemon stores the actor as the rendered commit message with the labels of internal/event.
 // These views derive readable lines from that text, so deliveries queued by older versions
 // render the same way without migrating stored evidence.
-const (
-	detectionHeader     = "Detection:"
-	detectionBackend    = "backend:"
-	unknownActorSummary = "unknown:"
-	unknownActorLine    = "Actor: unknown"
-	executableKey       = "executable:"
-)
+const unknownActorSummary = event.Unknown + ":"
 
 // startTimePattern matches "start_time: <ticks> (<rendered time>)" written by newer daemons.
-var startTimePattern = regexp.MustCompile(`^(\s*start_time: )\d+ \((.+)\)$`)
+var startTimePattern = regexp.MustCompile(`^(\s*` + regexp.QuoteMeta(event.ActorStartTime) + ` )\d+ \((.+)\)$`)
 
 // ActorLines returns the actor evidence as display lines: blank lines, the Git change trailer and
 // the detection method are dropped, the executable is unquoted when printable and every line is
@@ -42,15 +37,15 @@ func (detail Detail) ActorLines() []string {
 			continue
 		case strings.HasPrefix(trimmed, gitrepo.ChangeIDTrailer):
 			continue
-		case unknown && trimmed == unknownActorLine:
+		case unknown && trimmed == event.ActorUnknownLine:
 			continue
-		case trimmed == detectionHeader:
-			for index+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[index+1]), detectionBackend) {
+		case trimmed == event.ActorDetection:
+			for index+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[index+1]), event.ActorBackend) {
 				index++
 			}
 
 			continue
-		case strings.HasPrefix(trimmed, detectionHeader+" "):
+		case strings.HasPrefix(trimmed, event.ActorDetection+" "):
 			continue
 		}
 
@@ -69,16 +64,18 @@ func displayActorLine(line string) string {
 		return humanize.Printable(match[1] + match[2])
 	}
 
-	indent := line[:len(line)-len(strings.TrimLeft(line, " "))]
-	if value, found := strings.CutPrefix(strings.TrimLeft(line, " "), executableKey+" "); found {
+	content := strings.TrimLeft(line, " ")
+	indent := line[:len(line)-len(content)]
+
+	if value, found := strings.CutPrefix(content, event.ActorExecutable+" "); found {
 		unquoted, err := strconv.Unquote(value)
 		if err == nil {
 			if utf8.ValidString(unquoted) && humanize.Printable(unquoted) == unquoted {
-				return indent + executableKey + " " + unquoted
+				return indent + event.ActorExecutable + " " + unquoted
 			}
 
 			// Keep the quoted form so escapes are not escaped twice; Quote emits no control bytes.
-			return indent + executableKey + " " + strconv.Quote(unquoted)
+			return indent + event.ActorExecutable + " " + strconv.Quote(unquoted)
 		}
 	}
 
@@ -92,12 +89,12 @@ func (detail Detail) Detection() string {
 	for index, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		if value, found := strings.CutPrefix(trimmed, detectionHeader+" "); found {
+		if value, found := strings.CutPrefix(trimmed, event.ActorDetection+" "); found {
 			return humanize.Printable(strings.TrimSpace(value))
 		}
 
-		if trimmed == detectionHeader && index+1 < len(lines) {
-			value, found := strings.CutPrefix(strings.TrimSpace(lines[index+1]), detectionBackend)
+		if trimmed == event.ActorDetection && index+1 < len(lines) {
+			value, found := strings.CutPrefix(strings.TrimSpace(lines[index+1]), event.ActorBackend)
 			if found {
 				return humanize.Printable(strings.TrimSpace(value))
 			}
@@ -123,3 +120,13 @@ func (message Message) CommonDetection() string {
 
 	return common
 }
+
+// detailedPaths is the largest summary whose paths are listed with their fields. Larger summaries,
+// such as plugin or core updates, list every path grouped by actor, so one email carries far more.
+const detailedPaths = 250
+
+// Detailed reports whether every path of the message is listed with its fields.
+func (message Message) Detailed() bool { return message.Count <= detailedPaths }
+
+// DetailLimit is the largest number of paths a message lists with their fields.
+func (Message) DetailLimit() int { return detailedPaths }
