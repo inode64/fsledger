@@ -171,8 +171,34 @@ func finishObservation(parent int, name, path string, before *unix.Stat_t, recor
 	// Hashing without O_NOATIME may have advanced access time. Persist the
 	// post-read value rather than stale metadata from before our own access.
 	record.Atime = after.Atim.Nano()
+	// Zero records access time as unsupported: it is neither stored nor shown nor compared.
+	if !accessTimesMaintained(parent, anchored, record.Type) {
+		record.Atime = 0
+	}
 
 	return nil
+}
+
+// accessTimesMaintained asks the mount of the observed entry whether access times are kept current.
+// Statfs follows a final symlink, so a link is asked through its parent directory, whose mount it
+// shares. When the mount cannot be asked, the observed access time is kept.
+func accessTimesMaintained(parent int, anchored, kind string) bool {
+	var (
+		stat unix.Statfs_t
+		err  error
+	)
+
+	if kind == TypeSymlink {
+		err = unix.Fstatfs(parent, &stat)
+	} else {
+		err = unix.Statfs(anchored, &stat)
+	}
+
+	if err != nil {
+		return true
+	}
+
+	return atimeMaintained(stat.Flags, kind == TypeDirectory)
 }
 
 func fromStat(path string, stat *unix.Stat_t) Record {
@@ -282,7 +308,7 @@ func verifyHashedFile(file *os.File, before *unix.Stat_t, count int64) error {
 func readAttributes(path string, record *Record) error {
 	size, err := unix.Llistxattr(path, nil)
 	if errors.Is(err, unix.ENOTSUP) {
-		record.AttributesStatus = "unsupported"
+		record.AttributesStatus = AttributesUnsupported
 
 		return nil
 	}
@@ -308,7 +334,7 @@ func readAttributes(path string, record *Record) error {
 		return fault.Wrap("read extended attribute names", err)
 	}
 
-	record.AttributesStatus = "available"
+	record.AttributesStatus = AttributesAvailable
 
 	remaining := maxAttributesBytes - size
 	for name := range bytes.SplitSeq(names[:size], []byte{0}) {

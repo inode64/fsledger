@@ -100,7 +100,7 @@ func decode(columns, values []string, algorithm string, hashSize int) (Entry, er
 
 	entry := Entry{
 		available:   make(map[string]bool),
-		Record:      integrity.Record{AttributesStatus: "not_recorded_by_aide", TimesInSeconds: true},
+		Record:      integrity.Record{AttributesStatus: integrity.AttributesNotRecorded, TimesInSeconds: true},
 		transformed: mask&transformedHashes != 0,
 	}
 
