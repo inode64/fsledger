@@ -67,7 +67,9 @@ Ruta: {{printf "%q" .Path}} / {{.Code}}
 {{if not $.CommonDetection}}{{with .Detection}}Detección: {{.}}
 {{end}}{{end}}Actor:{{with .ActorLines}}{{range .}}
     {{.}}{{end}}{{else}} sin evidencia{{end}}
-{{range .DisplayFields}}{{.Field}}: {{.Before}} -> {{.After}}
+{{with .BackdatedBy}}AVISO: mtime es {{duration .}} anterior a btime, la creación de esta versión del fichero:
+fecha conservada al copiar (tar, rsync -a, cp -p) o falseada.
+{{end}}{{range .DisplayFields}}{{.Field}}: {{.Before}} -> {{.After}}
 {{else}}Sin diferencias de campos visibles.
 {{end}}{{with .DisplayBaseline}}Comparación con referencia aprobada:
 {{range .}}{{.Field}}: {{.Before}} -> {{.After}}
@@ -83,7 +85,7 @@ C = Creado; D = Borrado; M = Contenido; P = Solo permisos; MP = Contenido y perm
 {{end}}{{end}}Actor:{{with .ActorLines}}{{range .}}
     {{.}}{{end}}{{else}} sin evidencia{{end}}
 Clave  Ruta
-{{end}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}
+{{end}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}{{if .BackdatedBy}}  [mtime anterior a btime]{{end}}
 {{else}}{{range .Paths}}—      {{printf "%q" .}}
 {{end}}{{end}}{{end}}`
 )

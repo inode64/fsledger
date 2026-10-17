@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -411,7 +412,11 @@ func TestInitialReconcileFailureDoesNotStopWorker(t *testing.T) {
 	cancel()
 
 	select {
-	case <-finished:
+	case err = <-finished:
+		// The final shutdown reconciliation still meets the blocked source; nothing else may fail.
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, fs.ErrPermission) {
+			t.Fatal("worker failed during shutdown", err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("worker did not honor shutdown")
 	}

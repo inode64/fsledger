@@ -4,23 +4,31 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/inode64/fsledger/internal/humanize"
+	"github.com/inode64/fsledger/internal/integrity"
 )
 
 const (
-	unknownValue  = "desconocido"
-	absentHash    = ":"
-	knownTrue     = " (known=true)"
-	knownFalse    = " (known=false)"
-	statusOpening = " ("
-	fileTypeMask  = 0o170000
+	unknownValue    = "desconocido"
+	absentHash      = ":"
+	knownTrue       = " (known=true)"
+	knownFalse      = " (known=false)"
+	statusOpening   = " ("
+	statusClosing   = ")"
+	statusAvailable = "available"
+	fileTypeMask    = 0o170000
+	// backdatedThreshold ignores clock granularity and short copy delays; real backdating spans far more.
+	backdatedThreshold = time.Hour
 )
 
-// DisplayFields renders VisibleFields for people: timestamps in local time, sizes and modes in
-// human units, the absent side of a creation or deletion as "—", and availability-only changes
-// (attributes_status, has_btime, xattrs or ACL that only became readable) left out.
-// VisibleFields, classification and stored evidence are unchanged.
+// DisplayFields renders VisibleFields for people: timestamps in local time, sizes in human units,
+// modes as ls-style permissions with the raw st_mode in hex, and the absent side of a creation or
+// deletion as "—". It leaves out what carries no evidence for a reader: has_btime (part of btime),
+// device in creations and deletions, nlink unless a regular file has more than one link, and
+// attribute readability unless reading failed. VisibleFields, classification and stored evidence
+// are unchanged.
 func (detail Detail) DisplayFields() []FieldChange {
 	return displayFields(detail.VisibleFields(), detail.Kind)
 }
@@ -30,42 +38,181 @@ func (detail Detail) DisplayBaseline() []FieldChange {
 	return displayFields(detail.VisibleBaseline(), "")
 }
 
+// BackdatedBy returns how much earlier the modification time of the current version is than its
+// birth time, or zero. Copies that keep times (tar, rsync -a, cp -p) produce it as well as a
+// backdated touch, so templates present it as a hint rather than a verdict.
+func (detail Detail) BackdatedBy() time.Duration {
+	var mtime, btime timeValue
+
+	haveMtime, haveBtime := false, false
+
+	for _, field := range detail.Fields {
+		switch field.Field {
+		case fieldMtime:
+			mtime, haveMtime = parseTime(currentValue(field, detail.Kind))
+		case fieldBtime:
+			btime, haveBtime = parseBtime(currentValue(field, detail.Kind))
+		}
+	}
+
+	if !haveMtime || !haveBtime || !btime.known || mtime.nanoseconds == 0 || btime.nanoseconds == 0 {
+		return 0
+	}
+
+	if gap := time.Duration(btime.nanoseconds - mtime.nanoseconds); gap > backdatedThreshold {
+		return gap
+	}
+
+	return 0
+}
+
 func displayFields(fields []FieldChange, kind string) []FieldChange {
+	view := fieldView{kind: kind, fileType: presentType(fields, kind), statusShown: false}
 	display := make([]FieldChange, 0, len(fields))
 
 	for _, field := range fields {
-		switch field.Field {
-		case fieldAttributesStatus, fieldHasBtime:
-			continue
-		case fieldXattrs, fieldACL:
-			if withoutStatus(field.Before) == withoutStatus(field.After) {
-				continue
-			}
+		if shown, visible := view.show(field); visible {
+			display = append(display, shown)
 		}
-
-		before, after := displayValues(field)
-
-		switch kind {
-		case changeAdded:
-			before = humanize.Absent
-		case changeDeleted:
-			after = humanize.Absent
-		}
-
-		display = append(display, FieldChange{Field: field.Field, Before: before, After: after})
 	}
 
 	return display
 }
 
-// withoutStatus drops the " (available)" style suffix that records whether attributes were readable.
-func withoutStatus(value string) string {
-	if !strings.HasSuffix(value, ")") {
-		return value
+// fieldView decides per field what a reader sees; attribute readability is reported at most once.
+type fieldView struct {
+	kind, fileType string
+	statusShown    bool
+}
+
+func (view *fieldView) show(field FieldChange) (FieldChange, bool) {
+	switch field.Field {
+	case fieldHasBtime:
+		return field, false
+	case fieldDevice:
+		// A snapshot always carries the device; only an explicitly compared change says something.
+		return presentable(field, view.kind), view.kind != changeAdded && view.kind != changeDeleted
+	case fieldNlink:
+		return presentable(field, view.kind), extraLinks(field, view.kind, view.fileType)
+	case fieldAttributesStatus:
+		return view.status(field)
+	case fieldXattrs, fieldACL:
+		beforeValue, beforeStatus := splitStatus(field.Before)
+		afterValue, afterStatus := splitStatus(field.After)
+
+		if beforeValue == afterValue {
+			// Only readability changed: report it once, and only when reading failed.
+			return view.status(FieldChange{Field: fieldAttributesStatus, Before: beforeStatus, After: afterStatus})
+		}
 	}
 
-	if before, _, found := strings.CutLast(value, statusOpening); found {
-		return before
+	return presentable(field, view.kind), true
+}
+
+func (view *fieldView) status(field FieldChange) (FieldChange, bool) {
+	if view.statusShown || !readFailed(field, view.kind) {
+		return field, false
+	}
+
+	view.statusShown = true
+
+	return presentable(field, view.kind), true
+}
+
+// presentable humanizes both values and marks the side that does not exist as absent.
+func presentable(field FieldChange, kind string) FieldChange {
+	before, after := displayValues(field)
+
+	switch kind {
+	case changeAdded:
+		before = humanize.Absent
+	case changeDeleted:
+		after = humanize.Absent
+	}
+
+	return FieldChange{Field: field.Field, Before: before, After: after}
+}
+
+// presentValues returns the values that describe an existing file version.
+func presentValues(field FieldChange, kind string) []string {
+	switch kind {
+	case changeAdded:
+		return []string{field.After}
+	case changeDeleted:
+		return []string{field.Before}
+	default:
+		return []string{field.Before, field.After}
+	}
+}
+
+// currentValue is the latest existing version: the deleted one for deletions, otherwise the new one.
+func currentValue(field FieldChange, kind string) string {
+	if kind == changeDeleted {
+		return field.Before
+	}
+
+	return field.After
+}
+
+func presentType(fields []FieldChange, kind string) string {
+	for _, field := range fields {
+		if field.Field == fieldType {
+			return unquoted(currentValue(field, kind))
+		}
+	}
+
+	return ""
+}
+
+// extraLinks reports a regular file (or one of unknown type) with more than one hard link: another
+// name shares its contents, which matters for a monitored tree. Directories always have several.
+func extraLinks(field FieldChange, kind, fileType string) bool {
+	if fileType != "" && fileType != integrity.TypeRegular {
+		return false
+	}
+
+	for _, value := range presentValues(field, kind) {
+		links, err := strconv.ParseUint(value, 10, 64)
+		if err == nil && links > 1 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// readFailed reports whether an existing version could not have its attributes read.
+func readFailed(field FieldChange, kind string) bool {
+	for _, value := range presentValues(field, kind) {
+		if status := unquoted(value); status != "" && status != statusAvailable {
+			return true
+		}
+	}
+
+	return false
+}
+
+// splitStatus separates a value from its " (available)" style readability suffix.
+func splitStatus(value string) (string, string) {
+	trimmed, found := strings.CutSuffix(value, statusClosing)
+	if !found {
+		return value, ""
+	}
+
+	before, status, found := strings.CutLast(trimmed, statusOpening)
+	if !found {
+		return value, ""
+	}
+
+	return before, status
+}
+
+// unquoted decodes a JSON string value and returns any other value unchanged.
+func unquoted(value string) string {
+	var text string
+
+	if json.Unmarshal([]byte(value), &text) == nil {
+		return text
 	}
 
 	return value
@@ -85,6 +232,8 @@ func displayValues(field FieldChange) (string, string) {
 		return displayType(field.Before), displayType(field.After)
 	case fieldHash:
 		return displayHash(field.Before), displayHash(field.After)
+	case fieldAttributesStatus:
+		return displayStatus(field.Before), displayStatus(field.After)
 	default:
 		return field.Before, field.After
 	}
@@ -178,17 +327,21 @@ func displayMode(value string) string {
 }
 
 func displayType(value string) string {
-	var kind string
-
-	if json.Unmarshal([]byte(value), &kind) != nil {
-		return value
-	}
-
+	kind := unquoted(value)
 	if kind == "" {
 		return humanize.Absent
 	}
 
 	return humanize.Printable(kind)
+}
+
+func displayStatus(value string) string {
+	status := unquoted(value)
+	if status == "" {
+		return humanize.Absent
+	}
+
+	return humanize.Printable(status)
 }
 
 func displayHash(value string) string {

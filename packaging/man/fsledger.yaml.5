@@ -228,7 +228,7 @@ Reason
 what the recovery recovered from). The time
 function formats Unix nanoseconds as UTC in RFC 3339; localtime formats them as
 YYYY-MM-DD HH:MM:SS ZONE in the server time zone, which the default templates
-and reports use. Subject and body share a 16 MiB output
+and reports use; duration renders a time span in days, hours or minutes. Subject and body share a 16 MiB output
 limit. Email uses each field directly;
 Slack sends the subject followed by the body and splits long output into parts.
 Due change and integrity notices are summarized by repository, destination and
@@ -252,9 +252,13 @@ Detail.VisibleFields and Detail.VisibleBaseline omit inode and equal
 before/after
 values. Detail.DisplayFields and Detail.DisplayBaseline render those values for
 people: timestamps with localtime, size in IEC units, mode as ls-style
-permissions with octal bits, the absent side of a creation or deletion as an em
-dash, and no attributes_status, has_btime, or xattrs and ACL whose only change
-is their availability. Detail.ActorLines returns the actor evidence as lines
+permissions followed by the raw st_mode in hexadecimal (as stat -c %f prints
+it), and the absent side of a creation or deletion as an em dash. They leave out
+has_btime, device in creations and deletions, nlink unless a regular file has
+more than one hard link, and attributes_status unless reading xattrs and ACLs
+failed. Detail.BackdatedBy returns how much earlier mtime is than btime for the
+current version (over one hour), a sign of times preserved by a copy or of a
+backdated file; the default templates and reports print it as a warning. Detail.ActorLines returns the actor evidence as lines
 without the detection method or the Git change trailer, with control
 characters escaped; Detail.Detection returns the detection method and
 Message.CommonDetection the method shared by every detail, or nothing when
