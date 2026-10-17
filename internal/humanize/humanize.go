@@ -1,0 +1,192 @@
+// Package humanize formats stored evidence for people. It never changes the evidence itself:
+// callers keep the raw values and use these helpers only when rendering messages.
+package humanize
+
+import (
+	"fmt"
+	"strconv"
+	"time"
+	"unicode"
+	"unicode/utf8"
+)
+
+// Absent marks a value that does not exist, such as the previous state of a created file.
+const Absent = "—"
+
+const (
+	timeLayout        = "2006-01-02 15:04:05 MST"
+	preciseTimeLayout = "2006-01-02 15:04:05.000000000 MST"
+	sizeUnit          = 1024
+	permissionBits    = 0o7777
+)
+
+// Time renders Unix nanoseconds in the local time zone with second precision. Zero means absent.
+func Time(nanoseconds int64) string {
+	return format(nanoseconds, timeLayout)
+}
+
+// PreciseTime keeps the nanoseconds, for differences that a second-precision rendering would hide.
+func PreciseTime(nanoseconds int64) string {
+	return format(nanoseconds, preciseTimeLayout)
+}
+
+func format(nanoseconds int64, layout string) string {
+	if nanoseconds == 0 {
+		return Absent
+	}
+
+	//nolint:gosmopolitan // Alerts are read by the server's operators, in the server's time zone.
+	return time.Unix(0, nanoseconds).Local().Format(layout)
+}
+
+// Size renders a byte count with IEC units and one decimal above one KiB.
+func Size(bytes int64) string {
+	if bytes < sizeUnit && bytes > -sizeUnit {
+		return strconv.FormatInt(bytes, 10) + " B"
+	}
+
+	value := float64(bytes)
+	units := []string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
+	unit := 0
+
+	for value /= sizeUnit; (value >= sizeUnit || value <= -sizeUnit) && unit < len(units)-1; value /= sizeUnit {
+		unit++
+	}
+
+	return strconv.FormatFloat(value, 'f', 1, 64) + " " + units[unit]
+}
+
+// File type and special bits of st_mode, as defined by POSIX and used by Linux.
+const (
+	typeMask    = 0o170000
+	typeSocket  = 0o140000
+	typeSymlink = 0o120000
+	typeRegular = 0o100000
+	typeBlock   = 0o060000
+	typeDir     = 0o040000
+	typeChar    = 0o020000
+	typeFIFO    = 0o010000
+	setUID      = 0o4000
+	setGID      = 0o2000
+	sticky      = 0o1000
+	ownerExec   = 0o100
+	groupExec   = 0o010
+	otherExec   = 0o001
+)
+
+// Positions of the execute letters in "-rwxrwxrwx".
+const (
+	ownerExecIndex = 3
+	groupExecIndex = 6
+	otherExecIndex = 9
+	symbolicLength = 10
+	classBits      = 3
+	ownerShift     = 2 * classBits
+)
+
+// Mode renders a raw st_mode as ls-style permissions followed by the octal permission bits.
+// Zero means absent.
+func Mode(mode uint32) string {
+	if mode == 0 {
+		return Absent
+	}
+
+	const rwx = "rwx"
+
+	text := make([]byte, 0, symbolicLength)
+	text = append(text, typeLetter(mode))
+
+	for shift := ownerShift; shift >= 0; shift -= classBits {
+		for bit := range classBits {
+			if mode&(1<<(shift+classBits-1-bit)) != 0 {
+				text = append(text, rwx[bit])
+			} else {
+				text = append(text, '-')
+			}
+		}
+	}
+
+	special(text, ownerExecIndex, mode&setUID != 0, mode&ownerExec != 0, 's')
+	special(text, groupExecIndex, mode&setGID != 0, mode&groupExec != 0, 's')
+	special(text, otherExecIndex, mode&sticky != 0, mode&otherExec != 0, 't')
+
+	return fmt.Sprintf("%s (%04o)", text, mode&permissionBits)
+}
+
+func typeLetter(mode uint32) byte {
+	switch mode & typeMask {
+	case typeRegular:
+		return '-'
+	case typeDir:
+		return 'd'
+	case typeSymlink:
+		return 'l'
+	case typeChar:
+		return 'c'
+	case typeBlock:
+		return 'b'
+	case typeFIFO:
+		return 'p'
+	case typeSocket:
+		return 's'
+	default:
+		return '?'
+	}
+}
+
+// special overlays setuid, setgid or sticky on the execute position, as ls does.
+func special(text []byte, index int, set, executable bool, letter byte) {
+	if !set {
+		return
+	}
+
+	if executable {
+		text[index] = letter
+	} else {
+		text[index] = letter - 'a' + 'A'
+	}
+}
+
+// Printable escapes control characters, invalid UTF-8 and backslashes with Go string-literal
+// notation, so process-controlled text cannot add lines to a message or hide characters.
+func Printable(text string) string {
+	if isPlain(text) {
+		return text
+	}
+
+	escaped := make([]byte, 0, len(text)+len(text)/4)
+
+	for index := 0; index < len(text); {
+		char, size := utf8.DecodeRuneInString(text[index:])
+
+		switch {
+		case char == utf8.RuneError && size == 1:
+			escaped = fmt.Appendf(escaped, `\x%02x`, text[index])
+		case char == '\\':
+			escaped = append(escaped, `\\`...)
+		case !unicode.IsPrint(char):
+			quoted := strconv.QuoteRune(char)
+			escaped = append(escaped, quoted[1:len(quoted)-1]...)
+		default:
+			escaped = utf8.AppendRune(escaped, char)
+		}
+
+		index += size
+	}
+
+	return string(escaped)
+}
+
+func isPlain(text string) bool {
+	if !utf8.ValidString(text) {
+		return false
+	}
+
+	for _, char := range text {
+		if char == '\\' || !unicode.IsPrint(char) {
+			return false
+		}
+	}
+
+	return true
+}

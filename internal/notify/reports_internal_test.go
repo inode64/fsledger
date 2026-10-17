@@ -42,7 +42,7 @@ func TestReportRenderingPreservesEvidenceAndIdentity(t *testing.T) {
 
 	for _, required := range []string{
 		"cobertura incompleta", "continúa", "Un resumen opcional", `invalid-\xff\nname`,
-		"last-head", "observed", `"600" -> "644"`,
+		"last-head", "observed", "mode: 600 -> 644",
 	} {
 		if !strings.Contains(first.body, required) {
 			t.Fatal("missing evidence", required, first.body)

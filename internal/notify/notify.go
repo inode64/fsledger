@@ -41,11 +41,16 @@ const (
 	binarySearchDivisor  = 2
 	defaultSubject       = `fsledger {{.Host}} / {{.Repository}}: {{.Event}} ` +
 		`({{.Count}}: +{{.Added}} ~{{.Modified}} -{{.Deleted}})`
+	// Up to 250 paths every detail is listed with its fields. Larger summaries (plugin or core
+	// updates) list every path grouped by actor and change ID without per-path fields, so one email
+	// carries up to digestMaxPaths paths instead of being split every few hundred. Stored evidence
+	// is unchanged either way.
 	defaultBody = `Servidor: {{.Host}} ({{.Hostname}})
 Observaciones: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})
 {{if .ChangeID}}Cambio: {{.ChangeID}}
+{{end}}{{with .CommonDetection}}Detección: {{.}}
 {{end}}{{if .Reason}}Motivo: {{.Reason}}
-{{end}}
+{{end}}{{if le .Count 250}}
 Elementos cambiados
 Clave  Ruta
 {{range .Details}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}
@@ -58,12 +63,28 @@ Detalle de cambios
 {{range .Details}}
 Ruta: {{printf "%q" .Path}} / {{.Code}}
 {{if .ChangeID}}ID de cambio: {{.ChangeID}}
-{{end}}Observado: {{time .Observed}}
-Actor: {{printf "%q" .Actor}}
-{{range .VisibleFields}}{{.Field}}: {{.Before}} -> {{.After}}
+{{end}}Observado: {{localtime .Observed}}
+{{if not $.CommonDetection}}{{with .Detection}}Detección: {{.}}
+{{end}}{{end}}Actor:{{with .ActorLines}}{{range .}}
+    {{.}}{{end}}{{else}} sin evidencia{{end}}
+{{range .DisplayFields}}{{.Field}}: {{.Before}} -> {{.After}}
 {{else}}Sin diferencias de campos visibles.
-{{end}}{{with .VisibleBaseline}}Comparación con referencia aprobada:
+{{end}}{{with .DisplayBaseline}}Comparación con referencia aprobada:
 {{range .}}{{.Field}}: {{.Before}} -> {{.After}}
+{{end}}{{end}}{{end}}{{else}}
+Elementos cambiados, agrupados por actor
+Más de 250 rutas: se omite el detalle de campos por ruta; el catálogo conserva la evidencia completa.
+C = Creado; D = Borrado; M = Contenido; P = Solo permisos; MP = Contenido y permisos.
+— = Otros metadatos o sin evidencia suficiente para clasificar.
+{{$actor := "\x00"}}{{$change := "\x00"}}{{range .Details}}
+{{- if or (ne .Actor $actor) (ne .ChangeID $change)}}{{$actor = .Actor}}{{$change = .ChangeID}}
+{{if .ChangeID}}ID de cambio: {{.ChangeID}}
+{{end}}{{if not $.CommonDetection}}{{with .Detection}}Detección: {{.}}
+{{end}}{{end}}Actor:{{with .ActorLines}}{{range .}}
+    {{.}}{{end}}{{else}} sin evidencia{{end}}
+Clave  Ruta
+{{end}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}
+{{else}}{{range .Paths}}—      {{printf "%q" .}}
 {{end}}{{end}}{{end}}`
 )
 
