@@ -10,7 +10,28 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/inode64/fsledger/internal/catalog"
+	"github.com/inode64/fsledger/internal/event"
+	"github.com/inode64/fsledger/internal/watcher"
 )
+
+func TestStatusCountsWorkerAndDetectorQueues(t *testing.T) {
+	t.Parallel()
+	runner := makeWorker(t)
+	raw := event.Raw{Path: writeSource(t, runner, "file", "pending"), Time: time.Now()}
+	runner.accept(raw)
+	runner.queue.Send(raw)
+	runner.queue.Send(raw)
+
+	detector := watcher.NewQueue(1)
+	detector.Send(raw)
+	runner.watchers = []watcher.Watcher{&queuedDetector{Queue: detector}}
+	runner.saveStatus(t.Context())
+
+	if runner.status.PendingGroups != 1 || runner.status.PendingEvents != 4 {
+		t.Fatalf("status omits pending work: groups=%d events=%d",
+			runner.status.PendingGroups, runner.status.PendingEvents)
+	}
+}
 
 func TestGitStatusTimeoutDoesNotDiscardCatalogStatus(t *testing.T) {
 	t.Parallel()
