@@ -21,8 +21,9 @@ const (
 )
 
 // DisplayFields renders VisibleFields for people: timestamps in local time, sizes in human units,
-// modes as ls-style permissions with the raw st_mode in hex, and the absent side of a creation or
-// deletion as "—". It leaves out what carries no evidence for a reader: has_btime (part of btime),
+// modes as ls-style permissions with the raw st_mode in hex, UID/GID with locally resolved names,
+// and the absent side of a creation or deletion as "—". It leaves out what carries no evidence for
+// a reader: has_btime (part of btime),
 // device in creations and deletions, nlink unless a regular file has more than one link, and
 // attribute readability unless reading failed. VisibleFields, classification and stored evidence
 // are unchanged.
@@ -260,6 +261,10 @@ func displayValues(field FieldChange) (string, string) {
 		return displaySizes(field.Before, field.After)
 	case fieldMode:
 		return displayMode(field.Before), displayMode(field.After)
+	case fieldUID:
+		return displayUID(field.Before), displayUID(field.After)
+	case fieldGID:
+		return displayGID(field.Before), displayGID(field.After)
 	case fieldType:
 		return displayType(field.Before), displayType(field.After)
 	case fieldHash:
