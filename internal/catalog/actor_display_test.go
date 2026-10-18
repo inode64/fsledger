@@ -40,7 +40,7 @@ func TestActorLines(t *testing.T) {
 		{
 			name: "process", actor: actorProcess, detection: detectionFanotify,
 			want: []string{
-				"apache (81): php-fpm modified files", "User:", "  real: apache (81)", "  login: unknown",
+				"apache (81): php-fpm modified files", "User:", "  real: apache (81)",
 				"  effective: apache (81)", "Process:", "  pid: 3785335", "  start_time: 17173045",
 				"  executable: /usr/lib64/php7.4/bin/php-fpm",
 			},
@@ -64,6 +64,11 @@ func TestActorLines(t *testing.T) {
 				"  executable: /usr/bin/bash", "Attribution:", "  evidence: audit",
 			},
 		},
+		{
+			name: "known-login", actor: "  login: nataliachen (1000)\n  login: uid:12345", detection: "",
+			want: []string{"  login: nataliachen (1000)", "  login: uid:12345"},
+		},
+		{name: "missing-login", actor: "  login: \r\n", detection: "", want: nil},
 		{name: "empty", actor: "", detection: "", want: nil},
 		{name: "plain", actor: "manual verification", detection: "", want: []string{"manual verification"}},
 	} {
