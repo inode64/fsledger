@@ -79,7 +79,9 @@ func TestDefaultBodyIsReadable(t *testing.T) {
 	))
 	t.Log("\n" + body)
 
-	for _, unwanted := range []string{`\n`, `\"`, "backend:", "attributes_status", "xattrs", "acl:", "T08:17"} {
+	for _, unwanted := range []string{
+		`\n`, `\"`, "backend:", "attributes_status", "xattrs", "acl:", "T08:17", "login: unknown",
+	} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("body still contains %q", unwanted)
 		}

@@ -20,8 +20,8 @@ const unknownActorSummary = event.Unknown + ":"
 var startTimePattern = regexp.MustCompile(`^(\s*` + regexp.QuoteMeta(event.ActorStartTime) + ` )\d+ \((.+)\)$`)
 
 // ActorLines returns the actor evidence as display lines: blank lines, the Git change trailer and
-// the detection method are dropped, the executable is unquoted when printable and every line is
-// escaped so process-controlled text cannot inject lines into a message.
+// the detection method are dropped, as is login when no identity was recorded. The executable is
+// unquoted when printable and every line is escaped so process-controlled text cannot inject lines.
 func (detail Detail) ActorLines() []string {
 	lines := strings.Split(detail.Actor, "\n")
 	unknown := strings.HasPrefix(lines[0], unknownActorSummary)
@@ -34,6 +34,8 @@ func (detail Detail) ActorLines() []string {
 
 		switch {
 		case trimmed == "":
+			continue
+		case trimmed == "login:" || trimmed == "login: "+event.Unknown:
 			continue
 		case strings.HasPrefix(trimmed, gitrepo.ChangeIDTrailer):
 			continue
