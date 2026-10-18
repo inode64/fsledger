@@ -4,14 +4,21 @@
 # than btime; ActorLines shows the actor evidence as lines; CommonDetection states the detection
 # method once when every path shares it. Up to DetailLimit paths (Detailed) every detail is
 # listed; larger summaries group paths by actor without per-path fields. Stored evidence is unchanged.
-subject: 'fsledger {{.Host}} / {{.Repository}}: {{.Event}} ({{.Count}}: +{{.Added}} ~{{.Modified}} -{{.Deleted}})'
+subject: |-
+  fsledger {{.Host}} / {{.Repository}}: {{.Event}}{{if not
+  (or (eq .Event "error") (eq .Event "recovery"))}} ({{.Count}}: +{{.Added}} ~{{.Modified}} -{{.Deleted}}){{end}}
 body: |-
   {{$common := .CommonDetection}}Servidor: {{.Host}} ({{.Hostname}})
-  Observaciones: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})
+  Repositorio: {{.Repository}}
+  {{if or (eq .Event "error") (eq .Event "recovery")}}{{if eq .Event "error"}}Estado: incidencia detectada.
+  {{else}}Estado: recuperado.
+  {{end}}{{if .ChangeID}}ID de aviso: {{.ChangeID}}
+  {{end}}{{if .Reason}}{{if eq .Event "recovery"}}Incidencia resuelta{{else}}Motivo{{end}}: {{.Reason}}
+  {{end}}{{else}}Observaciones: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})
   {{if .ChangeID}}Cambio: {{.ChangeID}}
   {{end}}{{with $common}}Detección: {{.}}
   {{end}}{{if .Reason}}Motivo: {{.Reason}}
-  {{end}}{{if .Detailed}}
+  {{end}}{{if or .Details .Paths}}{{if .Detailed}}
   Elementos cambiados
   Clave  Ruta
   {{range .Details}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}
@@ -48,4 +55,4 @@ body: |-
   Clave  Ruta
   {{end}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}{{if .BackdatedBy}}  [mtime anterior a btime]{{end}}
   {{else}}{{range .Paths}}—      {{printf "%q" .}}
-  {{end}}{{end}}{{end}}
+  {{end}}{{end}}{{end}}{{end}}{{end}}

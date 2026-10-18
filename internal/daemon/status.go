@@ -99,6 +99,8 @@ func (w *worker) saveStatus(ctx context.Context) {
 	w.status.UnstablePaths = slices.Sorted(maps.Keys(w.unstable))
 
 	w.status.PendingGroups, w.status.PendingEvents = w.manager.Pending()
+	w.status.PendingEvents += len(w.queue.Channel)
+
 	for _, detector := range w.watchers {
 		w.status.PendingEvents += len(detector.Events())
 	}

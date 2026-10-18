@@ -137,23 +137,49 @@ func TestDefaultAndExampleBodiesShowReason(t *testing.T) {
 
 	const reason = "fanotify directory left watched coverage; reconciliation required"
 
-	message := catalog.Message{
-		Repository: "display", Host: "display-host", Event: config.NotificationError, Count: 0,
-		ChangeID: "announced", Reason: reason,
-	}
-
 	sender := New(map[string]config.Template{displayExample: definition})
 	for _, name := range []string{"", displayExample} {
-		rendered, renderErr := sender.render(
-			config.Notifier{Template: name, Type: "", DSN: "", URL: "", From: "", To: nil},
-			message,
-		)
-		if renderErr != nil {
-			t.Fatal(renderErr)
-		}
+		for _, kind := range []string{config.NotificationError, config.NotificationRecovery} {
+			message := catalog.Message{
+				Repository: "display", Host: "display-host", Event: kind,
+				ChangeID: "announced", Reason: reason,
+			}
 
-		if !strings.Contains(rendered.body, "Motivo: "+reason) {
-			t.Fatalf("template %q hides the reason:\n%s", name, rendered.body)
+			rendered, renderErr := sender.render(
+				config.Notifier{Template: name, Type: "", DSN: "", URL: "", From: "", To: nil}, message,
+			)
+			if renderErr != nil {
+				t.Fatal(renderErr)
+			}
+
+			assertOperationalLayout(t, rendered, message)
 		}
+	}
+}
+
+func assertOperationalLayout(t *testing.T, rendered renderedNotification, message catalog.Message) {
+	t.Helper()
+
+	state, label := "Estado: incidencia detectada.", "Motivo: "
+	if message.Event == config.NotificationRecovery {
+		state, label = "Estado: recuperado.", "Incidencia resuelta: "
+	}
+
+	for _, want := range []string{state, label + message.Reason, "Repositorio: display", "ID de aviso: announced"} {
+		if !strings.Contains(rendered.body, want) {
+			t.Fatalf("operational notice missing %q:\n%s", want, rendered.body)
+		}
+	}
+
+	for _, unwanted := range []string{
+		"Observaciones:", "Cambio:", "Elementos cambiados", "Detalle de cambios", "C = Creado",
+	} {
+		if strings.Contains(rendered.body, unwanted) {
+			t.Fatalf("operational notice contains %q:\n%s", unwanted, rendered.body)
+		}
+	}
+
+	if strings.Contains(rendered.subject, "(0:") || !strings.Contains(rendered.subject, message.Event) {
+		t.Fatal("operational subject hides the event or shows change counters", rendered.subject)
 	}
 }

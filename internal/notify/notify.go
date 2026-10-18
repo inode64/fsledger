@@ -39,18 +39,24 @@ const (
 	digestSlackRunes     = 4 * slackPartSize
 	digestMinDeliveries  = 2
 	binarySearchDivisor  = 2
-	defaultSubject       = `fsledger {{.Host}} / {{.Repository}}: {{.Event}} ` +
-		`({{.Count}}: +{{.Added}} ~{{.Modified}} -{{.Deleted}})`
+	defaultSubject       = `fsledger {{.Host}} / {{.Repository}}: {{.Event}}` +
+		`{{if not (or (eq .Event "error") (eq .Event "recovery"))}} ` +
+		`({{.Count}}: +{{.Added}} ~{{.Modified}} -{{.Deleted}}){{end}}`
 	// Up to Message.DetailLimit paths every detail is listed with its fields. Larger summaries (plugin
 	// or core updates) list every path grouped by actor and change ID without per-path fields, so one
 	// email carries up to digestMaxPaths paths instead of being split every few hundred. The shared
 	// detection method is computed once per message. Stored evidence is unchanged either way.
 	defaultBody = `{{$common := .CommonDetection}}Servidor: {{.Host}} ({{.Hostname}})
-Observaciones: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})
+Repositorio: {{.Repository}}
+{{if or (eq .Event "error") (eq .Event "recovery")}}{{if eq .Event "error"}}Estado: incidencia detectada.
+{{else}}Estado: recuperado.
+{{end}}{{if .ChangeID}}ID de aviso: {{.ChangeID}}
+{{end}}{{if .Reason}}{{if eq .Event "recovery"}}Incidencia resuelta{{else}}Motivo{{end}}: {{.Reason}}
+{{end}}{{else}}Observaciones: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})
 {{if .ChangeID}}Cambio: {{.ChangeID}}
 {{end}}{{with $common}}Detección: {{.}}
 {{end}}{{if .Reason}}Motivo: {{.Reason}}
-{{end}}{{if .Detailed}}
+{{end}}{{if or .Details .Paths}}{{if .Detailed}}
 Elementos cambiados
 Clave  Ruta
 {{range .Details}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}
@@ -87,7 +93,7 @@ C = Creado; D = Borrado; M = Contenido; P = Solo permisos; MP = Contenido y perm
 Clave  Ruta
 {{end}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}{{if .BackdatedBy}}  [mtime anterior a btime]{{end}}
 {{else}}{{range .Paths}}—      {{printf "%q" .}}
-{{end}}{{end}}{{end}}`
+{{end}}{{end}}{{end}}{{end}}{{end}}`
 )
 
 var errLocalRateLimit = errors.New("slack delivery rate limited")
