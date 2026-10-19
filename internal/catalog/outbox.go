@@ -99,6 +99,22 @@ func deliveryDue(delivery Delivery) []byte {
 
 // enqueueNow persists a delivery; enqueue has already dropped events that are not enabled.
 func (store *Store) enqueueNow(transaction *transaction, event, identifier, reason string, details []Detail) {
+	message := store.notificationMessage(event, identifier, reason, details)
+	for _, route := range store.notificationRoutes() {
+		transaction.enqueueDelivery(message, route.Destination, route.Version,
+			store.notificationDue(route.Destination, event, store.now()))
+	}
+}
+
+func (store *Store) enqueueNowTo(
+	transaction *transaction, event, identifier string, details []Detail, route notificationRoute,
+) {
+	message := store.notificationMessage(event, identifier, "", details)
+	transaction.enqueueDelivery(message, route.Destination, route.Version,
+		store.notificationDue(route.Destination, event, store.now()))
+}
+
+func (store *Store) notificationMessage(event, identifier, reason string, details []Detail) Message {
 	paths := make([]string, len(details))
 	for index := range details {
 		paths[index] = string(details[index].Path)
@@ -110,7 +126,7 @@ func (store *Store) enqueueNow(transaction *transaction, event, identifier, reas
 		hostname = ""
 	}
 
-	message := Message{
+	return Message{
 		Report:     nil,
 		Repository: store.Repository,
 		Host:       store.Host,
@@ -121,10 +137,6 @@ func (store *Store) enqueueNow(transaction *transaction, event, identifier, reas
 		Paths:      paths,
 		Count:      len(details),
 		Details:    details,
-	}
-	for _, destination := range store.Notifications.Use {
-		transaction.enqueueDelivery(message, destination, store.versions[destination],
-			store.notificationDue(destination, event, store.now()))
 	}
 }
 

@@ -61,7 +61,9 @@ func (store *Store) Reconcile(
 	store.operation.Lock()
 	defer store.operation.Unlock()
 
-	return store.reconcile(ctx, scanner, roots, matcher, full, actor, identifier)
+	return store.withNotificationOperation(ctx, identifier, func(operationID string) (Result, error) {
+		return store.reconcile(ctx, scanner, roots, matcher, full, actor, operationID)
+	})
 }
 
 func (store *Store) beginOperation(ctx context.Context, scan bool) error {
@@ -299,12 +301,14 @@ func (store *Store) Observe(
 		return Result{}, rootErr
 	}
 
-	operationErr2 := store.beginOperation(ctx, false)
-	if operationErr2 != nil {
-		return Result{}, operationErr2
-	}
+	return store.withNotificationOperation(ctx, identifier, func(operationID string) (Result, error) {
+		err := store.beginOperation(ctx, false)
+		if err != nil {
+			return Result{}, err
+		}
 
-	return store.observePaths(ctx, scanner, paths, roots, matcher, actor, observationResult(identifier))
+		return store.observePaths(ctx, scanner, paths, roots, matcher, actor, observationResult(operationID))
+	})
 }
 
 func observationResult(identifier string) Result {

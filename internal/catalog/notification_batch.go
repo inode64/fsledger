@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"cmp"
 	"encoding/json"
 	"maps"
 	"slices"
@@ -19,6 +20,25 @@ type notificationBatch struct {
 	bytes      int
 }
 
+type notificationRoute struct {
+	Destination string `json:"destination"`
+	Version     string `json:"version"`
+}
+
+type notificationBatchKey struct {
+	route notificationRoute
+	event string
+}
+
+func (store *Store) notificationRoutes() []notificationRoute {
+	routes := make([]notificationRoute, 0, len(store.Notifications.Use))
+	for _, destination := range store.Notifications.Use {
+		routes = append(routes, notificationRoute{Destination: destination, Version: store.versions[destination]})
+	}
+
+	return routes
+}
+
 func (store *Store) notifies(event string) bool {
 	return len(store.Notifications.Use) > 0 && slices.Contains(store.Notifications.Events, event)
 }
@@ -34,18 +54,35 @@ func (store *Store) enqueue(transaction *transaction, event, identifier string, 
 		return
 	}
 
-	if transaction.notifications == nil {
-		transaction.notifications = make(map[string]notificationBatch)
+	routes := store.notificationRoutes()
+	for _, detail := range details {
+		for _, route := range routes {
+			store.enqueueTo(transaction, event, identifier, detail, route)
+		}
+	}
+}
+
+// Routes already frozen with inventory evidence bypass current subscription
+// settings. Recovery must not discard or redirect a previously observed change.
+func (store *Store) enqueueTo(
+	transaction *transaction, event, identifier string, detail Detail, route notificationRoute,
+) {
+	if store.Notifications.BatchWindow <= 0 {
+		store.enqueueNowTo(transaction, event, identifier, []Detail{detail}, route)
+
+		return
 	}
 
-	for _, detail := range details {
-		transaction.batchNotification(event, identifier, detail)
+	if transaction.notifications == nil {
+		transaction.notifications = make(map[notificationBatchKey]notificationBatch)
 	}
+
+	transaction.batchNotification(event, identifier, detail, route)
 }
 
 // Only combine unpublished records within this transaction. A delivery already
 // handed to a sender is immutable, so its acknowledgement cannot erase new evidence.
-func (transaction *transaction) batchNotification(event, identifier string, detail Detail) {
+func (transaction *transaction) batchNotification(event, identifier string, detail Detail, route notificationRoute) {
 	detail.ChangeID = identifier
 
 	encoded, err := json.Marshal(detail)
@@ -55,14 +92,16 @@ func (transaction *transaction) batchNotification(event, identifier string, deta
 		return
 	}
 
-	batch, exists := transaction.notifications[event]
+	key := notificationBatchKey{event: event, route: route}
+
+	batch, exists := transaction.notifications[key]
 	if !exists {
 		batch = notificationBatch{identifier: identifier, details: nil, bytes: 0}
 	}
 
 	if len(batch.details) >= notificationBatchPaths ||
 		(len(batch.details) > 0 && batch.bytes+len(encoded) > notificationBatchBytes) {
-		transaction.store.enqueueNow(transaction, event, batch.identifier, "", batch.details)
+		transaction.store.enqueueNowTo(transaction, event, batch.identifier, batch.details, route)
 		batch.details, batch.bytes, batch.identifier = nil, 0, identifier
 	}
 
@@ -72,13 +111,20 @@ func (transaction *transaction) batchNotification(event, identifier string, deta
 
 	batch.details = append(batch.details, detail)
 	batch.bytes += len(encoded)
-	transaction.notifications[event] = batch
+	transaction.notifications[key] = batch
 }
 
 func (transaction *transaction) flushNotifications() {
-	for _, event := range slices.Sorted(maps.Keys(transaction.notifications)) {
-		batch := transaction.notifications[event]
-		transaction.store.enqueueNow(transaction, event, batch.identifier, "", batch.details)
+	keys := slices.SortedFunc(maps.Keys(transaction.notifications), func(first, second notificationBatchKey) int {
+		return cmp.Or(
+			cmp.Compare(first.event, second.event),
+			cmp.Compare(first.route.Destination, second.route.Destination),
+			cmp.Compare(first.route.Version, second.route.Version),
+		)
+	})
+	for _, key := range keys {
+		batch := transaction.notifications[key]
+		transaction.store.enqueueNowTo(transaction, key.event, batch.identifier, batch.details, key.route)
 	}
 
 	transaction.notifications = nil
