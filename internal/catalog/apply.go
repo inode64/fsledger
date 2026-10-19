@@ -67,16 +67,16 @@ func (store *Store) apply(
 	return changed, violations, transaction.commit()
 }
 
-func differences(previous, current integrity.Record, oldData, data []byte, selected []string) []string {
-	if oldData == nil && data == nil {
+func differences(previous, current integrity.Record, previousExists, currentExists bool, selected []string) []string {
+	if !previousExists && !currentExists {
 		return nil
 	}
 
-	if oldData == nil {
+	if !previousExists {
 		return []string{changeAdded}
 	}
 
-	if data == nil {
+	if !currentExists {
 		return []string{changeDeleted}
 	}
 
@@ -136,7 +136,13 @@ func (store *Store) compare(transaction *transaction, update mutation) (comparis
 		}
 	}
 
-	result.fields = differences(result.previous, record, result.oldData, result.currentData, store.Policy.Compare)
+	result.fields = differences(
+		result.previous,
+		record,
+		result.oldData != nil,
+		result.currentData != nil,
+		store.Policy.Compare,
+	)
 
 	result.old, result.pendingExists, err = readPending(transaction.batch, record.Path)
 	if err != nil {
@@ -157,8 +163,8 @@ func (store *Store) compare(transaction *transaction, update mutation) (comparis
 		result.baselineFields = differences(
 			result.baseline,
 			record,
-			result.baselineData,
-			result.currentData,
+			result.baselineData != nil,
+			result.currentData != nil,
 			store.Policy.Compare,
 		)
 	}
@@ -192,14 +198,8 @@ func (store *Store) applyOne(
 		(!compared.pendingExists || changed || !slices.Equal(compared.old.Fields, compared.baselineFields))
 
 	token := store.setPending(
-		transaction,
-		record.Path,
-		compared.old,
-		compared.pendingExists,
-		identifier,
-		changeKind(compared.baselineFields),
-		compared.baselineFields,
-		violation,
+		transaction, record.Path, compared.old, compared.pendingExists, identifier,
+		changeKind(compared.baselineFields), compared.baselineFields, violation,
 	)
 
 	err = store.announceChange(
@@ -213,6 +213,11 @@ func (store *Store) applyOne(
 		changed,
 		violation,
 	)
+	if err != nil {
+		return false, false, err
+	}
+
+	err = store.refreshStagedObservation(transaction, record, &compared, identifier)
 	if err != nil {
 		return false, false, err
 	}
@@ -420,10 +425,17 @@ func (store *Store) announceChange(
 ) error {
 	report := store.reports.Enabled && (changed || violation)
 	reportViolation := violation
-	changed = changed && store.notifies(config.NotificationChange) && !store.ignored(ctx, record.Path)
+	notifyChange := changed && store.notifies(config.NotificationChange)
+
+	var notification changeNotification
+
+	if notifyChange {
+		notification.deliver = !store.ignored(ctx, record.Path)
+		notification.stage = store.notificationOperation == identifier
+	}
 
 	violation = violation && store.notifies(config.NotificationIntegrityViolation)
-	if !report && !changed && !violation {
+	if !report && !notification.deliver && !notification.stage && !violation {
 		return nil
 	}
 
@@ -442,8 +454,9 @@ func (store *Store) announceChange(
 		}
 	}
 
-	if changed {
-		store.enqueue(transaction, config.NotificationChange, identifier, []Detail{detail})
+	err = store.enqueueObservedChange(transaction, record, compared, detail, identifier, notification)
+	if err != nil {
+		return err
 	}
 
 	if violation {

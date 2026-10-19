@@ -119,7 +119,7 @@ linters:
     exhaustive:
       check:
         - switch
-        - mapliteral
+        - map
       default-signifies-exhaustive: false
     fatcontext:
       check-struct-pointers: true

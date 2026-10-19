@@ -25,20 +25,21 @@ import (
 )
 
 const (
-	catalogFormat    = "fsledger-pebble-protobuf-snappy-1"
-	currentPrefix    = "e/"
-	seenPrefix       = "s/"
-	pendingPrefix    = "p/"
-	tokenPrefix      = "t/"
-	approvalPrefix   = "a/"
-	hashPrefix       = "h/"
-	intentPrefix     = "i/"
-	outboxPrefix     = "o/"
-	duePrefix        = "d/"
-	stateKey         = "meta/state"
-	formatKey        = "meta/format"
-	sharedCacheBytes = 32 << 20
-	memtableBytes    = 512 << 10
+	catalogFormat           = "fsledger-pebble-protobuf-snappy-1"
+	currentPrefix           = "e/"
+	seenPrefix              = "s/"
+	pendingPrefix           = "p/"
+	tokenPrefix             = "t/"
+	approvalPrefix          = "a/"
+	hashPrefix              = "h/"
+	intentPrefix            = "i/"
+	outboxPrefix            = "o/"
+	duePrefix               = "d/"
+	notificationStagePrefix = "n/"
+	stateKey                = "meta/state"
+	formatKey               = "meta/format"
+	sharedCacheBytes        = 32 << 20
+	memtableBytes           = 512 << 10
 	// Pebble charges a store's memtables to its cache: the mutable one and the arena kept for recycling.
 	storeMemtableBytes = 2 * memtableBytes
 	maximumByte        = 0xff
@@ -101,28 +102,29 @@ func releaseCache() { caches.release() }
 
 // Store serializes writes per repository; scans and approvals share a separate operation lock.
 type Store struct {
-	reportCalendar    *reportclock.Schedule
-	now               func() time.Time
-	ignore            *filter.Matcher
-	copiedHashes      integrity.HashSource
-	database          *pebble.DB
-	versions          map[string]string
-	windows           map[string]notificationWindow
-	policyFields      []string
-	policyAlgorithm   string
-	policyDigest      string
-	reportHead        string
-	Repository        string
-	Host              string
-	Policy            config.Integrity
-	reports           config.Reports
-	Notifications     config.Notifications
-	state             diskState
-	mutex             sync.Mutex
-	operation         sync.Mutex
-	scanActive        bool
-	replacingBaseline bool
-	policyDirectories bool
+	reportCalendar        *reportclock.Schedule
+	now                   func() time.Time
+	ignore                *filter.Matcher
+	copiedHashes          integrity.HashSource
+	database              *pebble.DB
+	versions              map[string]string
+	windows               map[string]notificationWindow
+	policyFields          []string
+	policyAlgorithm       string
+	policyDigest          string
+	reportHead            string
+	notificationOperation string
+	Repository            string
+	Host                  string
+	Policy                config.Integrity
+	reports               config.Reports
+	Notifications         config.Notifications
+	state                 diskState
+	mutex                 sync.Mutex
+	operation             sync.Mutex
+	scanActive            bool
+	replacingBaseline     bool
+	policyDirectories     bool
 }
 
 // Stats describes live state, never cumulative change history.
@@ -363,7 +365,7 @@ func readRecord(source reader, prefix string, path []byte) (integrity.Record, []
 }
 
 type transaction struct {
-	notifications map[string]notificationBatch
+	notifications map[notificationBatchKey]notificationBatch
 	err           error
 	store         *Store
 	batch         *pebble.Batch
