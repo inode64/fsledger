@@ -94,7 +94,7 @@ func decode(columns, values []string, algorithm string, hashSize int) (Entry, er
 		mask = value
 	} else {
 		for _, column := range columns {
-			mask |= attributeBit(column)
+			mask |= attributeBits[column]
 		}
 	}
 
@@ -125,7 +125,7 @@ func (entry *Entry) decodeMetadata(fields map[string]string, mask uint64) error 
 		}
 
 		// AIDE always writes the actual inode and mode, even when their comparison bits are unset.
-		if column != columnName && column != fieldPerm && column != fieldInode && mask&attributeBit(column) == 0 {
+		if column != columnName && column != fieldPerm && column != fieldInode && mask&attributeBits[column] == 0 {
 			continue
 		}
 
@@ -152,7 +152,7 @@ func (entry *Entry) decodeMetadata(fields map[string]string, mask uint64) error 
 
 func (entry *Entry) decodeHash(fields map[string]string, mask uint64, algorithm string, hashSize int) error {
 	value, exists := fields[algorithm]
-	if !exists || value == "0" || mask&attributeBit(algorithm) == 0 || entry.Record.Type != integrity.TypeRegular {
+	if !exists || value == "0" || mask&attributeBits[algorithm] == 0 || entry.Record.Type != integrity.TypeRegular {
 		return nil
 	}
 
@@ -183,8 +183,6 @@ var attributeBits = func() map[string]uint64 {
 
 	return bits
 }()
-
-func attributeBit(name string) uint64 { return attributeBits[name] }
 
 func fieldName(column string) string {
 	switch column {
