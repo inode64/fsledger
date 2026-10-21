@@ -11,6 +11,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/inode64/fsledger/internal/config"
+	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/fault"
 	gitrepo "github.com/inode64/fsledger/internal/git"
 	"github.com/inode64/fsledger/internal/redact"
@@ -58,7 +59,19 @@ func (manager *Manager) Session(repo *config.Repository) (*Session, error) {
 		return nil, err
 	}
 
-	return manager.session(repo.IACommit, repo.IAInclude)
+	// Validation normalizes as exclusions do; selection must match what it accepted.
+	include := make([]string, 0, len(repo.IAInclude))
+
+	for _, pattern := range repo.IAInclude {
+		selection, err := exclude.Selection(pattern)
+		if err != nil {
+			return nil, err
+		}
+
+		include = append(include, selection)
+	}
+
+	return manager.session(repo.IACommit, include)
 }
 
 func (manager *Manager) session(names, include []string) (*Session, error) {

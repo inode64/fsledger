@@ -35,6 +35,35 @@ func TestNewNormalizesSeparatorsCleanPathsNeverContain(t *testing.T) {
 	}
 }
 
+func TestSelectionNamesDirectoryContents(t *testing.T) {
+	t.Parallel()
+
+	for pattern, want := range map[string]string{
+		// Only a trailing slash names a directory whose contents an allowlist selects.
+		"/etc/":       "/etc/**",
+		"//etc//app/": "/etc/app/**",
+		"**/conf.d/":  "**/conf.d/**",
+		"/":           "/**",
+		// Other patterns only collapse "//"; an escaped separator names no directory.
+		"/etc":         "/etc",
+		"/etc/*.conf":  "/etc/*.conf",
+		"/srv//a.conf": "/srv/a.conf",
+		`/etc\/`:       `/etc\/`,
+	} {
+		got, err := exclude.Selection(pattern)
+		if err != nil || got != want {
+			t.Errorf("%q: got %q, %v; want %q", pattern, got, err, want)
+		}
+	}
+
+	for _, pattern := range []string{"/etc/../shadow", "/etc/./", "", "/etc/["} {
+		_, err := exclude.Selection(pattern)
+		if err == nil {
+			t.Errorf("%q accepted", pattern)
+		}
+	}
+}
+
 func TestNewRejectsDotComponents(t *testing.T) {
 	t.Parallel()
 

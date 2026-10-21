@@ -65,6 +65,23 @@ func normalize(pattern string) (string, error) {
 	return clean, nil
 }
 
+// Selection normalizes an allowlist pattern as New does, for doublestar to match
+// complete paths. An allowlist has no ancestor rule, so a matching directory's
+// contents stay unselected unless a trailing slash names the directory: it then
+// becomes "dir/**", the directory and everything below it.
+func Selection(pattern string) (string, error) {
+	clean, err := normalize(pattern)
+	if err != nil {
+		return "", err
+	}
+
+	if parts := components(pattern); len(parts) > 1 && parts[len(parts)-1] == "" {
+		clean = strings.TrimSuffix(clean, "/") + "/**"
+	}
+
+	return clean, nil
+}
+
 // components splits at separators. A backslash escapes the next byte, so an
 // escaped separator stays inside its component as written.
 func components(pattern string) []string {
