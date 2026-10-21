@@ -114,8 +114,9 @@ func (c *Config) validateRepository(name string, seen []string) error {
 		return err
 	}
 
+	reserved := effective.InternalPaths()
 	for index, path := range repo.Paths {
-		err := effective.validateSource(path, seen, repo.Paths[:index])
+		err := effective.validateSource(path, seen, repo.Paths[:index], reserved)
 		if err != nil {
 			return err
 		}
@@ -263,7 +264,7 @@ func (c *Config) validateNotifications() error {
 	return nil
 }
 
-func (c *Config) validateSource(path string, foreign, own []string) error {
+func (c *Config) validateSource(path string, foreign, own, reserved []string) error {
 	err := CleanAbsolute(path)
 	if err != nil {
 		return err
@@ -282,7 +283,7 @@ func (c *Config) validateSource(path string, foreign, own []string) error {
 		return fault.New("cannot watch Git metadata: " + path)
 	}
 
-	err = outsideState(path, c.InternalPaths())
+	err = outsideState(path, reserved)
 	if err != nil {
 		return err
 	}

@@ -7,7 +7,7 @@ func TestFilesystemRootRejectedBeforeStarting(t *testing.T) {
 
 	cfg := defaults()
 
-	err := cfg.validateSource("/", nil, nil)
+	err := cfg.validateSource("/", nil, nil, cfg.InternalPaths())
 	if err == nil {
 		t.Fatal("unsupported mirror root accepted")
 	}
