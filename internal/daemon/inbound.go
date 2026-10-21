@@ -239,7 +239,7 @@ func (w *worker) prepareIncoming(ctx context.Context, base, target string) error
 	w.incoming = plan
 	w.status.InboundPending = target
 	w.dirty, w.contaminated = true, true
-	w.manager.Due(time.Now(), true)
+	w.manager.Clear()
 
 	return w.resumeIncoming(ctx)
 }
@@ -388,7 +388,7 @@ func (w *worker) finishIncoming(ctx context.Context) error {
 	w.status.InboundPending, w.status.SyncBlocked, w.status.SyncConflict = "", "", ""
 	w.incoming = nil
 	w.dirty, w.contaminated = true, true
-	w.manager.Due(time.Now(), true)
+	w.manager.Clear()
 	w.logger.Info("incoming synchronization completed", "commit", w.status.InboundApplied)
 
 	return nil

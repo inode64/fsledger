@@ -6,7 +6,6 @@ import (
 	"os"
 	"slices"
 	"sync/atomic"
-	"time"
 
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/integrity"
@@ -160,7 +159,7 @@ func (w *worker) applySources(ctx context.Context) {
 	}
 
 	w.stopWatching()
-	w.manager.Due(time.Now(), true)
+	w.manager.Clear()
 	w.logger.Info("sources changed", "previous", w.roots, "current", w.nextRoots)
 
 	var removed []string
