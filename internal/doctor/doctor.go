@@ -165,7 +165,7 @@ func inspectPath(cfg *config.Config, name, path string, mount mountinfo.Mount) P
 	mode := ""
 	pidfd := false
 
-	if cfg.Watch.Backend != event.Polling && caps.Inotify.Available {
+	if caps.Inotify.Available {
 		detector = event.Inotify
 	}
 

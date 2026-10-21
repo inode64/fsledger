@@ -1,7 +1,6 @@
 package config
 
 import (
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -71,7 +70,7 @@ func (c *Config) validateStores() error {
 	var stores []string
 
 	for _, name := range c.Names() {
-		root := filepath.Join(c.Repositories[name].Storage.Path, name)
+		root := c.RepositoryPath(name)
 		for _, previous := range stores {
 			if Overlaps(root, previous) {
 				return fault.New("repository storage overlaps: " + root)
@@ -119,16 +118,6 @@ func (c *Config) validateRepository(name string, seen []string) error {
 		err := effective.validateSource(path, seen, repo.Paths[:index])
 		if err != nil {
 			return err
-		}
-	}
-
-	return nil
-}
-
-func separatePaths(path string, reserved []string) error {
-	for _, other := range reserved {
-		if other != "" && Overlaps(path, other) {
-			return fault.New("overlapping paths: " + path + " and " + other)
 		}
 	}
 
@@ -298,9 +287,8 @@ func (c *Config) validateSource(path string, foreign, own []string) error {
 		return err
 	}
 
-	err = separatePaths(path, []string{c.Logging.File})
-	if err != nil {
-		return err
+	if c.Logging.File != "" && Overlaps(path, c.Logging.File) {
+		return fault.New("overlapping paths: " + path + " and " + c.Logging.File)
 	}
 
 	for _, other := range foreign {

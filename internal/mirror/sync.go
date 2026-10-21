@@ -463,12 +463,13 @@ func (s *Sync) keepIdentical(
 		return false, err
 	}
 
-	err = unchangedSource(source, sig, "during comparison")
-	if err != nil {
-		return false, err
-	}
-
+	// An equal comparison already verified the source after reading it.
 	if !equal {
+		err = unchangedSource(source, sig, "during comparison")
+		if err != nil {
+			return false, err
+		}
+
 		_, err = source.Seek(0, io.SeekStart)
 
 		return false, fault.Wrap("rewind changed source", err)
@@ -546,11 +547,7 @@ func (s *Sync) walkSource(ctx context.Context, source string, mode copyMode, see
 		}
 
 		if s.walkExcluded(path, source) {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-
-			return nil
+			return skipDirectory(entry)
 		}
 
 		copyErr := s.copySeen(ctx, path, mode, seen)
@@ -596,11 +593,7 @@ func (s *Sync) prune(ctx context.Context, roots []string, seen map[string]bool, 
 
 		stale = append(stale, path)
 
-		if entry.IsDir() {
-			return filepath.SkipDir
-		}
-
-		return nil
+		return skipDirectory(entry)
 	})
 	if err != nil {
 		return fmt.Errorf("walk mirror: %w", err)

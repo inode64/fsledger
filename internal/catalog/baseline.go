@@ -12,11 +12,6 @@ import (
 // InitBaseline approves a complete inventory without keeping old reference versions.
 func (store *Store) InitBaseline(ctx context.Context) error { return store.freezeBaseline(ctx, false) }
 
-// ReplaceBaseline explicitly replaces the reference after a complete scan.
-func (store *Store) ReplaceBaseline(ctx context.Context) error {
-	return store.freezeBaseline(ctx, true)
-}
-
 // ScanAndReplaceBaseline permits a new policy while continuing to track differences
 // against the approved baseline. Failed scans never interpret those differences as resolved.
 func (store *Store) ScanAndReplaceBaseline(

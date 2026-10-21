@@ -50,7 +50,7 @@ func (r *Repository) Init(ctx context.Context) (bool, error) {
 		}
 	case err != nil:
 		return false, fault.Wrap("inspect Git metadata", err)
-	case !info.IsDir() || info.Mode()&os.ModeSymlink != 0:
+	case !info.IsDir():
 		return false, fault.New(".git must be a real directory")
 	}
 

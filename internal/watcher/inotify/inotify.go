@@ -85,9 +85,12 @@ func (w *Watcher) Start(ctx context.Context) error {
 		return fmt.Errorf("watch root parent: %w", err)
 	}
 
-	err = w.addTree(w.path)
-	if err != nil {
-		return err
+	// Events reach addTree only after handle applied the exclusions; the root has not been checked.
+	if !w.matcher.Match(w.path) {
+		err = w.addTree(w.path)
+		if err != nil {
+			return err
+		}
 	}
 
 	ctx, w.cancel = context.WithCancel(ctx)
@@ -115,10 +118,6 @@ func (w *Watcher) Close() error {
 }
 
 func (w *Watcher) addTree(path string) error {
-	if w.matcher.Match(path) {
-		return nil
-	}
-
 	err := filepath.WalkDir(path, func(name string, entry fs.DirEntry, err error) error {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil

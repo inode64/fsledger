@@ -85,7 +85,7 @@ func (w *worker) applyGit(ctx context.Context, paths []string, message string) e
 		return nil
 	}
 
-	err := w.mirrorOperation(ctx, func() error { return w.mirror.ApplyPaths(ctx, paths) })
+	err := w.scanner.Do(ctx, func() error { return w.mirror.ApplyPaths(ctx, paths) })
 
 	err = w.deferUnstable(err)
 	if err != nil {
@@ -150,10 +150,6 @@ func (w *worker) recordCommit(ctx context.Context, hash string) {
 	}
 }
 
-func (w *worker) mirrorOperation(ctx context.Context, operation func() error) error {
-	return w.scanner.Do(ctx, operation)
-}
-
 func (w *worker) reconcileRun(ctx context.Context, message string) error {
 	if w.initial {
 		err := w.catalog.SetInitialSnapshotPending(ctx, true)
@@ -185,7 +181,7 @@ func (w *worker) reconcileRun(ctx context.Context, message string) error {
 	}
 
 	if w.repo != nil {
-		err = w.mirrorOperation(ctx, func() error { return w.mirror.ReconcileContext(ctx) })
+		err = w.scanner.Do(ctx, func() error { return w.mirror.ReconcileContext(ctx) })
 
 		err = w.deferUnstable(err)
 		if err != nil {
@@ -274,7 +270,7 @@ func (w *worker) reconcileCatalog(ctx context.Context, message, identifier strin
 
 func (w *worker) refreshHashes(ctx context.Context, identifier, message string) error {
 	err := w.catalog.ChangedHashes(ctx, identifier, func(path string) error {
-		return w.deferUnstable(w.mirrorOperation(ctx, func() error { return w.mirror.RefreshContext(ctx, path) }))
+		return w.deferUnstable(w.scanner.Do(ctx, func() error { return w.mirror.RefreshContext(ctx, path) }))
 	})
 	if err != nil {
 		return err

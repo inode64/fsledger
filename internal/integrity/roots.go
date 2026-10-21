@@ -50,7 +50,7 @@ func (guard *RootGuard) Check(roots []string) error {
 		}
 
 		if known && (expected.device != current.device ||
-			(expected.mount != 0 && current.mount != 0 && expected.mount != current.mount)) {
+			(expected.mount != 0 && expected.mount != current.mount)) {
 			return fmt.Errorf("%w: filesystem changed at %s", ErrUnavailable, root)
 		}
 
