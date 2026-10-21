@@ -409,7 +409,8 @@ ProtectSystem=strict deliberately prevents writes to arbitrary sources.
 .PP
 The complete change set is checked before mutation. Excluded paths, paths
 outside
-the current selection, .git, submodules, hardlinks, special permission bits,
+the current selection, .git, fsledger temporary names, submodules, hardlinks,
+special permission bits,
 file capabilities and file/directory transitions are rejected. Source symlinks
 are never followed.
 The limit is 4096 changed paths and 64 MiB per file. statx mount identity must
@@ -479,6 +480,9 @@ Storage directories for all loaded repositories and runtime are always
 excluded. Source matches inside these directories are skipped and reported;
 watching their ancestors is allowed. Independent daemons need shared exclusions
 for each other's state.
+Path components named .git and names starting with .fsledger-inbound- or
+\&.fsledger-restore-, the temporaries fsledger itself creates in sources, are
+always excluded as well.
 
 .SH OPTIONAL AI COMMIT SUMMARIES
 Named AI profiles are discovered in ai/ beside the canonical main configuration.

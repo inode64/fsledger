@@ -25,6 +25,28 @@ func TestValidRelative(t *testing.T) {
 	}
 }
 
+func TestHasTemporaryComponent(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"/srv/.fsledger-inbound-ID-0", "/srv/.fsledger-restore-ABC", "srv/.fsledger-restore-ABC/file",
+		".fsledger-inbound-",
+	} {
+		if !pathutil.HasTemporaryComponent(path) {
+			t.Errorf("missed fsledger temporary %q", path)
+		}
+	}
+
+	for _, path := range []string{
+		"/srv/.FSLEDGER-RESTORE-ABC", "/srv/fsledger-restore-ABC", "/srv/x.fsledger-inbound-ID-0",
+		"/srv/.fsledger-restored", "/srv/.fsledger-inbound", "/srv/.fsledger-other-ABC", "/srv/.fsledger",
+	} {
+		if pathutil.HasTemporaryComponent(path) {
+			t.Errorf("reserved ordinary name %q", path)
+		}
+	}
+}
+
 func TestCompactRoots(t *testing.T) {
 	const child = "/a/b"
 
