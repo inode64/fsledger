@@ -179,7 +179,7 @@ func (w *worker) prepareIncoming(ctx context.Context, base, target string) error
 
 	var plan *inbound.Plan
 
-	err = w.mirrorOperation(ctx, func() error {
+	err = w.scanner.Do(ctx, func() error {
 		var prepareErr error
 
 		plan, prepareErr = inbound.Prepare(ctx, w.repo, w.roots, w.matcher, base, target, policy, differences)
@@ -278,14 +278,14 @@ func (w *worker) applyIncoming(ctx context.Context) error {
 		return incomingConflict("local HEAD changed while incoming operation was pending")
 	}
 
-	err = w.mirrorOperation(ctx, func() error {
+	err = w.scanner.Do(ctx, func() error {
 		return w.incoming.Apply(ctx, w.repo, func() error { return w.catalog.SaveIncoming(ctx, w.incoming) })
 	})
 	if err != nil {
 		return err
 	}
 
-	err = w.mirrorOperation(ctx, func() error { return w.mirror.ReconcileContext(ctx) })
+	err = w.scanner.Do(ctx, func() error { return w.mirror.ReconcileContext(ctx) })
 	if err != nil {
 		return err
 	}

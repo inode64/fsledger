@@ -106,11 +106,11 @@ func removeProbe(path string) {
 	}
 }
 
-func readReapedPIDFD(fd, pid int) (bool, error) {
-	// This isolated FD-mode group emits exactly one CLOSE_WRITE with a PIDFD record.
-	const recordSize = metadataSize + infoHeaderSize + 4
+// probeRecordSize is the single CLOSE_WRITE event with a PIDFD record that the isolated FD-mode group emits.
+const probeRecordSize = metadataSize + infoHeaderSize + 4
 
-	buffer := make([]byte, recordSize)
+func readReapedPIDFD(fd, pid int) (bool, error) {
+	buffer := make([]byte, probeRecordSize)
 
 	count, err := unix.Read(fd, buffer)
 	if err != nil {
@@ -121,7 +121,6 @@ func readReapedPIDFD(fd, pid int) (bool, error) {
 }
 
 func reapedPIDFDRecord(record []byte, pid int) (bool, error) {
-	const recordSize = metadataSize + infoHeaderSize + 4
 	if len(record) < metadataSize {
 		return false, fault.New("unexpected pidfd probe event size")
 	}
@@ -137,7 +136,7 @@ func reapedPIDFDRecord(record []byte, pid int) (bool, error) {
 	}
 	defer resource.OptionalFile(pidfd)
 
-	if len(record) != recordSize || binary.NativeEndian.Uint32(record[:4]) != recordSize ||
+	if len(record) != probeRecordSize || binary.NativeEndian.Uint32(record[:4]) != probeRecordSize ||
 		binary.NativeEndian.Uint16(record[6:8]) != metadataSize ||
 		record[4] != unix.FANOTIFY_METADATA_VERSION || signed(record[20:24]) != pid ||
 		binary.NativeEndian.Uint64(record[8:16]) != unix.FAN_CLOSE_WRITE ||

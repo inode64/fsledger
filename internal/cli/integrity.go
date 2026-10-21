@@ -296,7 +296,7 @@ func verifyInventory(
 		writer,
 		store,
 		result,
-		command == commandVerify && repo.Integrity.Reference == commandBaseline,
+		command == commandVerify && repo.Integrity.Reference == config.ReferenceBaseline,
 	)
 }
 

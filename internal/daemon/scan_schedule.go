@@ -118,10 +118,6 @@ func (w *worker) prepareScanSchedule(now time.Time) error {
 }
 
 func (w *worker) checkScanSchedule(now time.Time) {
-	if w.scans == nil {
-		return
-	}
-
 	ordinary, full := w.scans.ordinary.due(now), w.scans.full.due(now)
 	if ordinary || full {
 		w.refreshSources()
@@ -137,12 +133,10 @@ func (w *worker) checkScanSchedule(now time.Time) {
 }
 
 func (w *worker) updateScanSchedule() {
-	if w.scans != nil {
-		w.status.Scan.Next = w.scans.ordinary.next
-		w.status.Scan.NextFull = w.scans.full.next
-		w.status.Scan.Skipped = w.scans.ordinary.skipped + w.scans.full.skipped
-		w.status.Scan.SkippedApproximate = w.scans.ordinary.approximate || w.scans.full.approximate
-	}
+	w.status.Scan.Next = w.scans.ordinary.next
+	w.status.Scan.NextFull = w.scans.full.next
+	w.status.Scan.Skipped = w.scans.ordinary.skipped + w.scans.full.skipped
+	w.status.Scan.SkippedApproximate = w.scans.ordinary.approximate || w.scans.full.approximate
 }
 
 func (w *worker) scheduledPolling() bool {

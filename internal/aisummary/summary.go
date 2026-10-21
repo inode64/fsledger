@@ -100,9 +100,7 @@ func (session *Session) Summarize(
 	defer release()
 
 	// Patches depend on the staged blobs and the shared masker, not on the provider: a fallback reuses them.
-	patches := &preparedPatches{patches: nil, omitted: 0}
-
-	err := session.prepare(ctx, repo, versions, patches)
+	patches, err := session.prepare(ctx, repo, versions)
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", statusTimeout
@@ -162,8 +160,7 @@ func (session *Session) prepare(
 	ctx context.Context,
 	repo *gitrepo.Repository,
 	versions map[string]string,
-	prepared *preparedPatches,
-) error {
+) (*preparedPatches, error) {
 	paths := make([]string, 0, len(versions))
 	for path := range versions {
 		if session.selected(path) {
@@ -173,22 +170,22 @@ func (session *Session) prepare(
 
 	sort.Strings(paths)
 
-	prepared.patches, prepared.omitted = nil, max(0, len(paths)-maxFiles)
+	prepared := &preparedPatches{patches: nil, omitted: max(0, len(paths)-maxFiles)}
 
 	for _, path := range paths[:min(len(paths), maxFiles)] {
 		if ctx.Err() != nil {
-			return fault.Wrap("prepare AI diff", ctx.Err())
+			return nil, fault.Wrap("prepare AI diff", ctx.Err())
 		}
 
 		patch, masked, err := maskedPatch(ctx, repo, path, versions[path], session.masker)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		prepared.patches = append(prepared.patches, preparedPatch{text: patch, masked: masked})
 	}
 
-	return nil
+	return prepared, nil
 }
 
 func (prepared *preparedPatches) bounded(limit int) *patchBuilder {

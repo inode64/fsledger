@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -216,10 +215,8 @@ func (w *worker) resolveProcess(ctx context.Context, raw event.Raw) event.Raw {
 		}
 	}
 
-	if raw.PIDFD != nil {
-		resource.Close(raw.PIDFD)
-		raw.PIDFD = nil
-	}
+	resource.OptionalFile(raw.PIDFD)
+	raw.PIDFD = nil
 
 	return raw
 }
@@ -265,8 +262,7 @@ func (w *worker) loseAttribution(reason string) {
 }
 
 func (w *worker) finishShutdown(ctx, shutdown context.Context, err error) error {
-	if err != nil && ctx.Err() != nil && shutdown.Err() != nil &&
-		(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+	if stoppedBy(shutdown, err) {
 		w.warn("shutdown grace period exhausted; startup reconciliation will resume unfinished work")
 
 		err = nil

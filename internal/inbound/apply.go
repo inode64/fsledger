@@ -96,15 +96,10 @@ func (plan *Plan) applyOne(ctx context.Context, objects Objects, index int, chan
 	return plan.replace(parent, name, tempName(plan, index), change, actual, data)
 }
 
+// replace runs after applyOne cleared the temporary: a durable unique name lets recovery remove a partial one.
 func (plan *Plan) replace(parent int, name, temp string, change Change, actual observed, data []byte) error {
-	// A durable unique name lets recovery remove a partially written temporary.
-	err := unix.Unlinkat(parent, temp, 0)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fault.Wrap("remove incoming temporary", err)
-	}
-
 	if change.After.Mode != absent {
-		err = writeTemporary(parent, name, temp, change.After.Mode, actual, data)
+		err := writeTemporary(parent, name, temp, change.After.Mode, actual, data)
 		if err != nil {
 			removeTemporary(parent, temp)
 
@@ -113,7 +108,7 @@ func (plan *Plan) replace(parent int, name, temp string, change Change, actual o
 		defer removeTemporary(parent, temp)
 	}
 
-	err = plan.CheckRoots()
+	err := plan.CheckRoots()
 	if err == nil {
 		err = verifyDestination(parent, name, string(change.Path), actual)
 	}
