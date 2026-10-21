@@ -25,6 +25,7 @@ import (
 
 	mail "github.com/wneessen/go-mail"
 
+	"github.com/inode64/fsledger/internal/buildinfo"
 	"github.com/inode64/fsledger/internal/catalog"
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/fault"
@@ -389,6 +390,22 @@ func (sender *Sender) slack(ctx context.Context, endpoint, body string) (time.Du
 	return 0, nil
 }
 
+const (
+	// emailSlogan repeats the README tagline; keep the two in step.
+	emailSlogan = "Change history, file integrity, and intrusion alerts for your Linux servers."
+	projectURL  = "https://github.com/inode64/fsledger"
+)
+
+// emailFooter is the signature every email ends with, after the "-- " delimiter mail clients recognize.
+func emailFooter() string {
+	return "\n-- \nFSledger | " + buildinfo.Release() + "\n" + emailSlogan + "\n" + projectURL + "\n"
+}
+
+// withFooter leaves exactly one blank line between the body, however a template ends, and the signature.
+func withFooter(body string) string {
+	return strings.TrimRight(body, "\n") + "\n" + emailFooter()
+}
+
 func (sender *Sender) email(ctx context.Context, notifier config.Notifier, rendered renderedNotification) error {
 	client, err := sender.emailClient(notifier)
 	if err != nil {
@@ -408,7 +425,7 @@ func (sender *Sender) email(ctx context.Context, notifier config.Notifier, rende
 	}
 
 	message.Subject(rendered.subject)
-	message.SetBodyString(mail.TypeTextPlain, rendered.body)
+	message.SetBodyString(mail.TypeTextPlain, withFooter(rendered.body))
 
 	if rendered.messageID != "" {
 		message.SetMessageIDWithValue(rendered.messageID)
@@ -617,7 +634,7 @@ func (sender *Sender) digestFits(
 		return rendered, utf8.RuneCountInString(text) <= digestSlackRunes
 	}
 
-	return rendered, len(text) <= digestEmailBytes
+	return rendered, len(text)+len(emailFooter()) <= digestEmailBytes
 }
 
 func firstPath(message catalog.Message) string {

@@ -21,7 +21,7 @@ INSTALL ?= install
 # Embedded release identifier; override with make build VERSION=v1.2.3. Without
 # Git it stays empty and the binaries fall back to Go module/VCS build metadata.
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null)
-LDFLAGS = -X github.com/inode64/fsledger/internal/cli.version=$(VERSION)
+LDFLAGS = -X github.com/inode64/fsledger/internal/buildinfo.version=$(VERSION)
 TOOLS_VENV := $(CURDIR)/bin/tools-venv
 export PATH := $(CURDIR)/bin:$(TOOLS_VENV)/bin:$(CURDIR)/bin/node/node_modules/.bin:$(shell $(GO) env GOPATH)/bin:$(PATH)
 
