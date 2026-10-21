@@ -64,7 +64,7 @@ func (store *Store) ImportBaseline(ctx context.Context, input io.Reader) error {
 	defer resource.Close(transaction.batch)
 
 	transaction.state.Stats.BaselineReady = true
-	transaction.state.Policy = store.policyID()
+	transaction.state.Policy = store.policyDigest
 	transaction.state.Complete = false // Imported evidence is not a completed scan of this host.
 
 	return transaction.commit()
@@ -103,7 +103,7 @@ func (store *Store) importBatch(records []integrity.Record) (int64, error) {
 
 	for _, record := range records {
 		// A repository that does not track directories keeps none in its reference either.
-		if !store.Policy.Directories && record.Type == integrity.TypeDirectory {
+		if !store.policy.Directories && record.Type == integrity.TypeDirectory {
 			continue
 		}
 

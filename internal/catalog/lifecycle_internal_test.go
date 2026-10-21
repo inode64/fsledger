@@ -34,6 +34,13 @@ func testStore(t *testing.T) *Store {
 
 func testStoreAt(t *testing.T, path string) *Store {
 	t.Helper()
+	cfg := testStoreConfig(t)
+
+	return openTestStore(t, path, cfg.Integrity, cfg.Notifications)
+}
+
+func testStoreConfig(t *testing.T) *config.Config {
+	t.Helper()
 
 	cfg, err := config.Load(testConfiguration(t))
 	if err != nil {
@@ -44,13 +51,19 @@ func testStoreAt(t *testing.T, path string) *Store {
 	cfg.Notifications.Use = []string{fixtureDestinationFirst, fixtureDestinationOther}
 	cfg.Notifications.BatchWindow = 0
 
+	return cfg
+}
+
+func openTestStore(t *testing.T, path string, policy config.Integrity, notifications config.Notifications) *Store {
+	t.Helper()
+
 	store, err := Open(
 		t.Context(),
 		path,
 		"test",
 		"host",
-		cfg.Integrity,
-		cfg.Notifications,
+		policy,
+		notifications,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -343,7 +356,7 @@ func TestCatalogRejectsSymlinkAndFiles(t *testing.T) {
 	}
 
 	for _, path := range []string{filepath.Join(root, "link", "catalog"), filepath.Join(root, "link")} {
-		other, err := Open(t.Context(), path, "test", "host", store.Policy, store.Notifications)
+		other, err := Open(t.Context(), path, "test", "host", store.policy, store.Notifications)
 		if err == nil {
 			resource.Close(other)
 			t.Fatal("symlink accepted")
@@ -360,7 +373,7 @@ func TestCatalogRejectsSymlinkAndFiles(t *testing.T) {
 		filepath.Join(root, config.CatalogDirectory),
 		"test",
 		"host",
-		store.Policy,
+		store.policy,
 		store.Notifications,
 	)
 	if err == nil {

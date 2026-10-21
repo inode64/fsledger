@@ -39,9 +39,10 @@ func TestPreparedObservationsRespectEarlierBatchWrites(t *testing.T) {
 
 func TestDeferredHashCannotApproveChangedMetadata(t *testing.T) {
 	t.Parallel()
-	store := testStore(t)
-	store.Policy.Hash.OnEvent = false
-	store.Policy.Compare = append(store.Policy.Compare, fieldSize)
+	cfg := testStoreConfig(t)
+	cfg.Integrity.Hash.OnEvent = false
+	cfg.Integrity.Compare = append(cfg.Integrity.Compare, fieldSize)
+	store := openTestStore(t, t.TempDir(), cfg.Integrity, cfg.Notifications)
 	original := workloadRecord(0)
 	reference(t, store, original)
 	metadata := original

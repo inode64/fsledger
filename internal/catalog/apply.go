@@ -27,9 +27,9 @@ func (store *Store) apply(
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
 
-	if !store.replacingBaseline && store.Policy.Reference == config.ReferenceBaseline &&
+	if !store.replacingBaseline && store.policy.Reference == config.ReferenceBaseline &&
 		transaction.state.Stats.BaselineReady &&
-		transaction.state.Policy != store.policyID() {
+		transaction.state.Policy != store.policyDigest {
 		return 0, 0, fault.New("baseline policy differs from configuration")
 	}
 
@@ -141,7 +141,7 @@ func (store *Store) compare(transaction *transaction, update mutation) (comparis
 		record,
 		result.oldData != nil,
 		result.currentData != nil,
-		store.Policy.Compare,
+		store.policy.Compare,
 	)
 
 	result.old, result.pendingExists, err = readPending(transaction.batch, record.Path)
@@ -150,7 +150,7 @@ func (store *Store) compare(transaction *transaction, update mutation) (comparis
 	}
 
 	if transaction.state.Stats.BaselineReady &&
-		(store.Policy.Reference == config.ReferenceBaseline || store.replacingBaseline) {
+		(store.policy.Reference == config.ReferenceBaseline || store.replacingBaseline) {
 		result.baseline, result.baselineData, err = readRecord(
 			transaction.batch,
 			baselinePrefix(transaction.state.Baseline),
@@ -171,7 +171,7 @@ func (store *Store) compare(transaction *transaction, update mutation) (comparis
 func (store *Store) baselineDifferences(compared *comparison, record integrity.Record) []string {
 	if compared.baselineData != nil && compared.currentData != nil &&
 		compared.pendingExists && slices.Contains(compared.old.Fields, fieldHash) {
-		return integrity.Differences(compared.baseline, record, store.Policy.Compare)
+		return integrity.Differences(compared.baseline, record, store.policy.Compare)
 	}
 
 	return differences(
@@ -179,7 +179,7 @@ func (store *Store) baselineDifferences(compared *comparison, record integrity.R
 		record,
 		compared.baselineData != nil,
 		compared.currentData != nil,
-		store.Policy.Compare,
+		store.policy.Compare,
 	)
 }
 
@@ -261,7 +261,7 @@ func retireEntry(transaction *transaction, path []byte, compared *comparison, ge
 // stored at that path when directories are not tracked: a stored directory is then retired silently,
 // while a file replaced by a directory is still reported as deleted.
 func (store *Store) withoutDirectory(update mutation) mutation {
-	if store.Policy.Directories || update.deleted || update.record.Type != integrity.TypeDirectory {
+	if store.policy.Directories || update.deleted || update.record.Type != integrity.TypeDirectory {
 		return update
 	}
 
@@ -277,7 +277,7 @@ func (store *Store) withoutDirectory(update mutation) mutation {
 // untrackedDirectory reports a stored directory entry, kept from before directories stopped being
 // tracked or from the approved reference, that must leave the inventory without any announcement.
 func (store *Store) untrackedDirectory(update mutation, compared *comparison) bool {
-	if store.Policy.Directories || !update.deleted {
+	if store.policy.Directories || !update.deleted {
 		return false
 	}
 

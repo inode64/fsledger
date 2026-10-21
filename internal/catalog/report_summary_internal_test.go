@@ -120,7 +120,7 @@ func TestSummaryAggregationResumesAfterRestartAndFreezesPeriod(t *testing.T) {
 	}
 
 	observeRecords(t, store, "later period", workloadRecord(count))
-	policy, notifications, reports := store.Policy, store.Notifications, store.reports
+	policy, notifications, reports := store.policy, store.Notifications, store.reports
 	resource.Close(store)
 	store.database = nil
 

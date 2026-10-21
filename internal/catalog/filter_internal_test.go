@@ -89,7 +89,7 @@ func TestDeferredVersionsSurviveReopenAndCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	policy, notifications := store.Policy, store.Notifications
+	policy, notifications := store.policy, store.Notifications
 	resource.Close(store)
 	store.database = nil
 

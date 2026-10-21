@@ -90,7 +90,7 @@ func (store *Store) setPending(
 		removePending(transaction, path, old, invalidate)
 	}
 
-	item := pending{Token: changeID(), Batch: identifier, Policy: store.policyID(), Kind: kind, Fields: fields}
+	item := pending{Token: changeID(), Batch: identifier, Policy: store.policyDigest, Kind: kind, Fields: fields}
 	transaction.put(key(pendingPrefix, path), item)
 	transaction.set([]byte(tokenPrefix+item.Token), path)
 	transaction.set(key(approvalPrefix+identifier+"/", path), []byte(item.Token))
@@ -142,7 +142,7 @@ func (store *Store) Accept(ctx context.Context, identifier string) error {
 		return fault.New("initialize baseline before accepting changes")
 	}
 
-	if store.state.Policy != store.policyID() {
+	if store.state.Policy != store.policyDigest {
 		return fault.New("baseline policy differs; replace explicitly")
 	}
 
@@ -196,7 +196,7 @@ func (store *Store) acceptOne(transaction *transaction, path []byte, token strin
 		return err
 	}
 
-	if !exists || item.Token != token || item.Policy != store.policyID() {
+	if !exists || item.Token != token || item.Policy != store.policyDigest {
 		return fault.New("stale approval; list current differences")
 	}
 
@@ -223,7 +223,7 @@ func (store *Store) acceptOne(transaction *transaction, path []byte, token strin
 }
 
 func (store *Store) checkApprovalHash(data, path []byte) error {
-	if !slices.Contains(store.Policy.Compare, fieldHash) {
+	if !slices.Contains(store.policy.Compare, fieldHash) {
 		return nil
 	}
 
@@ -233,7 +233,7 @@ func (store *Store) checkApprovalHash(data, path []byte) error {
 	}
 
 	if record.Type == integrity.TypeRegular &&
-		(record.Hash == "" || record.Algorithm != store.Policy.Hash.Algorithm) {
+		(record.Hash == "" || record.Algorithm != store.policy.Hash.Algorithm) {
 		return fault.New("approval requires a verified content hash; run a full verification first")
 	}
 
