@@ -22,7 +22,8 @@ const (
 
 // DisplayFields renders VisibleFields for people: timestamps in local time, sizes in human units,
 // modes as ls-style permissions with the raw st_mode in hex, UID/GID with locally resolved names,
-// and the absent side of a creation or deletion as "—". It leaves out what carries no evidence for
+// symlink targets as escaped text, xattrs and ACLs as name=value, and the absent side of a creation
+// or deletion as "—". It leaves out what carries no evidence for
 // a reader: has_btime (part of btime),
 // device in creations and deletions, nlink unless a regular file has more than one link, and
 // attribute readability unless reading failed. VisibleFields, classification and stored evidence
@@ -308,6 +309,10 @@ func displayValue(name, value string) string {
 		return displayText(value)
 	case fieldHash:
 		return displayHash(value)
+	case fieldTarget:
+		return displayTarget(value)
+	case fieldXattrs, fieldACL:
+		return displayAttributes(value)
 	default:
 		return value
 	}

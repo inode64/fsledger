@@ -153,6 +153,11 @@ func (s *Sync) apply(ctx context.Context, path string, mode copyMode) error {
 		return nil
 	}
 
+	// See gitRefused; removing also drops a copy made before.
+	if pathutil.HasGitAlias(path) {
+		return s.remove(path)
+	}
+
 	directory, err := sourceDirectory(path)
 	if integrity.Missing(err) {
 		return s.remove(path)
@@ -289,17 +294,19 @@ func (s *Sync) realParents(relative string) (bool, error) {
 }
 
 // copy mirrors one source under its already derived mirror name; retries reuse that name.
+// Mirror parents follow the anchored source: a source parent replaced by a symlink is missing,
+// and making its mirror counterpart a directory would replace the link mirrored for it.
 func (s *Sync) copy(ctx context.Context, path, relative string, mode copyMode) error {
-	err := s.parents(relative)
-	if err != nil {
-		return fmt.Errorf("mirror parents: %w", err)
-	}
-
 	parent, name, err := integrity.OpenParent(path)
 	if err != nil {
 		return fmt.Errorf("open source parent %s: %w", path, err)
 	}
 	defer resource.FD(parent)
+
+	err = s.parents(relative)
+	if err != nil {
+		return fmt.Errorf("mirror parents: %w", err)
+	}
 
 	var stat unix.Stat_t
 
@@ -310,6 +317,11 @@ func (s *Sync) copy(ctx context.Context, path, relative string, mode copyMode) e
 
 	switch stat.Mode & unix.S_IFMT {
 	case unix.S_IFLNK:
+		// Git refuses this symlink, so it is dropped like an unsupported type.
+		if pathutil.GitModulesAlias(name) {
+			return s.remove(path)
+		}
+
 		return s.copyLink(parent, name, path, relative)
 	case unix.S_IFDIR:
 		return s.copyDirectory(relative)
@@ -392,6 +404,11 @@ func (s *Sync) copyRegular(
 	}
 
 	fd, err := unix.Openat(parent, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	// The caller saw a regular file: a symlink (ELOOP under O_NOFOLLOW) or a socket (ENXIO) replaced it since.
+	if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENXIO) {
+		return fmt.Errorf("%w: source replaced before opening: %s", integrity.ErrUnstable, path)
+	}
+
 	if err != nil {
 		return fmt.Errorf("open source %s: %w", path, err)
 	}
@@ -529,38 +546,105 @@ func (s *Sync) reconcile(ctx context.Context, roots []string, mode copyMode) err
 	return errors.Join(failure, s.prune(ctx, roots, seen, unstable))
 }
 
+// sourceWalk is shared by every step of one source walk; failure collects the unstable copies.
+type sourceWalk struct {
+	failure error
+	seen    map[string]bool
+	source  string
+	mode    copyMode
+}
+
+// walkSource lists directories like the scanner, through anchored descriptors: filepath.WalkDir
+// reopens each listed directory by path, so one replaced by a symlink would be walked through it.
 func (s *Sync) walkSource(ctx context.Context, source string, mode copyMode, seen map[string]bool) error {
-	var failure error
+	walk := sourceWalk{failure: nil, seen: seen, source: source, mode: mode}
 
-	err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
-		err := ctx.Err()
+	err := s.walkEntry(ctx, &walk, source, true)
+
+	return fault.Wrap("walk source "+source, errors.Join(err, walk.failure))
+}
+
+// walkEntry copies a directory before walking its entries, but lists it first: a name its parent
+// listed as a directory that is no longer one is copied as what it now is and never entered.
+func (s *Sync) walkEntry(ctx context.Context, walk *sourceWalk, path string, directory bool) error {
+	err := ctx.Err()
+	if err != nil {
+		return fault.Wrap("walk cancelled", err)
+	}
+
+	if s.walkExcluded(path, walk.source) {
+		return nil
+	}
+
+	var entries []os.DirEntry
+
+	if directory {
+		entries, err = readSourceDirectory(path)
 		if err != nil {
-			return fault.Wrap("walk cancelled", err)
+			return err
+		}
+	}
+
+	err = s.copySeen(ctx, path, walk.mode, walk.seen)
+	if errors.Is(err, integrity.ErrUnstable) {
+		walk.failure = errors.Join(walk.failure, err)
+	} else if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		child := filepath.Join(path, entry.Name())
+		if gitRefused(child, entry) {
+			continue
 		}
 
-		if integrity.Missing(walkErr) {
-			return nil
+		err = s.walkEntry(ctx, walk, child, entry.IsDir())
+		if err != nil {
+			return err
 		}
+	}
 
-		if walkErr != nil {
-			return walkErr
-		}
+	return nil
+}
 
-		if s.walkExcluded(path, source) {
-			return skipDirectory(entry)
-		}
+// readSourceDirectory lists a directory in name order, opened through anchored parents and
+// without following a final symlink. A name that is missing or no longer a directory has no entries.
+func readSourceDirectory(path string) ([]os.DirEntry, error) {
+	parent, name, err := integrity.OpenParent(path)
+	if integrity.Missing(err) {
+		return nil, nil
+	}
 
-		copyErr := s.copySeen(ctx, path, mode, seen)
-		if errors.Is(copyErr, integrity.ErrUnstable) {
-			failure = errors.Join(failure, copyErr)
+	if err != nil {
+		return nil, fmt.Errorf("open source parent %s: %w", path, err)
+	}
 
-			return nil
-		}
+	fd, err := unix.Openat(parent, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	resource.FD(parent)
 
-		return copyErr
-	})
+	if integrity.Missing(err) || errors.Is(err, unix.ELOOP) {
+		return nil, nil
+	}
 
-	return fault.Wrap("walk source "+source, errors.Join(err, failure))
+	if err != nil {
+		return nil, fmt.Errorf("open source directory %s: %w", path, err)
+	}
+
+	directory := os.NewFile(uintptr(fd), path)
+	defer resource.Close(directory)
+
+	entries, err := directory.ReadDir(-1)
+	if integrity.Missing(err) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fault.Wrap("read source directory", err)
+	}
+
+	slices.SortFunc(entries, func(a, b os.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+
+	return entries, nil
 }
 
 func (s *Sync) prune(ctx context.Context, roots []string, seen map[string]bool, unstable []string) error {
@@ -766,13 +850,19 @@ func (s *Sync) copySeen(ctx context.Context, path string, mode copyMode, seen ma
 	return err
 }
 
-// WalkDir never enters an excluded directory, so only the root needs its ancestors checked.
+// The walk never enters an excluded directory, so only the root needs its ancestors checked.
 func (s *Sync) walkExcluded(path, source string) bool {
 	if path == source {
 		return s.exclude.Match(path)
 	}
 
 	return s.exclude.MatchEntry(path)
+}
+
+// gitRefused reports entries Git rejects on every platform: one in the worktree fails the whole
+// git add. Left unseen, a copy made before is pruned; the catalog still records the source.
+func gitRefused(path string, entry fs.DirEntry) bool {
+	return pathutil.HasGitAlias(path) || entry.Type()&fs.ModeSymlink != 0 && pathutil.GitModulesAlias(entry.Name())
 }
 
 func sourceSignature(stat unix.Stat_t) signature {

@@ -132,7 +132,7 @@ func (w *Watcher) fidPaths(info []pathInfo) (string, string, error) {
 	return "", "", fault.New("fanotify event has no resolvable FID")
 }
 
-func (w *Watcher) handleFID(data []byte, pid int, pidfd *os.File, mask uint64) error {
+func (w *Watcher) handleFID(data []byte, pid int, pidfd *os.File, reaped bool, mask uint64) error {
 	info, err := parseFIDs(data)
 	if err != nil {
 		resource.OptionalFile(pidfd)
@@ -171,8 +171,8 @@ func (w *Watcher) handleFID(data []byte, pid int, pidfd *os.File, mask uint64) e
 	}
 
 	w.queue.Send(event.Raw{
-		Path: path, OldPath: old, PID: pid, PIDFD: pidfd,
-		Backend: event.Fanotify, Operation: operation(mask), Time: time.Now(),
+		Path: path, OldPath: old, PID: pid, PIDFD: pidfd, Reaped: reaped,
+		Backend: event.Fanotify, Operation: operation(mask), Time: time.Now(), SinceBoot: sinceBoot(),
 	})
 
 	return nil
@@ -208,6 +208,8 @@ func (w *Watcher) updateDirectoryCoverage(path, old string, mask uint64, hasOld,
 		return
 	}
 
+	w.forgetMarks(departedDirectory(path, old, mask, hasOld))
+
 	pathSelected := pathutil.Contains(w.path, path) && !w.matcher.Match(path)
 	oldSelected := old != "" && pathutil.Contains(w.path, old) && !w.matcher.Match(old)
 	leftSelection := mask&unix.FAN_MOVED_FROM != 0 ||
@@ -223,6 +225,19 @@ func (w *Watcher) updateDirectoryCoverage(path, old string, mask uint64, hasOld,
 
 	if pathSelected && mask&(unix.FAN_CREATE|unix.FAN_MOVED_TO|unix.FAN_RENAME) != 0 {
 		w.requestTree(path)
+	}
+}
+
+// departedDirectory names the directory entry an event removed: a deleted or moved-away name, or a rename's old
+// name. It is empty when the event only created a name.
+func departedDirectory(path, old string, mask uint64, hasOld bool) string {
+	switch {
+	case old != "":
+		return old
+	case hasOld || mask&(unix.FAN_DELETE|unix.FAN_MOVED_FROM) != 0:
+		return path
+	default:
+		return ""
 	}
 }
 

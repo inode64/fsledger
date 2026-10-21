@@ -31,7 +31,7 @@ func TestDeletedDescriptorRequestsReconciliationWithoutLoss(t *testing.T) {
 	detector := new(Watcher)
 	detector.queue = watcher.NewQueue(1)
 
-	err = detector.handleDescriptor(int(file.Fd()), 0, nil)
+	err = detector.handleDescriptor(int(file.Fd()), 0, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestDetachedHardlinkRequestsReconciliation(t *testing.T) {
 
 	detector.queue = watcher.NewQueue(1)
 
-	err = detector.handleDescriptor(int(file.Fd()), 0, nil)
+	err = detector.handleDescriptor(int(file.Fd()), 0, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestRealDeletedSuffixIsNotDiscarded(t *testing.T) {
 
 	detector.queue, detector.matcher = watcher.NewQueue(1), matcher
 
-	err = detector.handleDescriptor(int(file.Fd()), 0, nil)
+	err = detector.handleDescriptor(int(file.Fd()), 0, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

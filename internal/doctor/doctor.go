@@ -16,6 +16,7 @@ import (
 	"github.com/inode64/fsledger/internal/capabilities"
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/event"
+	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/resource"
 	"github.com/inode64/fsledger/internal/watcher/fanotify"
@@ -61,18 +62,18 @@ func Inspect(cfg *config.Config) (Report, error) {
 		return Report{}, fault.Wrap("read kernel release", err)
 	}
 
-	report := Report{Kernel: unix.ByteSliceToString(uts.Release[:]), Audit: audit.Probe()}
-	if !cfg.Attribution.Audit.Enabled {
-		report.Audit.Usable = false
-		report.Audit.Reason = "disabled in configuration"
-	}
-
+	report := Report{Kernel: unix.ByteSliceToString(uts.Release[:]), Audit: auditStatus(cfg)}
 	report.Missing, report.Skipped = map[string][]string{}, map[string][]string{}
 
 	resolved := cfg.ResolveSources()
 	for _, name := range cfg.Names() {
+		matcher, matcherErr := cfg.Matcher(name)
+		if matcherErr != nil {
+			return Report{}, matcherErr
+		}
+
 		for _, root := range resolved[name].Roots {
-			report.Paths = append(report.Paths, inspectRoot(cfg.ForRepository(name), name, root, mounts)...)
+			report.Paths = append(report.Paths, inspectRoot(cfg.ForRepository(name), matcher, name, root, mounts)...)
 		}
 
 		if len(resolved[name].Missing) > 0 {
@@ -87,6 +88,24 @@ func Inspect(cfg *config.Config) (Report, error) {
 	report.probePIDFDLifetime(cfg.Runtime)
 
 	return report, nil
+}
+
+// auditStatus follows the daemon, which subscribes only for repositories whose effective settings
+// enable Audit with an event backend; the global section is just their default.
+func auditStatus(cfg *config.Config) audit.Status {
+	status := audit.Probe()
+
+	for _, name := range cfg.Names() {
+		repo := cfg.Repositories[name]
+		if repo.AuditEnabled() {
+			return status
+		}
+	}
+
+	status.Usable = false
+	status.Reason = "disabled in configuration"
+
+	return status
 }
 
 func (report *Report) probePIDFDLifetime(runtime string) {
@@ -122,7 +141,8 @@ func Print(writer io.Writer, cfg *config.Config) error {
 	return nil
 }
 
-func inspectRoot(cfg *config.Config, name, root string, mounts []mountinfo.Mount) []Path {
+// inspectRoot skips excluded mount points as the daemon does, so they are neither listed nor probed.
+func inspectRoot(cfg *config.Config, matcher *exclude.Matcher, name, root string, mounts []mountinfo.Mount) []Path {
 	resolved := mountinfo.Resolve(root, mounts)
 
 	result := make([]Path, 0, len(resolved))
@@ -130,6 +150,10 @@ func inspectRoot(cfg *config.Config, name, root string, mounts []mountinfo.Mount
 		path := root
 		if index > 0 {
 			path = mount.Point
+		}
+
+		if matcher.Match(path) {
+			continue
 		}
 
 		result = append(result, inspectPath(cfg, name, path, mount))

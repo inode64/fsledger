@@ -27,7 +27,7 @@ type Sources struct {
 	Missing []string `json:"missing" yaml:"missing"`
 	// Skipped lists matches that must not be watched, each with its reason.
 	Skipped []string `json:"skipped" yaml:"skipped"`
-	// Incomplete means at least one pattern could not be read. Owners must retain
+	// Incomplete means at least one entry or pattern could not be read. Owners must retain
 	// their previous roots because an incomplete expansion cannot prove deletion.
 	Incomplete bool `json:"-" yaml:"-"`
 }
@@ -100,6 +100,7 @@ func (c *Config) resolveRepository(entries, claimed, reserved []string, trusted 
 				continue
 			default:
 				sources.Skipped = append(sources.Skipped, match+": "+err.Error())
+				sources.Incomplete = sources.Incomplete || unreadable(err)
 			}
 
 			found = true
@@ -116,6 +117,14 @@ func (c *Config) resolveRepository(entries, claimed, reserved []string, trusted 
 	slices.Sort(sources.Skipped)
 
 	return sources
+}
+
+// unreadable separates a source that could not be read, such as a denied, stale or failing parent,
+// from one refused by policy: only a system error leaves unknown whether the source still exists.
+func unreadable(err error) bool {
+	var errno syscall.Errno
+
+	return errors.As(err, &errno)
 }
 
 func (c *Config) resolveSource(
@@ -216,9 +225,13 @@ func (resolver *parentResolver) advance() error {
 
 func (resolver *parentResolver) follow(path string, info os.FileInfo) error {
 	resolver.hops++
+	// The limit fails like the kernel's ELOOP: the source could not be read, not refused by policy.
+	if resolver.hops > maximumSymlinkHops {
+		return fault.Wrap("follow source parent "+path, syscall.ELOOP)
+	}
 
 	status, ok := info.Sys().(*syscall.Stat_t)
-	if resolver.hops > maximumSymlinkHops || !ok || !resolver.trusted(status.Uid) {
+	if !ok || !resolver.trusted(status.Uid) {
 		return fault.New("untrusted symlink in source parent " + path)
 	}
 

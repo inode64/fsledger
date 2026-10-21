@@ -43,6 +43,7 @@ locations are writable; fanotify and Audit require additional privileges.
 .TP
 .B check
 Validate strict YAML, source patterns, exclusions and location conflicts.
+Render notification templates as described in fsledger.yaml(5).
 Report how many sources are present, absent or skipped; absent ones are valid.
 Does not create files, log destinations or repositories. --effective prints
 resolved repository settings with DSN and webhook credentials removed.
@@ -79,9 +80,14 @@ scan describes the current daemon's scan times, duration, result, observed
 entries,
 hashes computed by the catalog scan and upcoming ordinary/full schedules.
 catalog.last_full_scan persists the last complete scan across restarts.
+A full scan whose result is partial because of unstable_paths does not update
+it, and scan.initialized remains false until a full scan completes.
 Snapshots are published atomically but are volatile, without a durability
 guarantee across machine restarts. An updated timestamp older than five seconds
 sets running=false and adds a stale warning, even if the daemon is merely busy.
+A repository without a snapshot, because the daemon is not running or has not
+started it yet, prints an object with only repository, type, running=false and
+a no status snapshot warning; the remaining repositories are still printed.
 This command is not a live daemon RPC.
 .TP
 .B run
@@ -103,10 +109,13 @@ Recompute selected content hashes using the configured integrity policy.
 With reference=baseline, compare with the approved reference; a missing baseline
 or unresolved violations return 1. With reference=previous, update the current
 inventory and report changes without requiring an approved baseline.
-The repository daemon must be stopped.
+The repository daemon must be stopped. Like baseline init and baseline replace,
+verify refuses to run while a source entry or pattern cannot be read; see paths
+in fsledger.yaml(5).
 .TP
 .B changes --repository NAME
 Show up to 100 unresolved differences and their per-file approval IDs.
+The catalog must already exist; this command never creates one.
 .TP
 .B report preview --repository NAME
 Render the first pending scheduled-report part from an existing catalog opened
@@ -133,8 +142,11 @@ time, or RFC 3339. Existing entries are kept with
 keeping their mode and owner, or replaced only when the commit is newer with
 .BR newer .
 Type conflicts are reported and skipped, and the command then exits with an
-error. Ownership, ACLs and extended attributes are not restored. Only Git
-objects are read, so the daemon may keep running.
+error. Symbolic links are never followed: a destination directory that is or
+lies below one is refused, and entries below a symbolic link or below a
+directory that failed are reported as failed. Ownership, ACLs and extended
+attributes are not restored. Only Git objects are read, so the daemon may keep
+running.
 .TP
 .B baseline init --repository NAME
 Scan and explicitly approve the initial reference. No automatic approval occurs.
@@ -142,7 +154,8 @@ Scan and explicitly approve the initial reference. No automatic approval occurs.
 .B baseline accept --repository NAME --change ID
 Approve the identified observation without rereading source files. New
 observations
-that change a difference invalidate its old ID. Operation IDs may approve up to
+that change a difference invalidate its old ID; an operation ID keeps covering a
+path that its own operation observes again. Operation IDs may approve up to
 4096 paths while every member is still current; otherwise use per-file IDs.
 A change from another policy cannot be approved.
 .TP
@@ -243,7 +256,9 @@ Default local status snapshots.
 .SH EXIT STATUS
 0 on success or clean shutdown; 1 on an invalid command, configuration error
 or runtime failure. Doctor reports unavailable capabilities in JSON and may
-succeed while individual capabilities are unavailable.
+succeed while individual capabilities are unavailable. Status likewise succeeds
+with stale or missing snapshots; an unreadable or undecodable snapshot is a
+failure.
 .SH EXAMPLES
 .nf
 fsledger check -c /etc/fsledger/fsledger.yaml

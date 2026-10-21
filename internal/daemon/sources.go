@@ -77,9 +77,12 @@ func (w *worker) updateSources(sources config.Sources) bool {
 
 	w.recordSources(sources)
 	w.status.UnavailableSources = unavailable
+	// Watchers of a returned source still follow the previous filesystem. A later refresh no longer
+	// sees it return, so the rebind stays pending until applySources restarts them.
+	w.returnedRoots = pathutil.CompactRoots(append(w.returnedRoots, returned...))
 
 	// An empty selection is a change too, so the pending state cannot live in the slice itself.
-	w.nextRoots, w.sourcesPending = nil, !slices.Equal(next, w.roots) || len(returned) > 0
+	w.nextRoots, w.sourcesPending = nil, !slices.Equal(next, w.roots) || len(w.returnedRoots) > 0
 	if w.sourcesPending {
 		w.nextRoots, w.dirty = next, true
 	}
@@ -109,6 +112,32 @@ func (w *worker) retainedSources(resolved []string, incomplete bool) ([]string, 
 	}
 
 	return pathutil.CompactRoots(append(next, unavailable...)), unavailable
+}
+
+// retainRecorded is retainedSources for startup, which has no previous roots: an incomplete
+// selection keeps every tree the catalog recorded outside it, so what could not be read is not pruned.
+func (w *worker) retainRecorded(ctx context.Context, incomplete bool) error {
+	if !incomplete {
+		return nil
+	}
+
+	recorded, err := w.catalog.RecordedOutside(ctx, w.roots)
+	if err != nil || len(recorded) == 0 {
+		return err
+	}
+
+	w.logger.Info("recorded sources retained", "count", len(recorded))
+	w.logger.Debug("recorded sources retained", "paths", recorded)
+
+	w.roots = pathutil.CompactRoots(append(slices.Clone(w.roots), recorded...))
+	w.status.Paths = w.roots
+	w.published.store(w.roots)
+
+	if w.mirror != nil {
+		w.mirror.SetSources(w.roots)
+	}
+
+	return nil
 }
 
 func selectedRoots(candidates, selected []string) []string {
@@ -146,7 +175,7 @@ func (w *worker) applySources(ctx context.Context) {
 
 	w.scanner.ForgetRoots(removed)
 
-	w.roots, w.status.Paths, w.nextRoots, w.sourcesPending = w.nextRoots, w.nextRoots, nil, false
+	w.roots, w.status.Paths, w.nextRoots, w.returnedRoots, w.sourcesPending = w.nextRoots, w.nextRoots, nil, nil, false
 	w.published.store(w.roots)
 	w.watchers, w.status.Backends, w.forceReconcile = nil, nil, false
 	w.contaminated = true

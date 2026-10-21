@@ -80,9 +80,9 @@ func TestMaskedPatchPreservesTextBoundaries(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			patch, hidden, err := maskedPatch(t.Context(), repo, "/config", versions["/config"], masker)
-			if err != nil || hidden || !strings.Contains(patch, fixture.want) {
-				t.Fatalf("patch = %q, hidden = %v, error = %v", patch, hidden, err)
+			patch, hidden, unchanged, err := maskedPatch(t.Context(), repo, "/config", versions["/config"], masker)
+			if err != nil || hidden || unchanged || !strings.Contains(patch, fixture.want) {
+				t.Fatalf("patch = %q, hidden = %v, unchanged = %v, error = %v", patch, hidden, unchanged, err)
 			}
 		})
 	}

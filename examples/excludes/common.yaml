@@ -1,6 +1,7 @@
 # Exclusion patterns use doublestar, unlike the restricted source-selection patterns.
 # Global and repository profiles add together; there is no negation/re-inclusion syntax.
 # Storage/runtime subtrees and .git are excluded by the daemon even without these rules.
+# A directory excludes its contents; a trailing slash is dropped, "." and ".." are rejected.
 - "**/.git/**"
 - "**/*.swp"
 - "**/*.tmp"

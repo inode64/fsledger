@@ -85,6 +85,11 @@ func (w *worker) syncFetched(ctx context.Context, remote string, now time.Time) 
 	}
 
 	if local == remote {
+		err = w.discardIncoming(ctx)
+		if err != nil {
+			return err
+		}
+
 		w.status.SyncBlocked, w.status.SyncConflict = "", ""
 
 		return nil
@@ -96,6 +101,11 @@ func (w *worker) syncFetched(ctx context.Context, remote string, now time.Time) 
 	}
 
 	if localAhead {
+		err = w.discardIncoming(ctx)
+		if err != nil {
+			return err
+		}
+
 		w.status.SyncConflict, w.status.SyncBlocked = "", ""
 		w.status.LastPublishedCommit = ""
 		w.publish(ctx, now)
@@ -116,6 +126,23 @@ func (w *worker) syncFetched(ctx context.Context, remote string, now time.Time) 
 	}
 
 	return w.beginIncoming(ctx, local, remote)
+}
+
+// discardIncoming drops a conflicted plan once the branch no longer leads local history: its target was
+// resolved by hand, and keeping it would restore the conflict at each reconciliation and after restarts.
+func (w *worker) discardIncoming(ctx context.Context) error {
+	if w.incoming == nil || w.incoming.Conflict == "" {
+		return nil
+	}
+
+	err := w.catalog.SaveIncoming(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	w.incoming = nil
+
+	return nil
 }
 
 func (w *worker) beginIncoming(ctx context.Context, base, target string) error {
@@ -186,6 +213,11 @@ func (w *worker) prepareIncoming(ctx context.Context, base, target string) error
 
 		return prepareErr
 	})
+	// Like the path limit, an oversized blob rejects the change set instead of failing transiently.
+	if errors.Is(err, gitrepo.ErrIncomingBlobTooLarge) {
+		return errors.Join(inbound.ErrConflict, err)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -240,6 +272,12 @@ func (w *worker) resumeIncoming(ctx context.Context) error {
 	}
 
 	if errors.Is(err, inbound.ErrConflict) {
+		// A conflicting plan is never applied again: clear before reconciliation records the temporary as local.
+		cleanupErr := w.incoming.ClearTemporary()
+		if cleanupErr != nil {
+			w.logger.Warn("incoming temporary cleanup failed", "error", cleanupErr)
+		}
+
 		w.incoming.Conflict = err.Error()
 
 		saveErr := w.catalog.SaveIncoming(ctx, w.incoming)

@@ -87,7 +87,7 @@ func migrateAIDE(ctx context.Context, writer io.Writer, cfg *config.Config, path
 		return fault.New("AIDE database has no entries selected by this repository")
 	}
 
-	err = inventoryCommand(ctx, io.Discard, cfg, commandBaseline, actionImport, name, spool.Name())
+	err = inventoryCommand(ctx, io.Discard, cfg, commandBaseline, actionImport, name, "", spool.Name())
 	if err != nil {
 		return err
 	}

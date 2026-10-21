@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/pathutil"
 )
 
 const httpsScheme = "https"
@@ -47,6 +48,36 @@ func validateRemote(remote string) error {
 		_, password := endpoint.User.Password()
 		if password || endpoint.Scheme == httpsScheme {
 			return fault.New("Git remote credentials must be configured outside the URL")
+		}
+	}
+
+	return nil
+}
+
+// validateLocalRemotes keeps path remotes out of state and away from every repository's sources:
+// each push writes into the remote, so a watched remote would be recorded again after every publication.
+// It runs once all sources are valid; remotes in DB repositories are never published.
+func (c *Config) validateLocalRemotes() error {
+	reserved := c.InternalPaths()
+
+	for _, name := range c.Names() {
+		repo := c.Repositories[name]
+		if repo.Type != RepositoryGit || !filepath.IsAbs(repo.Storage.Git.Remote) {
+			continue
+		}
+
+		remote := filepath.Clean(repo.Storage.Git.Remote)
+		if pathutil.Within(reserved, remote) {
+			return fault.New("repository " + name + ": Git remote is inside reserved state: " + remote)
+		}
+
+		for _, other := range c.Names() {
+			for _, source := range c.Repositories[other].Paths {
+				if sourcesMayOverlap(remote, source) {
+					return fault.New("repository " + name + ": Git remote overlaps source: " +
+						remote + " and " + source)
+				}
+			}
 		}
 	}
 

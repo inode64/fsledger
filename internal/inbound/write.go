@@ -18,7 +18,7 @@ func writeTemporary(parent int, name, temp, mode string, actual observed, data [
 		if err == nil && actual.mode != absent {
 			err = unix.Fchownat(parent, temp, int(actual.stat.Uid), int(actual.stat.Gid), unix.AT_SYMLINK_NOFOLLOW)
 			if err == nil {
-				err = copyAttributes(parent, name, temp)
+				err = copyAttributes(parent, name, temp, mode)
 			}
 		}
 
@@ -55,7 +55,7 @@ func preserveMetadata(parent int, name, temp string, fd int, mode string, actual
 			return fault.Wrap("preserve incoming owner", err)
 		}
 
-		err = copyAttributes(parent, name, temp)
+		err = copyAttributes(parent, name, temp, mode)
 		if err != nil {
 			return err
 		}
@@ -76,7 +76,7 @@ func preserveMetadata(parent int, name, temp string, fd int, mode string, actual
 	return fault.Wrap("set incoming permissions", unix.Fchmod(fd, permissions))
 }
 
-func copyAttributes(parent int, name, temp string) error {
+func copyAttributes(parent int, name, temp, mode string) error {
 	// procfs pins the parent; L* operations never follow the final source or target link.
 	source := fmt.Sprintf("/proc/self/fd/%d/%s", parent, name)
 	target := fmt.Sprintf("/proc/self/fd/%d/%s", parent, temp)
@@ -95,7 +95,7 @@ func copyAttributes(parent int, name, temp string) error {
 	}
 
 	for attribute := range strings.SplitSeq(string(buffer[:count]), "\x00") {
-		if attribute == "" {
+		if attribute == "" || boundToContent(attribute) || (mode == symlink && unsupportedOnSymlink(attribute)) {
 			continue
 		}
 
@@ -110,4 +110,16 @@ func copyAttributes(parent int, name, temp string) error {
 	}
 
 	return nil
+}
+
+// Capabilities would grant remote content privileges and IMA/EVM data signs the replaced content, so
+// copies would fail appraisal. Never copy them; regular files with capabilities already conflict on read.
+func boundToContent(attribute string) bool {
+	return attribute == capabilities || attribute == "security.ima" || attribute == "security.evm"
+}
+
+// Linux allows user xattrs only on regular files and directories, and symlinks carry no ACLs:
+// these are deterministic kernel refusals, not supported metadata to preserve or retry.
+func unsupportedOnSymlink(attribute string) bool {
+	return strings.HasPrefix(attribute, "user.") || strings.HasPrefix(attribute, "system.posix_acl_")
 }

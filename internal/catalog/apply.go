@@ -160,16 +160,27 @@ func (store *Store) compare(transaction *transaction, update mutation) (comparis
 			return result, err
 		}
 
-		result.baselineFields = differences(
-			result.baseline,
-			record,
-			result.baselineData != nil,
-			result.currentData != nil,
-			store.Policy.Compare,
-		)
+		result.baselineFields = store.baselineDifferences(&result, record)
 	}
 
 	return result, nil
+}
+
+// baselineDifferences compares an observation with its reference. A deferred hash leaves the content
+// unknown: it raises no content difference, but neither resolves one already pending for that path.
+func (store *Store) baselineDifferences(compared *comparison, record integrity.Record) []string {
+	if compared.baselineData != nil && compared.currentData != nil &&
+		compared.pendingExists && slices.Contains(compared.old.Fields, fieldHash) {
+		return integrity.Differences(compared.baseline, record, store.Policy.Compare)
+	}
+
+	return differences(
+		compared.baseline,
+		record,
+		compared.baselineData != nil,
+		compared.currentData != nil,
+		store.Policy.Compare,
+	)
 }
 
 func (store *Store) applyOne(

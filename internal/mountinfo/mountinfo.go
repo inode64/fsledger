@@ -84,11 +84,18 @@ func Resolve(path string, mounts []Mount) []Mount {
 	return nested
 }
 
-// Remote marks filesystems where other clients' changes may be invisible locally.
+// Remote marks filesystems where other clients' changes may be invisible locally:
+// network and cluster filesystems, host shares, and FUSE (fuse.<subtype>), whose
+// daemon may serve remote storage such as GlusterFS or sshfs.
 func (m Mount) Remote() bool {
 	return strings.HasPrefix(m.Type, "nfs") || strings.HasPrefix(m.Type, "fuse") || m.Type == "cifs" ||
 		m.Type == "smb3" ||
 		m.Type == "ceph" ||
 		m.Type == "cephfs" ||
-		m.Type == "9p"
+		m.Type == "9p" ||
+		m.Type == "virtiofs" ||
+		m.Type == "afs" ||
+		m.Type == "gfs2" ||
+		m.Type == "ocfs2" ||
+		m.Type == "lustre"
 }

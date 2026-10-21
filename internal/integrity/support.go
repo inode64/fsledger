@@ -6,6 +6,9 @@ import "golang.org/x/sys/unix"
 const (
 	AttributesAvailable   = "available"
 	AttributesUnsupported = "unsupported"
+	// AttributesTooLarge marks attributes beyond the observation limit: none are recorded, and the
+	// record reports a failed read.
+	AttributesTooLarge = "too_large"
 	// AttributesNotRecorded marks imported references whose source never recorded attributes.
 	AttributesNotRecorded = "not_recorded_by_aide"
 )

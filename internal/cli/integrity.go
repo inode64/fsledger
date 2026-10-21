@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 
@@ -74,8 +75,14 @@ func inventoryCommand(
 	ctx context.Context,
 	writer io.Writer,
 	cfg *config.Config,
-	command, action, name, change string,
+	command, action, name, change, input string,
 ) error {
+	// A usage error must not leave a repository directory, Git metadata or a catalog behind.
+	err := checkInventoryUsage(command, action, change, input)
+	if err != nil {
+		return err
+	}
+
 	repo, err := selectRepository(cfg, name)
 	if err != nil {
 		return err
@@ -89,6 +96,14 @@ func inventoryCommand(
 
 	if err != nil {
 		return err
+	}
+
+	// Listing differences only reads them, so it never creates the catalog or the Git metadata holding it.
+	if command == commandChanges {
+		err = requireCatalog(cfg, name)
+		if err != nil {
+			return err
+		}
 	}
 
 	root := cfg.RepositoryPath(name)
@@ -115,7 +130,41 @@ func inventoryCommand(
 	}
 	defer resource.Close(store)
 
-	return executeInventory(ctx, writer, cfg, store, command, action, name, change)
+	return executeInventory(ctx, writer, cfg, store, command, action, name, change, input)
+}
+
+// checkInventoryUsage rejects an unknown baseline action or a missing argument before any state exists.
+func checkInventoryUsage(command, action, change, input string) error {
+	if command != commandBaseline {
+		return nil
+	}
+
+	switch action {
+	case "init", actionReplace:
+		return nil
+	case actionAccept:
+		if change == "" {
+			return fault.New("baseline accept requires --change")
+		}
+	case actionImport:
+		if input == "" {
+			return fault.New("baseline import requires --input FILE")
+		}
+	default:
+		return fault.New("usage: baseline init|accept|import|replace --repository NAME")
+	}
+
+	return nil
+}
+
+// requireCatalog refuses to read a repository that has no catalog yet instead of creating an empty one.
+func requireCatalog(cfg *config.Config, name string) error {
+	info, err := os.Lstat(cfg.CatalogPath(name))
+	if err != nil || !info.IsDir() {
+		return fault.New("repository has no catalog: " + name)
+	}
+
+	return nil
 }
 
 func initializeInventoryGit(ctx context.Context, cfg *config.Config, name string) error {
@@ -180,9 +229,9 @@ func clearOutbox(ctx context.Context, writer io.Writer, cfg *config.Config, name
 		return err
 	}
 
-	info, err := os.Lstat(cfg.CatalogPath(name))
-	if err != nil || !info.IsDir() {
-		return fault.New("repository has no catalog: " + name)
+	err = requireCatalog(cfg, name)
+	if err != nil {
+		return err
 	}
 
 	store, err := catalog.OpenRepository(ctx, cfg, name)
@@ -206,12 +255,12 @@ func executeInventory(
 	writer io.Writer,
 	cfg *config.Config,
 	store *catalog.Store,
-	command, action, name, change string,
+	command, action, name, change, input string,
 ) error {
 	var err error
 
 	switch command {
-	case "changes":
+	case commandChanges:
 		return store.Changes(ctx, changesDisplayLimit, func(id string, path []byte, kind string, fields []byte) error {
 			_, writeErr := fmt.Fprintf(writer, "%s %s %q %s\n", id, kind, path, fields)
 
@@ -219,14 +268,10 @@ func executeInventory(
 		})
 	case commandBaseline:
 		if action == actionImport {
-			return importReference(ctx, writer, store, change)
+			return importReference(ctx, writer, store, input)
 		}
 
-		if action == "accept" {
-			if change == "" {
-				return fault.New("baseline accept requires --change")
-			}
-
+		if action == actionAccept {
 			err = store.Accept(ctx, change)
 			if err != nil {
 				return err
@@ -236,12 +281,9 @@ func executeInventory(
 
 			return fault.Wrap("write approval", err)
 		}
-
-		if action != "init" && action != actionReplace {
-			return fault.New("usage: baseline init|accept|replace --repository NAME")
-		}
 	}
 
+	// Only verify, baseline init and baseline replace remain: checkInventoryUsage refused other actions.
 	return verifyInventory(ctx, writer, cfg, store, command, action, name)
 }
 
@@ -256,7 +298,9 @@ func verifyInventory(
 
 	sources := cfg.ResolveRepository(name)
 	if sources.Incomplete {
-		return fault.New("refuse manual verification with incomplete source selection")
+		// The skipped sources say which one must become readable again.
+		return fault.New("refuse manual verification with incomplete source selection: " +
+			strings.Join(sources.Skipped, "; "))
 	}
 
 	matcher, err := cfg.Matcher(name)
@@ -333,13 +377,12 @@ func reportVerification(
 
 const changesDisplayLimit = 100
 
-const actionReplace = "replace"
+const (
+	actionReplace = "replace"
+	actionAccept  = "accept"
+)
 
 func importReference(ctx context.Context, writer io.Writer, store *catalog.Store, path string) error {
-	if path == "" {
-		return fault.New("baseline import requires --input FILE")
-	}
-
 	//nolint:gosec // --input explicitly selects the reviewed reference file to import.
 	input, err := os.Open(path)
 	if err != nil {

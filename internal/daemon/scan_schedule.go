@@ -163,6 +163,7 @@ func (w *worker) reconcile(ctx context.Context, message string) error {
 		w.status.Scan.Result = "failed"
 	case len(w.unstable) > 0:
 		w.status.Scan.Result = "partial"
+		w.settlePartialFullScan()
 	default:
 		w.fullScanRequested = false
 	}
@@ -180,6 +181,16 @@ func (w *worker) reconcile(ctx context.Context, message string) error {
 	w.saveStatus(ctx)
 
 	return err
+}
+
+// A full scan left incomplete only by unstable paths still hashed every other entry, and those paths have
+// their own retry. Repeating the whole hash pass at each retry would rehash the tree while one file keeps
+// changing, so the request is consumed; the catalog keeps last_full_scan for a complete pass.
+func (w *worker) settlePartialFullScan() {
+	if w.status.Scan.Full {
+		w.fullScanRequested = false
+		w.partialFullScan = w.status.Scan.Finished.UnixNano()
+	}
 }
 
 // Cron polling retries at a configured slot rather than repeatedly walking a

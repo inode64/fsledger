@@ -50,9 +50,12 @@ func readPending(source reader, path []byte) (pending, bool, error) {
 func removePending(transaction *transaction, path []byte, old pending, invalidate bool) {
 	transaction.remove(key(pendingPrefix, path))
 	transaction.remove([]byte(tokenPrefix + old.Token))
-	// Invalidating any member invalidates the entire operation approval token.
+	// Invalidating any member invalidates the entire operation approval token; otherwise only this
+	// member leaves it.
 	if invalidate {
 		transaction.clear(approvalPrefix + old.Batch + "/")
+	} else {
+		transaction.remove(key(approvalPrefix+old.Batch+"/", path))
 	}
 
 	transaction.state.Stats.Violations--
@@ -67,9 +70,13 @@ func (store *Store) setPending(
 	fields []string,
 	changed bool,
 ) string {
+	// Only another operation invalidates the recording one: a path it observes again stays
+	// covered by its approval token, which must still approve every path it recorded.
+	invalidate := old.Batch != identifier
+
 	if len(fields) == 0 {
 		if exists {
-			removePending(transaction, path, old, true)
+			removePending(transaction, path, old, invalidate)
 		}
 
 		return ""
@@ -80,7 +87,7 @@ func (store *Store) setPending(
 	}
 
 	if exists {
-		removePending(transaction, path, old, true)
+		removePending(transaction, path, old, invalidate)
 	}
 
 	item := pending{Token: changeID(), Batch: identifier, Policy: store.policyID(), Kind: kind, Fields: fields}

@@ -44,7 +44,7 @@ func TestTruncatedRecord(t *testing.T) {
 		t.Fatal("truncated metadata accepted")
 	}
 
-	readPIDFDDescriptor, readPIDFDErr := readPIDFD([]byte{4, 0, 0})
+	readPIDFDDescriptor, _, readPIDFDErr := readPIDFD([]byte{4, 0, 0})
 	if readPIDFDErr == nil || readPIDFDDescriptor != nil {
 		t.Fatal("truncated info accepted")
 	}

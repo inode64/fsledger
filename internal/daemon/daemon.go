@@ -77,6 +77,7 @@ type worker struct {
 	advisories       []string
 	roots            []string
 	nextRoots        []string
+	returnedRoots    []string
 	status           Status
 	publishDelay     time.Duration
 	fetchDelay       time.Duration
@@ -85,7 +86,10 @@ type worker struct {
 	// announced; lastWarning starts that period again.
 	recoveryQuiet time.Duration
 	// stopRequested holds the UnixNano time when shutdown began; zero until then.
-	stopRequested     atomic.Int64
+	stopRequested atomic.Int64
+	// partialFullScan holds the UnixNano time of the last full scan left incomplete only by unstable paths.
+	// The catalog does not certify it, so it postpones full hashing for this process only.
+	partialFullScan   int64
 	fullScanRequested bool
 	forceCommit       bool
 	stopping          bool
@@ -216,6 +220,11 @@ func runRepository(
 
 	runner := newWorker(cfg, name, logger, scanner, store, auditProvider, repo, syncer, matcher, published, probe)
 	runner.recordSources(sources)
+
+	err = runner.retainRecorded(ctx, sources.Incomplete)
+	if err != nil {
+		return err
+	}
 
 	err = runner.prepareCommit(ctx, summaries)
 	if err != nil {
@@ -383,6 +392,13 @@ func repositoryMatchers(cfg *config.Config) (map[string]*exclude.Matcher, error)
 }
 
 func preparePaths(cfg *config.Config) error {
+	// Loading only parses templates. One that cannot render an event would keep every alert to its
+	// notifier retrying in the outbox, so it is rejected before any state is created.
+	err := notify.CheckTemplates(cfg)
+	if err != nil {
+		return err
+	}
+
 	// The log destination was inspected when it was opened; only state locations remain.
 	checkPathsErr := cfg.CheckStoragePaths()
 	if checkPathsErr != nil {

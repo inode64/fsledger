@@ -235,7 +235,9 @@ func (w *worker) reconcileCatalog(ctx context.Context, message, identifier strin
 		return err
 	}
 
-	full := w.fullScanRequested || fullScanDue(w.cfg.Integrity.Hash, stats.LastFullScan, time.Now())
+	// A partial full scan postpones the next full pass as a complete one would, without certifying the catalog.
+	last := max(stats.LastFullScan, w.partialFullScan)
+	full := w.fullScanRequested || fullScanDue(w.cfg.Integrity.Hash, last, time.Now())
 	w.status.Scan.Full = full
 	w.saveStatus(ctx)
 

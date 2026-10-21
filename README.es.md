@@ -284,7 +284,10 @@ notifications:
 El nombre del archivo da nombre al repositorio. Las rutas de los directorios de perfiles
 son relativas al YAML principal; las fuentes son rutas absolutas o patrones sobre ellas.
 Las entradas ausentes se omiten sin error y se incorporan cuando aparecen en una nueva
-reconciliación. La selección admite `*`, `?` y `[...]` dentro de cada componente;
+reconciliación. Una entrada o un patrón que no se puede leer (permiso denegado, error de E/S,
+handle obsoleto, bucle de symlinks) también se omite, pero nunca se toma por borrado: el demonio
+conserva lo que registró ahí, y `verify`, `baseline init` y `baseline replace` se niegan a
+ejecutarse hasta que vuelva a poder leerse. La selección admite `*`, `?` y `[...]` dentro de cada componente;
 los patrones recursivos `**` se reservan para exclusiones y otros filtros que los admiten.
 
 Puedes usar `${HOST}` o `$HOST` en valores y claves YAML. Se sustituyen por la variable
@@ -423,8 +426,8 @@ ia_include: [/etc/ssh/sshd_config]
 ```
 
 Admite OpenAI, Anthropic y endpoints compatibles con OpenAI. Las reglas de ocultación
-se aplican al contenido antes de construir el diff que se envía al proveedor. Un fallo
-de IA deja continuar el commit con su mensaje habitual.
+se aplican a las rutas y al contenido antes de construir el diff que se envía al
+proveedor. Un fallo de IA deja continuar el commit con su mensaje habitual.
 
 Los informes pueden activar `reports.ai` por separado. En ese caso se envían únicamente
 metadatos seleccionados, sin contenidos de archivos, valores de atributos ni comandos
@@ -469,7 +472,9 @@ equivalentes); el destino, si se omite, es la ubicación original. La fecha admi
 `AAAA-MM-DD` (hasta el final de ese día), `AAAA-MM-DD HH:MM[:SS]` en hora local o
 RFC 3339. Con `--overwrite off` (por defecto) no se tocan los archivos existentes;
 `always` los sustituye conservando modo y propietario; `newer` solo si el commit elegido
-es posterior al archivo. `--dry-run` muestra el plan sin escribir. Propietario, ACL y
+es posterior al archivo. Nunca se siguen enlaces simbólicos: se rechaza un directorio
+destino que sea un enlace o esté bajo uno, y fallan las entradas bajo un enlace o bajo un
+directorio que falló. `--dry-run` muestra el plan sin escribir. Propietario, ACL y
 atributos extendidos no se restauran:
 
 ```sh
@@ -494,11 +499,15 @@ y [fsledgerd(8)](packaging/man/fsledgerd.8) en el repositorio.
 - **Separa contenido y metadatos.** Git guarda contenido, enlaces y el bit ejecutable;
   el catálogo registra los atributos seleccionados, como propietario, permisos, ACL o
   xattrs. Git no conserva directorios vacíos ni todos esos metadatos en su árbol.
+  Los nombres que Git rechaza incluso en Linux, como `git~1`, `.git.` o un enlace llamado
+  `.gitmodules`, siguen en el catálogo pero no se copian al mirror.
 - **Conserva las fuentes fuera del estado administrado.** No edites los mirrors mientras
   corre el daemon. Storage y runtime deben ser privados y se excluyen automáticamente
   de las fuentes de esa instancia. Las instancias independientes necesitan exclusiones compartidas.
 - **Configura exclusiones para tus aplicaciones.** Admiten globs recursivos como `**` y
-  se suman las reglas globales y las del repositorio. Parte del
+  se suman las reglas globales y las del repositorio. Excluir un directorio excluye también su
+  contenido: la barra final, como en gitignore, se elimina y las barras repetidas se unen; los
+  patrones con componentes `.` o `..` se rechazan porque nunca coinciden. Parte del
   [perfil de ejemplo](examples/excludes/common.yaml) y adapta cachés, temporales y secretos.
 - **Protege el acceso al remoto.** Las restricciones de rama controlan quién escribe,
   no quién puede leer otras ramas. Utiliza repositorios privados separados cuando

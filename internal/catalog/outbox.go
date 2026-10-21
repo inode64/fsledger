@@ -65,15 +65,24 @@ func (message Message) countKind(kind string) int {
 	return count
 }
 
+// Progress is the prefix of one rendered transport message that its destination already accepted.
+// Fingerprint identifies that exact rendering, so a retry resumes only while it renders the same text.
+type Progress struct {
+	Fingerprint string `json:"fingerprint"`
+	Sent        int    `json:"sent"`
+}
+
 // Delivery tracks one destination independently; acknowledgements remove it permanently.
+// Deliveries queued before Progress existed decode without it and start from the first part.
 type Delivery struct {
-	Destination string  `json:"destination"`
-	Version     string  `json:"version"`
-	LastError   string  `json:"last_error,omitempty"`
-	Message     Message `json:"message"`
-	ID          int64   `json:"id"`
-	Attempts    int     `json:"attempts"`
-	NextAttempt int64   `json:"next_attempt"`
+	Destination string   `json:"destination"`
+	Version     string   `json:"version"`
+	LastError   string   `json:"last_error,omitempty"`
+	Progress    Progress `json:"progress,omitzero"`
+	Message     Message  `json:"message"`
+	ID          int64    `json:"id"`
+	Attempts    int      `json:"attempts"`
+	NextAttempt int64    `json:"next_attempt"`
 }
 
 type notificationWindow struct {
@@ -154,7 +163,7 @@ func (transaction *transaction) enqueueDelivery(message Message, destination, ve
 
 	transaction.state.NextDelivery++
 	delivery := Delivery{
-		Destination: destination, Version: version, Message: message,
+		Destination: destination, Version: version, Message: message, Progress: Progress{},
 		ID: transaction.state.NextDelivery, NextAttempt: due.UnixNano(), LastError: "", Attempts: 0,
 	}
 	transaction.put(numberKey(outboxPrefix, delivery.ID), delivery)
@@ -266,6 +275,45 @@ func (store *Store) RetryMany(ctx context.Context, identifiers []int64, delay ti
 // DeferMany schedules a shared local transport slot without failed attempts.
 func (store *Store) DeferMany(ctx context.Context, identifiers []int64, delay time.Duration) error {
 	return store.updateDeliveries(ctx, identifiers, max(delay, time.Millisecond), "", false)
+}
+
+// ProgressMany records, in one durable transaction, the prefix of a multipart message accepted for every
+// delivery it represents. Schedule, attempts and last error are unchanged, so a retry after a failure,
+// restart or crash resumes after that prefix instead of posting it again.
+func (store *Store) ProgressMany(ctx context.Context, identifiers []int64, progress Progress) error {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
+	err := ctx.Err()
+	if err != nil {
+		return fault.Wrap("record delivery progress", err)
+	}
+
+	transaction := store.begin()
+	defer resource.Close(transaction.batch)
+
+	for _, identifier := range identifiers {
+		data, err := get(store.database, numberKey(outboxPrefix, identifier))
+		if err != nil {
+			return err
+		}
+
+		if data == nil {
+			continue
+		}
+
+		var delivery Delivery
+
+		err = json.Unmarshal(data, &delivery)
+		if err != nil {
+			return fault.Wrap("decode delivery", err)
+		}
+
+		delivery.Progress = progress
+		transaction.put(numberKey(outboxPrefix, identifier), delivery)
+	}
+
+	return transaction.commit()
 }
 
 //nolint:funlen // One Pebble transaction must validate and update the complete delivery set.

@@ -42,7 +42,13 @@ func (c *Config) CheckPaths() error {
 // Importing an offline reference must not depend on the current source filesystem.
 func (c *Config) CheckStoragePaths() error {
 	for _, path := range c.InternalPaths() {
-		err := checkStorage(path)
+		// Validation keeps storage and runtime apart, so only the runtime path equals it.
+		role := "storage"
+		if path == c.Runtime {
+			role = "runtime"
+		}
+
+		err := checkDirectory(role, path)
 		if err != nil {
 			return err
 		}
@@ -51,28 +57,39 @@ func (c *Config) CheckStoragePaths() error {
 	return nil
 }
 
-func checkStorage(path string) error {
+// checkDirectory requires the nearest existing component of path to be a real directory without
+// symlinks. Log, storage and runtime share it, so role names which configured location failed.
+func checkDirectory(role, path string) error {
 	for current := path; ; current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 
+		subject := role + " " + path
+		if current != path {
+			subject += " parent " + current
+		}
+
 		if err != nil {
-			return fmt.Errorf("storage/runtime %s: %w", current, err)
+			return fault.Wrap("inspect "+subject, err)
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fault.New(subject + " is a symlink")
 		}
 
 		if !info.IsDir() {
-			return fault.New("storage/runtime parent is not a directory: " + current)
+			return fault.New(subject + " is not a directory")
 		}
 
 		resolved, err := filepath.EvalSymlinks(current)
 		if err != nil {
-			return fault.Wrap("resolve storage", err)
+			return fault.Wrap("resolve "+subject, err)
 		}
 
 		if resolved != current {
-			return fault.New("storage/runtime contains symlink: " + current)
+			return fault.New(subject + " resolves through a symlink to " + resolved)
 		}
 
 		return nil

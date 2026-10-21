@@ -48,7 +48,12 @@ type Raw struct {
 	Reason    string
 	Actor     Actor
 	PID       int
+	// SinceBoot is CLOCK_BOOTTIME when the kernel event was read, the clock of /proc/<pid>/stat
+	// start times; zero means unknown. Without a PIDFD, it proves the PID still names the writer.
+	SinceBoot time.Duration
 	Dirty     bool
+	// Reaped records fanotify's FAN_NOPIDFD: the writer was gone before the event was read.
+	Reaped bool
 }
 
 // Group is an isolated set of pending paths owned by one observed actor.

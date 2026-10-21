@@ -489,13 +489,7 @@ func (store *Store) readAffected(
 
 	record, err := scanner.Observe(ctx, path, store.Policy.Hash.Algorithm, content, store.copiedHashes)
 	if integrity.Missing(err) {
-		return mutation{
-			record:      integrity.Record{Path: []byte(path)},
-			deleted:     true,
-			previous:    nil,
-			excluded:    false,
-			refreshHash: false,
-		}, false, nil
+		return missingMutation(path), false, nil
 	}
 
 	if err != nil {
@@ -515,7 +509,21 @@ func (store *Store) readAffected(
 	}
 	if !store.Policy.Hash.OnEvent {
 		update.record, update.previous, err = store.prepare(ctx, scanner, record, false)
+		// prepare observes a new file again to hash it; it may have vanished meanwhile.
+		if integrity.Missing(err) {
+			return missingMutation(path), false, nil
+		}
 	}
 
 	return update, false, err
+}
+
+func missingMutation(path string) mutation {
+	return mutation{
+		record:      integrity.Record{Path: []byte(path)},
+		deleted:     true,
+		previous:    nil,
+		excluded:    false,
+		refreshHash: false,
+	}
 }

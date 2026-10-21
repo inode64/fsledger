@@ -107,5 +107,14 @@ func (w *Watcher) probeMarks() error {
 		return err
 	}
 
+	var stat unix.Stat_t
+
+	err = unix.Lstat(directory, &stat)
+	if err != nil {
+		return fault.Wrap("identify watched filesystem", err)
+	}
+
+	w.device = stat.Dev
+
 	return w.mark(directory)
 }

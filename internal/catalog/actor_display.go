@@ -123,6 +123,11 @@ func (message Message) CommonDetection() string {
 	return common
 }
 
+// DisplayReason returns Reason with control characters and invalid UTF-8 escaped. Reasons quote
+// filesystem text such as mount points, source globs and path errors, so a crafted name cannot
+// inject lines into a notice. Reason keeps the stored text.
+func (message Message) DisplayReason() string { return humanize.Printable(message.Reason) }
+
 // detailedPaths is the largest summary whose paths are listed with their fields. Larger summaries,
 // such as plugin or core updates, list every path grouped by actor, so one email carries far more.
 const detailedPaths = 250

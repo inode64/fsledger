@@ -24,6 +24,9 @@ the direct process is also killed. Hooks that deliberately detach into another
 session are outside that group. Waiting for inherited pipes is bounded by a
 one-second WaitDelay; this does not guarantee termination of detached
 descendants.
+Git lock files left by a cancelled command are removed then, and whenever the
+daemon or an inventory command opens the repository; no other Git process may
+write to the mirror.
 Partial failures require unknown-actor reconciliation before further commits.
 .TP
 .B runtime
@@ -56,7 +59,9 @@ One of auto, fanotify, inotify or polling. Default: auto.
 Capability failures fall back to supported detection.
 .TP
 .B watch.reconcile.enabled
-Periodic reconciliation, default true. Remote filesystems may force it on.
+Periodic reconciliation, default true. Remote filesystems may force it on, as
+may a filesystem mounted below a source after startup, which fanotify leaves
+unmarked.
 .TP
 .B watch.reconcile.interval
 Positive Go duration, default 5m. Example units: ms, s, m, h.
@@ -117,7 +122,10 @@ and 4 MiB including templates. Files must be regular.
 YAML file or directory of immediate .yaml/.yml files. The filename minus its
 YAML extension identifies the template. Each document requires subject and body
 text/template strings; unknown keys and the former plain-text format are
-rejected.
+rejected. check and daemon startup render the template of each notifier with
+sample messages of every event a repository routes to it, including a change
+above 250 paths; a template that fails, such as an unknown field, an index out
+of range, Report outside reports or a subject with a line break, is rejected.
 .TP
 .B scan.workers
 Global concurrent filesystem work limit, default 2, shared across repositories.
@@ -156,7 +164,12 @@ deleted ones recorded as deletions without
 restarting. A selected source whose filesystem disappeared is kept, listed as
 unavailable_sources, and nothing is pruned until it returns; this memory does
 not
-survive a restart. Two repositories of one type may not select the same tree;
+survive a restart. An entry or pattern that cannot be read (permission denied,
+I/O error, stale handle, too many symlinks) is listed as skipped_sources but
+proves no deletion: the daemon keeps every source it watched and, after a
+restart, every tree its catalog recorded outside the selection, until the entry
+can be read again. verify, baseline init and baseline replace refuse to run
+meanwhile. Two repositories of one type may not select the same tree;
 a git and a db
 repository may, since one keeps content and the other verifies it. Conflicting
 matches are assigned to the first repository in name order and skipped in the
@@ -186,6 +199,9 @@ the mount keeps access times current (not noatime or relatime, and not
 nodiratime for directories), btime only where statx returns it, and xattrs and
 ACLs only where they are supported. Such attributes are neither stored nor
 shown, and a value only one side provides is never a difference.
+xattrs and ACLs too large to observe (over 1 MiB of names and values, or more
+than 64 KiB of names) are recorded as attributes_status too_large without their
+values and shown as a failed read; the rest of the scan is unaffected.
 .TP
 .B integrity.directories
 true (default) records directory entries like any other path. false keeps
@@ -239,12 +255,20 @@ Count, the per-kind counts Added, Modified and Deleted, Details (path, kind,
 actor, observed time, field values and approved-reference differences) and
 Reason
 (error and recovery events only: the repository warnings behind the error, or
-what the recovery recovered from). The time
+what the recovery recovered from). Message.DisplayReason returns Reason with
+control characters escaped, as the default templates print it: a reason can
+quote mount points, source globs or path errors. The time
 function formats Unix nanoseconds as UTC in RFC 3339; localtime formats them as
 YYYY-MM-DD HH:MM:SS ZONE in the server time zone, which the default templates
 and reports use; duration renders a time span in days, hours or minutes. Subject and body share a 16 MiB output
 limit. Email uses each field directly;
 Slack sends the subject followed by the body and splits long output into parts.
+Parts are posted one second apart and keep the webhook reserved until the last
+one, so no other message the daemon sends to that webhook lands in between,
+even from another repository.
+The queue records each accepted part: when a later part fails, the retry, even
+after a restart, resumes after the accepted parts while the message renders
+identically.
 Due change and integrity notices are summarized by repository, destination and
 event. Each detail retains its change ID. One summary contains at most 2000
 paths,
@@ -267,7 +291,10 @@ before/after
 values. Detail.DisplayFields and Detail.DisplayBaseline render those values for
 people: timestamps with localtime, size in IEC units, mode as ls-style
 permissions followed by the raw st_mode in hexadecimal (as stat -c %f prints
-it), and the absent side of a creation or deletion as an em dash. They leave out
+it), symlink targets as text, xattrs and ACLs as getfattr does (name="text", or
+name=0x followed by hexadecimal for binary values such as ACLs) with their
+readability status, and the absent side of a creation or deletion as an em
+dash; control characters and invalid UTF-8 are escaped. They leave out
 has_btime, device in creations and deletions, nlink unless a regular file has
 more than one hard link, and attributes_status unless reading xattrs and ACLs
 failed. Detail.BackdatedBy returns how much earlier mtime is than btime for the
@@ -286,6 +313,9 @@ Scheduled reports use the same list-first layout and display filtering.
 .B exclude
 Select exclusion profile names globally or per repository. Profile files contain
 YAML lists of doublestar patterns. Global and repository profiles are additive.
+An excluded directory also excludes its contents. A trailing slash, as in
+gitignore, is dropped and repeated slashes collapse; patterns with . or ..
+components never match clean paths and are rejected.
 .SH EXAMPLE
 Main configuration:
 .nf
@@ -330,6 +360,8 @@ With systemd, custom writable paths require a ReadWritePaths drop-in.
 Git stores final contents and the executable bit, not full filesystem metadata
 or every intermediate write. Source symlinks are preserved without following
 them. Secrets may persist in Git history even after later exclusion.
+Names Git refuses even on Linux, such as git~1, .git. or a symlink named
+\&.gitmodules, stay in the catalog but are not copied to the mirror.
 .SH SEE ALSO
 .BR fsledger (1),
 .BR fsledgerd (8)
@@ -345,6 +377,9 @@ An empty remote disables it. push_interval defaults to 1m and push_timeout to
 remote accepts a configured Git remote name, an absolute local path, or an SSH
 or
 HTTPS URL; SCP-style user@host:path syntax is not accepted.
+A path remote of a Git repository must lie outside storage and runtime state and
+must not overlap any repository's sources: every push would otherwise change
+what is watched.
 Credentials belong in SSH or Git credential configuration, never the remote URL.
 Publication is serialized with repository work and never forces remote history.
 Branch permissions restrict writes; read isolation requires separate
@@ -374,14 +409,17 @@ ProtectSystem=strict deliberately prevents writes to arbitrary sources.
 .PP
 The complete change set is checked before mutation. Excluded paths, paths
 outside
-the current selection, .git, submodules, hardlinks, special permission bits and
-file/directory transitions are rejected. Source symlinks are never followed.
+the current selection, .git, submodules, hardlinks, special permission bits,
+file capabilities and file/directory transitions are rejected. Source symlinks
+are never followed.
 The limit is 4096 changed paths and 64 MiB per file. statx mount identity must
 be
 available. Empty directories are not removed.
 .PP
 Existing owners, ordinary permission bits and extended attributes are preserved
-when supported; Git controls the executable bit. New entries belong to the
+when supported; Git controls the executable bit. security.capability,
+security.ima and security.evm belong to the replaced content and are never
+copied. New entries belong to the
 daemon
 user; new files use 0600 (0700 when executable) and directories use 0700. Git
 does
@@ -400,7 +438,9 @@ reconciliation to record actual state; there is no automatic rollback. A
 conflicted
 operation is not retried against the same target commit: review sources and
 publish
-a new resolution. Disabling bidirectional and restarting cancels a pending
+a new resolution. The conflicted operation is discarded once the branch equals
+the local history or falls behind it. Disabling bidirectional and restarting
+cancels a pending
 import
 without reverting applied files.
 .PP
@@ -459,8 +499,8 @@ A Git repository opts in with ia_commit: [profile] and ia_include:
 Both lists must be nonempty to enable summaries; an empty selection leaves them
 disabled. There is no global inheritance. Multiple profiles
 are ordered alternatives. Their redaction rules are combined and applied to
-complete old and new blobs before creating a partial diff. Git bytes are
-unchanged.
+complete path names and old and new blobs before creating a partial diff; a
+name they cannot mask is omitted. Git bytes are unchanged.
 .PP
 Only regular UTF-8 text blobs without NUL bytes are eligible, with at most 64
 KiB

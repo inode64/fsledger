@@ -4,16 +4,20 @@ package restore
 import (
 	"archive/tar"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/resource"
@@ -74,6 +78,12 @@ const (
 	executableBits  = 0o111
 	directoryMode   = 0o755
 	temporaryPrefix = ".fsledger-restore-"
+	// preservedBits is the part of a replaced file's mode its replacement inherits.
+	preservedBits = fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky
+	// directoryFlags opens a directory only when the component itself is one, never through a symlink.
+	directoryFlags = unix.O_PATH | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC
+	// syncFlags reopens a pinned directory readable, since an O_PATH descriptor cannot be synced.
+	syncFlags = unix.O_RDONLY | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC
 )
 
 type action int
@@ -87,20 +97,22 @@ const (
 
 // run holds the destination state discovered from the archive's prefix entry.
 type run struct {
-	// root is nil before the prefix entry arrives, and stays nil in a dry run over an absent destination.
-	root *os.Root
+	// failed holds the directory entries that failed; nothing below them is attempted.
+	failed map[string]struct{}
 	// base is the opened directory shown in output lines.
 	base string
 	// name is the destination base name when Prefix is a single file or symlink.
 	name    string
 	options Options
-	opened  bool
+	// root is -1 before the prefix entry arrives, and stays -1 in a dry run over an absent destination.
+	root   int
+	opened bool
 }
 
 // Apply walks the archive and restores every entry under Options.Prefix. The prefix entry itself
 // decides the destination layout, so nothing is created before it is seen.
 func Apply(ctx context.Context, reader *tar.Reader, options Options) (Summary, error) {
-	state := run{root: nil, base: "", name: "", options: options, opened: false}
+	state := run{failed: map[string]struct{}{}, base: "", name: "", options: options, root: -1, opened: false}
 	defer state.close()
 
 	var summary Summary
@@ -144,13 +156,16 @@ func (s *run) step(reader io.Reader, header *tar.Header, summary *Summary) error
 	}
 
 	outcome, reason := s.entry(reader, header, relative)
+	if outcome == actionFail && header.Typeflag == tar.TypeDir {
+		s.failed[relative] = struct{}{}
+	}
 
 	return s.report(summary, outcome, relative, reason)
 }
 
 func (s *run) close() {
-	if s.root != nil {
-		resource.Close(s.root)
+	if s.root >= 0 {
+		resource.FD(s.root)
 	}
 }
 
@@ -184,18 +199,22 @@ func (s *run) locate(header *tar.Header) (string, bool, error) {
 	return s.name, true, s.open(filepath.Dir(s.options.Destination), false)
 }
 
-// open prepares the destination directory. A dry run neither creates it nor fails when it is absent.
+// open prepares the destination directory without following a symlink in any of its components,
+// since its owner may differ from the root running the restore. A dry run neither creates it nor
+// fails when it is absent.
 func (s *run) open(directory string, create bool) error {
 	s.base = directory
 
-	if create && !s.options.DryRun {
-		err := os.MkdirAll(directory, directoryMode)
-		if err != nil {
-			return fault.Wrap("create destination", err)
-		}
+	start := "."
+	if filepath.IsAbs(directory) {
+		start = "/"
 	}
 
-	root, err := os.OpenRoot(directory)
+	fd, err := unix.Open(start, directoryFlags, 0)
+	if err == nil {
+		fd, err = descend(fd, components(directory), create && !s.options.DryRun)
+	}
+
 	if err != nil {
 		if s.options.DryRun && errors.Is(err, fs.ErrNotExist) {
 			return nil
@@ -204,9 +223,85 @@ func (s *run) open(directory string, create bool) error {
 		return fault.Wrap("open destination", err)
 	}
 
-	s.root = root
+	s.root = fd
 
 	return nil
+}
+
+// components splits a clean path into the names descend opens; "/" and "." have none.
+func components(directory string) []string {
+	directory = strings.TrimPrefix(directory, "/")
+	if directory == "" || directory == "." {
+		return nil
+	}
+
+	return strings.Split(directory, "/")
+}
+
+// descend walks parts below the owned directory fd, refusing symlinks and creating missing
+// directories when create is set. The fd is consumed even on failure.
+func descend(fd int, parts []string, create bool) (int, error) {
+	for _, part := range parts {
+		next, err := openDirectory(fd, part, create)
+		resource.FD(fd)
+
+		if err != nil {
+			return -1, err
+		}
+
+		fd = next
+	}
+
+	return fd, nil
+}
+
+// openDirectory opens one real directory below parent, first creating it when create is set.
+func openDirectory(parent int, name string, create bool) (int, error) {
+	fd, err := unix.Openat(parent, name, directoryFlags, 0)
+	if !create || !errors.Is(err, fs.ErrNotExist) {
+		return fd, fault.Wrap("openat "+name, err)
+	}
+
+	err = unix.Mkdirat(parent, name, directoryMode)
+	if err != nil && !errors.Is(err, fs.ErrExist) {
+		return -1, fault.Wrap("mkdirat "+name, err)
+	}
+
+	fd, err = unix.Openat(parent, name, directoryFlags, 0)
+
+	return fd, fault.Wrap("openat "+name, err)
+}
+
+// parent opens the directory holding relative below the destination without following symlinks.
+// It returns -1 when there is nothing to inspect: a dry run over a directory it would create.
+func (s *run) parent(relative string) (int, error) {
+	if s.root < 0 {
+		return -1, nil
+	}
+
+	fd, err := unix.Openat(s.root, ".", directoryFlags, 0)
+	if err == nil {
+		fd, err = descend(fd, components(path.Dir(relative)), false)
+	}
+
+	if s.options.DryRun && errors.Is(err, fs.ErrNotExist) {
+		return -1, nil
+	}
+
+	return fd, fault.Wrap("open parent directory", err)
+}
+
+// belowFailed reports whether an enclosing directory entry failed; its content would otherwise land
+// wherever that path now leads.
+func (s *run) belowFailed(relative string) bool {
+	for directory := path.Dir(relative); directory != "."; directory = path.Dir(directory) {
+		_, failed := s.failed[directory]
+		if failed {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *run) entry(reader io.Reader, header *tar.Header, relative string) (action, string) {
@@ -219,7 +314,23 @@ func (s *run) entry(reader io.Reader, header *tar.Header, relative string) (acti
 		return actionFail, "unsupported entry type"
 	}
 
-	existing, outcome, reason := s.decide(relative, kind)
+	if s.belowFailed(relative) {
+		return actionFail, "parent directory failed"
+	}
+
+	// Every later operation is relative to this descriptor, so no symlink swapped in meanwhile is followed.
+	parent, err := s.parent(relative)
+	if err != nil {
+		return actionFail, err.Error()
+	}
+
+	if parent >= 0 {
+		defer resource.FD(parent)
+	}
+
+	name := path.Base(relative)
+
+	existing, outcome, reason := s.decide(parent, name, kind)
 	if outcome != actionRestore {
 		return outcome, reason
 	}
@@ -232,7 +343,7 @@ func (s *run) entry(reader io.Reader, header *tar.Header, relative string) (acti
 		return actionRestore, ""
 	}
 
-	err := s.write(reader, header, relative, kind, existing)
+	err = write(reader, header, parent, name, kind, existing)
 	if err != nil {
 		return actionFail, err.Error()
 	}
@@ -254,12 +365,12 @@ func entryKind(flag byte) (fs.FileMode, bool) {
 }
 
 // decide applies the policy to the destination entry; existing is non-nil only when it is replaced.
-func (s *run) decide(relative string, kind fs.FileMode) (fs.FileInfo, action, string) {
-	if s.root == nil {
+func (s *run) decide(parent int, name string, kind fs.FileMode) (fs.FileInfo, action, string) {
+	if parent < 0 {
 		return nil, actionRestore, ""
 	}
 
-	existing, err := s.root.Lstat(relative)
+	existing, err := lstat(parent, name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, actionRestore, ""
 	}
@@ -287,31 +398,47 @@ func (s *run) decide(relative string, kind fs.FileMode) (fs.FileInfo, action, st
 	return nil, actionSkip, "exists"
 }
 
-func (s *run) write(
-	reader io.Reader, header *tar.Header, relative string, kind fs.FileMode, existing fs.FileInfo,
+// lstat describes name without following it. The O_PATH descriptor opens nothing, not even a
+// device, and lets os build the fs.FileInfo the policy and fill consume.
+func lstat(parent int, name string) (fs.FileInfo, error) {
+	fd, err := unix.Openat(parent, name, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, fault.Wrap("lstat "+name, err)
+	}
+
+	file := os.NewFile(uintptr(fd), name)
+	defer resource.Close(file)
+
+	info, err := file.Stat()
+
+	return info, fault.Wrap("lstat "+name, err)
+}
+
+func write(
+	reader io.Reader, header *tar.Header, parent int, name string, kind fs.FileMode, existing fs.FileInfo,
 ) error {
 	if kind == fs.ModeDir {
-		return fault.Wrap("create directory", s.root.Mkdir(relative, directoryMode))
+		return fault.Wrap("create directory", unix.Mkdirat(parent, name, directoryMode))
 	}
 
 	if kind != fs.ModeSymlink {
-		return s.writeRegular(reader, header, relative, existing)
+		return writeRegular(reader, header, parent, name, existing)
 	}
 
 	if existing != nil {
-		err := s.root.Remove(relative)
+		err := unix.Unlinkat(parent, name, 0)
 		if err != nil {
 			return fault.Wrap("replace symlink", err)
 		}
 	}
 
-	return fault.Wrap("create symlink", s.root.Symlink(header.Linkname, relative))
+	return fault.Wrap("create symlink", unix.Symlinkat(header.Linkname, parent, name))
 }
 
-// writeRegular stages the content next to its destination and renames it into place, keeping the
-// mode and owner of a replaced file.
-func (s *run) writeRegular(reader io.Reader, header *tar.Header, relative string, existing fs.FileInfo) error {
-	mode := fs.FileMode(fileMode)
+// writeRegular stages the content next to its destination and durably renames it into place,
+// keeping the mode and owner of a replaced file.
+func writeRegular(reader io.Reader, header *tar.Header, parent int, name string, existing fs.FileInfo) error {
+	mode := uint32(fileMode)
 	if existing != nil {
 		// Keep replacements private until their original owner and mode have been applied.
 		mode = 0o600
@@ -319,16 +446,21 @@ func (s *run) writeRegular(reader io.Reader, header *tar.Header, relative string
 		mode = executableMode
 	}
 
-	temporary := filepath.Join(filepath.Dir(relative), temporaryPrefix+filepath.Base(relative))
-
-	file, err := s.root.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	file, err := createTemporary(parent, mode, randomTemporary)
 	if err != nil {
-		return fault.Wrap("create temporary file", err)
+		return err
 	}
+
+	temporary := file.Name()
 	// A successful rename leaves nothing to remove; any earlier failure does.
-	defer resource.Remove(s.root, temporary)
+	defer removeTemporary(parent, temporary)
 
 	err = fill(file, reader, existing)
+	if err == nil {
+		// Flushed before the rename publishes it, or a crash may leave the restored file empty.
+		err = fault.Wrap("sync temporary file", file.Sync())
+	}
+
 	if err != nil {
 		resource.Close(file)
 
@@ -340,7 +472,58 @@ func (s *run) writeRegular(reader io.Reader, header *tar.Header, relative string
 		return fault.Wrap("close temporary file", err)
 	}
 
-	return fault.Wrap("replace file", s.root.Rename(temporary, relative))
+	err = unix.Renameat(parent, temporary, parent, name)
+	if err != nil {
+		return fault.Wrap("replace file", err)
+	}
+
+	return syncDirectory(parent)
+}
+
+// createTemporary creates a new sibling under the first name from next that is still free, so
+// neither a copy left by a crash nor one planted by another writer blocks the restore.
+func createTemporary(parent int, mode uint32, next func() string) (*os.File, error) {
+	const attempts = 3
+
+	flags := unix.O_WRONLY | unix.O_CREAT | unix.O_EXCL | unix.O_NOFOLLOW | unix.O_CLOEXEC
+
+	for attempt := 1; ; attempt++ {
+		name := next()
+
+		fd, err := unix.Openat(parent, name, flags, mode)
+		if err == nil {
+			return os.NewFile(uintptr(fd), name), nil
+		}
+
+		if !errors.Is(err, fs.ErrExist) || attempt == attempts {
+			return nil, fault.Wrap("create temporary file", err)
+		}
+	}
+}
+
+// randomTemporary names a temporary unpredictably and independently of the destination name, which
+// may already use the whole NAME_MAX.
+func randomTemporary() string {
+	return temporaryPrefix + rand.Text()
+}
+
+// syncDirectory makes a rename in the pinned parent durable through a readable copy of it.
+func syncDirectory(parent int) error {
+	fd, err := unix.Openat(parent, ".", syncFlags, 0)
+	if err != nil {
+		return fault.Wrap("open parent directory for sync", err)
+	}
+	defer resource.FD(fd)
+
+	return fault.Wrap("sync parent directory", unix.Fsync(fd))
+}
+
+// removeTemporary deletes an abandoned temporary copy; a successful rename already removed it.
+func removeTemporary(parent int, name string) {
+	err := unix.Unlinkat(parent, name, 0)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		slog.Warn("temporary copy cleanup failed", "error", err)
+	}
 }
 
 func fill(file *os.File, reader io.Reader, existing fs.FileInfo) error {
@@ -361,7 +544,8 @@ func fill(file *os.File, reader io.Reader, existing fs.FileInfo) error {
 		}
 	}
 
-	return fault.Wrap("preserve mode", file.Chmod(existing.Mode().Perm()))
+	// Applied after the owner, since chown clears setuid and setgid.
+	return fault.Wrap("preserve mode", file.Chmod(existing.Mode()&preservedBits))
 }
 
 func (s *run) report(summary *Summary, outcome action, relative, reason string) error {

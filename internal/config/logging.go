@@ -62,7 +62,7 @@ func (c *Config) validateLogging() error {
 
 // CheckLogPath inspects existing parents and the destination without creating files.
 func CheckLogPath(path string) error {
-	parentErr := checkStorage(filepath.Dir(path))
+	parentErr := checkDirectory("log directory", filepath.Dir(path))
 	if parentErr != nil {
 		return parentErr
 	}
@@ -73,11 +73,11 @@ func CheckLogPath(path string) error {
 	}
 
 	if err != nil {
-		return fault.Wrap("inspect log file", err)
+		return fault.Wrap("inspect log file "+path, err)
 	}
 
 	if !info.Mode().IsRegular() {
-		return fault.New("log file must be a regular file, not a symlink or special file")
+		return fault.New("log file must be a regular file, not a symlink or special file: " + path)
 	}
 
 	return nil

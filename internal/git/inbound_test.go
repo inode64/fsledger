@@ -1,6 +1,7 @@
 package git_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -95,7 +96,7 @@ func TestIncomingRejectsLargeBlobs(t *testing.T) {
 	identifier := strings.TrimSpace(repositoryOutput(t, repository, "rev-parse", "HEAD:file"))
 
 	_, err := repository.ReadBlob(t.Context(), identifier)
-	if err == nil {
-		t.Fatal("oversized incoming blob accepted")
+	if !errors.Is(err, gitrepo.ErrIncomingBlobTooLarge) {
+		t.Fatal("oversized incoming blob not rejected as too large", err)
 	}
 }
