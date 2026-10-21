@@ -29,9 +29,10 @@ func insideNamespace(t *testing.T) bool {
 	t.Helper()
 
 	if os.Getenv(namespaceRun) != "" {
+		// AppArmor-confined user namespaces (Ubuntu 24.04 runners) deny the mount with EACCES.
 		err := unix.Mount("tmpfs", os.TempDir(), "tmpfs", 0, "")
-		if errors.Is(err, unix.EPERM) {
-			t.Skip("user namespace cannot mount tmpfs")
+		if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) {
+			t.Skip("user namespace cannot mount tmpfs:", err)
 		}
 
 		if err != nil {
@@ -55,7 +56,8 @@ func insideNamespace(t *testing.T) bool {
 	command.SysProcAttr.GidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getgid(), Size: 1}}
 
 	output, err := command.CombinedOutput()
-	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOSPC) {
+	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) ||
+		errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOSPC) {
 		t.Skip("unprivileged user namespaces unavailable:", err)
 	}
 
@@ -86,7 +88,7 @@ func setSecurityAttribute(t *testing.T, path, attribute string, value []byte) {
 	t.Helper()
 
 	err := unix.Lsetxattr(path, attribute, value, 0)
-	if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EPERM) {
+	if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) {
 		t.Skip("kernel refuses", attribute, err)
 	}
 
