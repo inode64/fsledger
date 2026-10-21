@@ -16,6 +16,9 @@ import (
 	native "github.com/moby/sys/mountinfo"
 )
 
+// tablePath lists the mounts of the daemon's namespace, as Read parses them and Changes follows them.
+const tablePath = "/proc/self/mountinfo"
+
 // Mount describes a visible filesystem in the daemon's mount namespace.
 type Mount struct {
 	Point  string `json:"point"`
@@ -26,7 +29,7 @@ type Mount struct {
 
 // Read reads /proc/self/mountinfo directly, without external commands.
 func Read() ([]Mount, error) {
-	file, err := os.Open("/proc/self/mountinfo")
+	file, err := os.Open(tablePath)
 	if err != nil {
 		return nil, fault.Wrap("read mount table", err)
 	}

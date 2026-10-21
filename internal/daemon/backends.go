@@ -30,8 +30,10 @@ func (w *worker) startWatchers(ctx context.Context) {
 	}
 }
 
+// nativeCovers reports an inotify event that fanotify's directory marks delivered too. No mark sees a mount
+// or unmount, so the reconciliation inotify requests for a remounted directory is never one of them.
 func (w *worker) nativeCovers(raw event.Raw) bool {
-	if raw.Backend != event.Inotify {
+	if raw.Backend != event.Inotify || raw.Reason == inotify.RemountReason {
 		return false
 	}
 
