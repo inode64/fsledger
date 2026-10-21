@@ -15,6 +15,8 @@ import (
 	"github.com/inode64/fsledger/internal/pathutil"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/mountinfo"
+	"github.com/inode64/fsledger/internal/resource"
 
 	"github.com/fsnotify/fsnotify"
 	"golang.org/x/sys/unix"
@@ -26,15 +28,23 @@ import (
 
 // Watcher keeps recursive directory watches, including parents of configured roots.
 type Watcher struct {
-	native       *fsnotify.Watcher
-	matcher      *exclude.Matcher
-	queue        *watcher.Queue
-	done         chan struct{}
-	cancel       context.CancelFunc
-	directories  directoryWatches
+	native  *fsnotify.Watcher
+	matcher *exclude.Matcher
+	queue   *watcher.Queue
+	done    chan struct{}
+	// changes follows the mount table from Start, when the root is watched; mountsDone closes with its goroutine.
+	changes     *mountinfo.Changes
+	mountsDone  chan struct{}
+	cancel      context.CancelFunc
+	directories directoryWatches
+	// mounts is the last table seen at or below the root; coverage guards it with the watches.
+	mounts       mountStacks
 	path         string
+	coverage     sync.Mutex
 	once         sync.Once
 	coverageLost atomic.Bool
+	// unwatchedFilesystem reports another filesystem mounted below the root, or a remote one on it.
+	unwatchedFilesystem atomic.Bool
 }
 
 // New allocates an inotify instance; Start installs coverage.
@@ -51,6 +61,7 @@ func New(path string, matcher *exclude.Matcher) (*Watcher, error) {
 		matcher:     matcher,
 		queue:       watcher.NewQueue(watcher.QueueSize),
 		done:        make(chan struct{}),
+		mountsDone:  make(chan struct{}),
 	}, nil
 }
 
@@ -73,9 +84,11 @@ func (w *Watcher) Dirty() bool {
 	return dirty
 }
 
-// PollingRequired covers watches potentially missed during an overflow or reader failure.
+// PollingRequired covers watches potentially missed during an overflow or reader failure, and filesystems the
+// watches cannot follow: another one mounted below the root after Start, as for a nested mount without a usable
+// detector at startup, or a remote one on the root.
 func (w *Watcher) PollingRequired() bool {
-	return watcher.PollingRequired(w.done, &w.coverageLost)
+	return w.unwatchedFilesystem.Load() || watcher.PollingRequired(w.done, &w.coverageLost)
 }
 
 // Start installs watches before beginning the initial reconciliation.
@@ -87,7 +100,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 
 	// Events reach addTree only after handle applied the exclusions; the root has not been checked.
 	if !w.matcher.Match(w.path) {
-		err = w.addTree(w.path)
+		err = w.watchTree()
 		if err != nil {
 			return err
 		}
@@ -95,6 +108,10 @@ func (w *Watcher) Start(ctx context.Context) error {
 
 	ctx, w.cancel = context.WithCancel(ctx)
 	go w.read(ctx)
+
+	if w.changes != nil {
+		go w.followMounts(ctx)
+	}
 
 	return nil
 }
@@ -108,13 +125,45 @@ func (w *Watcher) Close() error {
 			w.cancel()
 		}
 
-		err = w.native.Close()
+		// The mount follower installs watches: it stops before they are released.
+		if w.changes != nil {
+			w.changes.Stop()
+			<-w.mountsDone
+			err = w.changes.Close()
+		}
+
+		err = errors.Join(err, w.native.Close())
 		if w.cancel != nil {
 			<-w.done
 		}
 	})
 
 	return fault.Wrap("close inotify", err)
+}
+
+// watchTree follows the mount table before reading it and walking the root: a mount meanwhile is still reported.
+func (w *Watcher) watchTree() error {
+	changes, err := mountinfo.FollowChanges()
+	if err != nil {
+		return err
+	}
+
+	mounts, err := mountinfo.Read()
+	if err == nil {
+		w.mounts = stackMounts(w.path, w.matcher, mounts)
+		w.unwatchedFilesystem.Store(w.mounts.unwatched(w.path))
+		err = w.addTree(w.path)
+	}
+
+	if err != nil {
+		resource.Close(changes)
+
+		return err
+	}
+
+	w.changes = changes
+
+	return nil
 }
 
 func (w *Watcher) addTree(path string) error {
@@ -131,7 +180,9 @@ func (w *Watcher) addTree(path string) error {
 			return nil
 		}
 
-		if w.matcher.MatchEntry(name) {
+		// Another filesystem mounted below the root, without a detector of its own, is a boundary that
+		// reconciliation covers.
+		if w.matcher.MatchEntry(name) || w.mounts.boundary(w.path, name) {
 			return filepath.SkipDir
 		}
 
@@ -231,6 +282,9 @@ func (w *Watcher) handle(native fsnotify.Event) {
 }
 
 func (w *Watcher) maintainCoverage(native fsnotify.Event) {
+	w.coverage.Lock()
+	defer w.coverage.Unlock()
+
 	if native.Has(fsnotify.Remove) || native.Has(fsnotify.Rename) {
 		w.reportCoverageError(w.dropTree(native.Name))
 	}
