@@ -30,17 +30,17 @@ func TestScannerReusesHashStateSafely(t *testing.T) {
 			cancelled, cancel := context.WithCancel(t.Context())
 			cancel()
 
-			_, err = scanner.Observe(cancelled, path, algorithm, true)
+			_, err = scanner.Observe(cancelled, path, algorithm, true, nil)
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("cancelled observation: %v", err)
 			}
 
-			record, err := scanner.Observe(t.Context(), path, algorithm, true)
+			record, err := scanner.Observe(t.Context(), path, algorithm, true, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			fresh, err := integrity.NewScanner(1, 2).Observe(t.Context(), path, algorithm, true)
+			fresh, err := integrity.NewScanner(1, 2).Observe(t.Context(), path, algorithm, true, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -66,7 +66,7 @@ func BenchmarkObserve(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_, err = scanner.Observe(b.Context(), path, "sha256", true)
+		_, err = scanner.Observe(b.Context(), path, "sha256", true, nil)
 		if err != nil {
 			b.Fatal(err)
 		}

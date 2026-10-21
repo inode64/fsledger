@@ -31,7 +31,7 @@ func scannedPaths(t *testing.T, root string, paths []string, directories bool) [
 			visited = append(visited, string(record.Path))
 
 			return nil
-		})
+		}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

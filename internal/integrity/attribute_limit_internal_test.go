@@ -106,7 +106,7 @@ func scannedRecords(t *testing.T, root string) map[string]Record {
 			found[string(record.Path)] = record
 
 			return nil
-		})
+		}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

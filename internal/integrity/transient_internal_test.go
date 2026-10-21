@@ -78,7 +78,7 @@ func TestScannerRetriesUnstableContentWithoutPublishingIt(t *testing.T) {
 	workspace.digest, workspace.algorithm = digest, "sha256"
 	scanner.slots <- workspace
 
-	record, err := scanner.Observe(t.Context(), path, "sha256", true)
+	record, err := scanner.Observe(t.Context(), path, "sha256", true, nil)
 	if !errors.Is(err, ErrUnstable) || record.Hash != "" || digest.writes != 3 || digest.err != nil {
 		t.Fatalf("unstable bytes accepted or unbounded retries: %+v %d %v %v", record, digest.writes, err, digest.err)
 	}

@@ -70,7 +70,7 @@ func checkIndivisibleDigest(t *testing.T, body string) {
 	}
 
 	// An invalid transport prevents delivery; template errors must still be reported first.
-	_, err := sender.Send(t.Context(), notifier, chunk.Message)
+	_, err := sender.Send(t.Context(), notifier, chunk.Message, nil)
 	if renders != 1 || err == nil {
 		t.Fatal("message was rendered repeatedly or its failure was swallowed", renders, err)
 	}

@@ -29,7 +29,7 @@ func TestContentSizeRequiresExactReadableLength(t *testing.T) {
 func TestHashRejectsVirtualFileWithZeroDeclaredSize(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewScanner(1, 1).Observe(t.Context(), "/proc/version", "sha256", true)
+	_, err := NewScanner(1, 1).Observe(t.Context(), "/proc/version", "sha256", true, nil)
 	if err == nil || !strings.Contains(err.Error(), "source size differs") {
 		t.Fatal("virtual file was accepted as empty", err)
 	}

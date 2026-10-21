@@ -94,7 +94,7 @@ func TestFullScanCountsVerifiedMirrorDigests(t *testing.T) {
 
 	scanner := integrity.NewScanner(1, 1)
 
-	record, err := scanner.Observe(t.Context(), path, "sha256", true)
+	record, err := scanner.Observe(t.Context(), path, "sha256", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

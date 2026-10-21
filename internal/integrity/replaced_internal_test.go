@@ -103,7 +103,7 @@ func replacedParent(t *testing.T, replace func(string) error) (*os.File, string)
 func consumeQueued(ctx context.Context, scanner *Scanner, parent string, jobs <-chan string) (bool, error) {
 	results := make(chan observation, cap(jobs)+1)
 	for path := range jobs {
-		record, err := scanner.Observe(ctx, path, "sha256", false)
+		record, err := scanner.Observe(ctx, path, "sha256", false, nil)
 		results <- observation{record: record, err: err}
 	}
 
@@ -113,7 +113,7 @@ func consumeQueued(ctx context.Context, scanner *Scanner, parent string, jobs <-
 
 	cancelled := false
 	visit := func(record Record) error {
-		_, err := scanner.Observe(ctx, string(record.Path), "sha256", false)
+		_, err := scanner.Observe(ctx, string(record.Path), "sha256", false, nil)
 
 		return err
 	}
