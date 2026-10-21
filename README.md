@@ -122,7 +122,7 @@ baselines, and pending work. No additional database server is required.
 
 - **Linux** to run the daemon and CLI.
 - **Git 2.28 or later** for content repositories.
-- **Go 1.27.2 or later and Make** to build from source. Production binaries are built
+- **Go 1.27.3+ or later and Make** to build from source. Production binaries are built
   without CGO and do not require Go to be installed at runtime.
 - Read permissions on the sources and write permissions on state directories.
   fanotify may require additional privileges; automatic mode provides alternatives

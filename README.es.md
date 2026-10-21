@@ -124,7 +124,7 @@ aprobadas y el trabajo pendiente. No necesitas un servidor de base de datos adic
 
 - **Linux** para ejecutar el daemon y la CLI.
 - **Git 2.28 o posterior** para los repositorios de contenido.
-- **Go 1.27.2 o posterior y Make** para compilar desde el código fuente. Los binarios
+- **Go 1.27.3+ o posterior y Make** para compilar desde el código fuente. Los binarios
   de producción se construyen sin CGO y no necesitan Go instalado para ejecutarse.
 - Permisos de lectura sobre las fuentes y de escritura sobre las rutas de estado.
   fanotify puede necesitar privilegios adicionales; el modo automático dispone de
