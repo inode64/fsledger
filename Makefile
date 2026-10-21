@@ -38,7 +38,7 @@ define with_packages
 endef
 
 .PHONY: install install-bin install-man install-config install-openrc install-systemd
-.PHONY: check tools lint-config lint nilaway vuln modules build test test-stress fmt yaml markdown fuzz
+.PHONY: check tools lint-config lint nilaway vuln retracted modules build test test-stress fmt yaml markdown fuzz
 .PHONY: check-static check-security tools-go tools-python tools-node
 .PHONY: fmt-check deadcode lint-shell lint-workflows secrets secrets-staged secrets-history vuln-binaries publication-check
 .PHONY: release
@@ -47,7 +47,7 @@ check: check-static check-security build test
 
 check-static: lint-config modules fmt-check lint nilaway deadcode lint-shell lint-workflows yaml markdown
 
-check-security: publication-check vuln vuln-binaries secrets secrets-staged secrets-history
+check-security: publication-check vuln retracted vuln-binaries secrets secrets-staged secrets-history
 
 tools: tools-go tools-python tools-node
 
@@ -87,6 +87,17 @@ vuln:
 vuln-binaries: build
 	govulncheck -mode=binary "$(BUILD_DIR)/fsledger"
 	govulncheck -mode=binary "$(BUILD_DIR)/fsledgerd"
+
+# Fail on any required module version its authors retracted. Retraction data comes from each module's
+# latest go.mod, so the lookup runs against a scratch copy and never rewrites go.mod or go.sum.
+retracted:
+	@set -eu; scratch=$$(mktemp -d); trap 'rm -rf "$$scratch"' 0; \
+		cp go.mod go.sum "$$scratch"/; \
+		$(GO) list -modfile="$$scratch/go.mod" -mod=mod -m -retracted \
+			-f '{{if .Retracted}}{{.Path}} {{.Version}} is retracted: {{join .Retracted "; "}}{{end}}' all \
+			> "$$scratch/retracted"; \
+		output=$$(sed '/^$$/d' "$$scratch/retracted"); \
+		if [ -n "$$output" ]; then printf '%s\n' "$$output" >&2; exit 1; fi
 
 deadcode:
 	@set -eu; output=$$(mktemp); trap 'rm -f "$$output"' 0; \
