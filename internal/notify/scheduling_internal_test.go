@@ -89,7 +89,7 @@ func TestDigestChunkKeepsExcessDeliveriesForAnotherTick(t *testing.T) {
 	t.Parallel()
 
 	sender := New(map[string]config.Template{
-		"summary": {Subject: "{{.Event}}", Body: "{{.Count}}"},
+		"summary": parsedTemplate(t, "{{.Event}}", "{{.Count}}"),
 	})
 
 	deliveries := make([]catalog.Delivery, 2001)

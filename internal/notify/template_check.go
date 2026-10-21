@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/inode64/fsledger/internal/catalog"
 	"github.com/inode64/fsledger/internal/config"
@@ -46,8 +47,7 @@ type templateSample struct {
 // Configuration cannot run this itself: it cannot import catalog messages. Reports use their own
 // renderer, and the built-in template is covered by tests.
 func CheckTemplates(cfg *config.Config) error {
-	sender := New(cfg.Templates)
-	samples := templateSamples()
+	samples := sync.OnceValue(templateSamples)
 
 	for _, name := range slices.Sorted(maps.Keys(cfg.Notifiers)) {
 		notifier := cfg.Notifiers[name]
@@ -55,12 +55,12 @@ func CheckTemplates(cfg *config.Config) error {
 			continue
 		}
 
-		parsed, exists := sender.templates[notifier.Template]
-		if !exists {
+		parsed, exists := cfg.Templates[notifier.Template]
+		if !exists || parsed.Subject == nil || parsed.Body == nil {
 			return fault.New("invalid notification template " + notifier.Template + " for notifier " + name)
 		}
 
-		for _, sample := range samples {
+		for _, sample := range samples() {
 			if !routed(cfg, name, sample.message.Event) {
 				continue
 			}
@@ -92,10 +92,10 @@ func routed(cfg *config.Config, notifier, event string) bool {
 
 // checkTemplate applies the rules of render that depend on the template rather than on message size,
 // keeping the text/template error, which names the failing part, line and action.
-func checkTemplate(parsed compiledTemplate, message catalog.Message) error {
+func checkTemplate(parsed config.Template, message catalog.Message) error {
 	var subject strings.Builder
 
-	err := parsed.subject.Execute(&subject, message)
+	err := parsed.Subject.Execute(&subject, message)
 	if err != nil {
 		return fault.Wrap("render subject", err)
 	}
@@ -104,7 +104,7 @@ func checkTemplate(parsed compiledTemplate, message catalog.Message) error {
 		return fault.New("notification subject contains a line break")
 	}
 
-	return fault.Wrap("render body", parsed.body.Execute(io.Discard, message))
+	return fault.Wrap("render body", parsed.Body.Execute(io.Discard, message))
 }
 
 // templateSamples covers each message shape a template receives: a detailed change; a change above

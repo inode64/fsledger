@@ -27,31 +27,44 @@ func (loader *catalogLoader) templates(cfg *Config) error {
 			return fault.New("duplicate template: " + name)
 		}
 
-		var definition Template
+		var definition struct {
+			Subject string `yaml:"subject"`
+			Body    string `yaml:"body"`
+		}
 
 		err := loader.read(file, &definition)
 		if err != nil {
 			return fault.New("invalid template document: " + file)
 		}
 
-		if strings.TrimSpace(definition.Subject) == "" || strings.TrimSpace(definition.Body) == "" {
-			return fault.New("template requires subject and body: " + name)
+		parsed, err := ParseTemplate(name, definition.Subject, definition.Body)
+		if err != nil {
+			return err
 		}
 
-		for _, candidate := range []struct{ part, source string }{
-			{part: "subject", source: definition.Subject},
-			{part: "body", source: definition.Body},
-		} {
-			_, err = NotificationTemplate(name + ":" + candidate.part).Parse(candidate.source)
-			if err != nil {
-				return fault.New("invalid template " + candidate.part + ": " + name)
-			}
-		}
-
-		cfg.Templates[name] = definition
+		cfg.Templates[name] = parsed
 
 		return nil
 	})
+}
+
+// ParseTemplate validates and compiles a notification template once at configuration load.
+func ParseTemplate(name, subject, body string) (Template, error) {
+	if strings.TrimSpace(subject) == "" || strings.TrimSpace(body) == "" {
+		return Template{}, fault.New("template requires subject and body: " + name)
+	}
+
+	parsedSubject, err := NotificationTemplate(name + ":subject").Parse(subject)
+	if err != nil {
+		return Template{}, fault.New("invalid template subject: " + name)
+	}
+
+	parsedBody, err := NotificationTemplate(name + ":body").Parse(body)
+	if err != nil {
+		return Template{}, fault.New("invalid template body: " + name)
+	}
+
+	return Template{Subject: parsedSubject, Body: parsedBody}, nil
 }
 
 // MailURL validates the transport DSN without including credentials in errors.

@@ -47,7 +47,7 @@ func TestSlackTransportAndRateLimit(t *testing.T) {
 	defer server.Close()
 
 	sender := notify.New(map[string]config.Template{
-		transportTemplate: {Subject: "Subject {{.Repository}}", Body: "Body {{.Repository}}"},
+		transportTemplate: parsedTemplate(t, "Subject {{.Repository}}", "Body {{.Repository}}"),
 	})
 	sender.HTTP = server.Client()
 
@@ -207,7 +207,7 @@ func testEmailImplicitTLS(t *testing.T, serverName string, report bool) {
 	}()
 
 	sender := notify.New(map[string]config.Template{
-		"mail": {Subject: "Subject {{.Repository}}", Body: "Body {{.Repository}}"},
+		"mail": parsedTemplate(t, "Subject {{.Repository}}", "Body {{.Repository}}"),
 	})
 	//nolint:exhaustruct_v5 // Only trust roots and the TLS minimum differ from secure library defaults.
 	sender.TLS = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}

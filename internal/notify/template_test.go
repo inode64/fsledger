@@ -20,10 +20,15 @@ func TestTemplateSummaryVariables(t *testing.T) {
 	server, rendered := slackRecorder(t)
 	defer server.Close()
 
-	sender := notify.New(map[string]config.Template{"summary": {
-		Subject: "{{.Host}} {{.Hostname}}",
-		Body:    "added={{.Added}} modified={{.Modified}} deleted={{.Deleted}}",
-	}})
+	sender := notify.New(
+		map[string]config.Template{
+			"summary": parsedTemplate(
+				t,
+				"{{.Host}} {{.Hostname}}",
+				"added={{.Added}} modified={{.Modified}} deleted={{.Deleted}}",
+			),
+		},
+	)
 	detail := func(kind string) catalog.Detail {
 		return catalog.Detail{
 			ChangeID: "", Path: []byte("/file"), Kind: kind, Actor: "actor",
@@ -91,4 +96,15 @@ func slackRecorder(t *testing.T) (*httptest.Server, func() []string) {
 
 		return slices.Clone(texts)
 	}
+}
+
+func parsedTemplate(t *testing.T, subject, body string) config.Template {
+	t.Helper()
+
+	parsed, err := config.ParseTemplate("test", subject, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return parsed
 }

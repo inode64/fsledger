@@ -84,8 +84,8 @@ body: 'Changed paths: {{.Count}}'`,
 		t.Fatal(cfg.Names())
 	}
 
-	if cfg.Templates["email"].Subject != "Changes in {{.Repository}}" ||
-		cfg.Templates["email"].Body != "Changed paths: {{.Count}}" {
+	if cfg.Templates["email"].Subject.Root.String() != "Changes in {{.Repository}}" ||
+		cfg.Templates["email"].Body.Root.String() != "Changed paths: {{.Count}}" {
 		t.Fatal("template document not loaded")
 	}
 
