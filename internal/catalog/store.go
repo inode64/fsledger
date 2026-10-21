@@ -127,16 +127,18 @@ type Store struct {
 	policyDirectories     bool
 }
 
-// Stats describes live state, never cumulative change history.
+// Stats describes live state, never cumulative change history. ExhaustedNotifications counts the pending
+// notifications that stopped retrying; catalogs written before it existed have none.
 type Stats struct {
-	DeferredPaths        int64 `json:"deferred_paths"`
-	DeferredSince        int64 `json:"deferred_since"`
-	Entries              int64 `json:"entries"`
-	Violations           int64 `json:"violations"`
-	NotificationOverflow int64 `json:"notification_overflow"`
-	PendingNotifications int64 `json:"pending_notifications"`
-	BaselineReady        bool  `json:"baseline_ready"`
-	LastFullScan         int64 `json:"last_full_scan"`
+	DeferredPaths          int64 `json:"deferred_paths"`
+	DeferredSince          int64 `json:"deferred_since"`
+	Entries                int64 `json:"entries"`
+	Violations             int64 `json:"violations"`
+	NotificationOverflow   int64 `json:"notification_overflow"`
+	PendingNotifications   int64 `json:"pending_notifications"`
+	ExhaustedNotifications int64 `json:"exhausted_notifications,omitzero"`
+	BaselineReady          bool  `json:"baseline_ready"`
+	LastFullScan           int64 `json:"last_full_scan"`
 }
 
 type diskState struct {

@@ -252,7 +252,7 @@ func TestDiscardPendingDropsDueAndDelayedDeliveries(t *testing.T) {
 		t.Fatalf("deliveries=%d error=%v", len(deliveries), err)
 	}
 
-	err = store.RetryMany(t.Context(), []int64{deliveries[0].ID}, time.Hour, "SMTP unavailable")
+	_, err = store.RetryMany(t.Context(), []int64{deliveries[0].ID}, time.Hour, "SMTP unavailable")
 	if err != nil {
 		t.Fatal(err)
 	}

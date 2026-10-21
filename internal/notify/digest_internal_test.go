@@ -43,6 +43,7 @@ func checkIndivisibleDigest(t *testing.T, body string) {
 			Progress:    catalog.Progress{},
 			Attempts:    0,
 			NextAttempt: 0,
+			Exhausted:   false,
 			Message: catalog.Message{
 				Event:  config.NotificationChange,
 				Count:  digestMaxPaths,
@@ -51,7 +52,7 @@ func checkIndivisibleDigest(t *testing.T, body string) {
 		},
 		{
 			ID: 2, Destination: schedulingSink, Version: "", LastError: "", Progress: catalog.Progress{},
-			Attempts: 0, NextAttempt: 0,
+			Attempts: 0, NextAttempt: 0, Exhausted: false,
 			Message: catalog.Message{Event: config.NotificationChange, Count: 1, Reason: "deferred evidence"},
 		},
 	}

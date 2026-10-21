@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/inode64/fsledger/internal/catalog"
+	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/event"
 	"github.com/inode64/fsledger/internal/watcher"
 )
@@ -71,5 +72,60 @@ func TestGitStatusTimeoutDoesNotDiscardCatalogStatus(t *testing.T) {
 
 	if runner.status.Catalog != want {
 		t.Fatal("Git timeout discarded independent catalog counters", runner.status.Catalog, want)
+	}
+}
+
+// Notifications the outbox stopped retrying must stay visible in the status, once, until outbox clear.
+func TestStatusWarnsAboutExhaustedNotifications(t *testing.T) {
+	t.Parallel()
+	runner := makeWorker(t)
+	runner.catalog.Notifications.Use = []string{opsNotifier}
+	runner.catalog.Notifications.BatchWindow = 0
+
+	err := runner.catalog.Announce(t.Context(), config.NotificationError, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	due, err := runner.catalog.Due(t.Context())
+	if err != nil || len(due) != 1 {
+		t.Fatalf("due=%d error=%v", len(due), err)
+	}
+
+	for range catalog.MaxDeliveryAttempts {
+		_, err = runner.catalog.RetryMany(t.Context(), []int64{due[0].ID}, time.Second, "SMTP authentication failed")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	exhaustedWarnings := func() int {
+		count := 0
+
+		for _, warning := range runner.status.Warnings {
+			if strings.Contains(warning, "1 queued notifications stopped retrying") {
+				count++
+			}
+		}
+
+		return count
+	}
+
+	runner.saveStatus(t.Context())
+	runner.saveStatus(t.Context())
+
+	if exhaustedWarnings() != 1 || runner.status.Catalog.ExhaustedNotifications != 1 {
+		t.Fatalf("exhausted notifications not reported once: %v", runner.status.Warnings)
+	}
+
+	_, err = runner.catalog.DiscardPending(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.saveStatus(t.Context())
+
+	if exhaustedWarnings() != 0 {
+		t.Fatalf("discarded notifications still reported: %v", runner.status.Warnings)
 	}
 }

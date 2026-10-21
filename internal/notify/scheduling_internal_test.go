@@ -97,7 +97,7 @@ func TestDigestChunkKeepsExcessDeliveriesForAnotherTick(t *testing.T) {
 	for index := range deliveries {
 		deliveries[index] = catalog.Delivery{
 			Destination: schedulingSink, Version: "v1", LastError: "", Progress: catalog.Progress{},
-			ID: int64(index + 1), Attempts: 0, NextAttempt: 0,
+			ID: int64(index + 1), Attempts: 0, NextAttempt: 0, Exhausted: false,
 			Message: catalog.Message{
 				Repository: "repo", Host: "host", Hostname: "kernel", Event: config.NotificationChange,
 				ChangeID: schedulingChangeID, Paths: []string{schedulingPath}, Details: nil, Count: 1,
@@ -128,7 +128,7 @@ func TestDigestChunkUsesRenderedSizeAndPreservesOversizedEvidence(t *testing.T) 
 	for index := range deliveries {
 		deliveries[index] = catalog.Delivery{
 			Destination: schedulingSink, Version: "v1", LastError: "", Progress: catalog.Progress{},
-			ID: int64(index + 1), Attempts: 0, NextAttempt: 0,
+			ID: int64(index + 1), Attempts: 0, NextAttempt: 0, Exhausted: false,
 			Message: catalog.Message{
 				Repository: "repo", Host: "host", Hostname: "kernel", Event: config.NotificationChange,
 				ChangeID: schedulingChangeID, Paths: []string{schedulingPath}, Count: 1,

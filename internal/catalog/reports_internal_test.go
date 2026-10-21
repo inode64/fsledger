@@ -215,7 +215,7 @@ func TestReportSurvivesAlertAcknowledgementAndRestart(t *testing.T) {
 		t.Fatal("report not queued", deliveries, err)
 	}
 
-	err = reopened.RetryMany(t.Context(), []int64{deliveries[0].ID}, time.Second, "SMTP unavailable")
+	_, err = reopened.RetryMany(t.Context(), []int64{deliveries[0].ID}, time.Second, "SMTP unavailable")
 	if err != nil {
 		t.Fatal(err)
 	}
