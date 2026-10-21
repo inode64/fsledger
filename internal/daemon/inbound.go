@@ -215,7 +215,11 @@ func (w *worker) prepareIncoming(ctx context.Context, base, target string) error
 	})
 	// Like the path limit, an oversized blob rejects the change set instead of failing transiently.
 	if errors.Is(err, gitrepo.ErrIncomingBlobTooLarge) {
-		return errors.Join(inbound.ErrConflict, err)
+		err = errors.Join(inbound.ErrConflict, err)
+	}
+
+	if errors.Is(err, inbound.ErrConflict) {
+		return w.rejectIncoming(ctx, base, target, policy, err)
 	}
 
 	if err != nil {
@@ -238,6 +242,25 @@ func (w *worker) prepareIncoming(ctx context.Context, base, target string) error
 	w.manager.Due(time.Now(), true)
 
 	return w.resumeIncoming(ctx)
+}
+
+// rejectIncoming records a change set refused before any mutation like a conflict found while applying it;
+// otherwise each fetch of the same target would repeat the reconciliation and the refused preparation.
+func (w *worker) rejectIncoming(ctx context.Context, base, target, policy string, conflict error) error {
+	// Without changes the record is never applied: it only holds the conflict until the branch moves.
+	rejected := &inbound.Plan{
+		ID: "", Base: base, Target: target, Policy: policy,
+		Conflict: conflict.Error(), Roots: nil, Changes: nil, Done: 0,
+	}
+
+	err := w.catalog.SaveIncoming(ctx, rejected)
+	if err != nil {
+		return err
+	}
+
+	w.incoming = rejected
+
+	return conflict
 }
 
 func (w *worker) incomingPolicy() (string, error) {

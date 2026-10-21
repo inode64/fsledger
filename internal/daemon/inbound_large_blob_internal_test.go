@@ -16,8 +16,13 @@ func TestIncomingOversizedBlobIsConflict(t *testing.T) {
 	runner.syncRemote(t.Context(), time.Now())
 
 	if !strings.Contains(runner.status.SyncConflict, "64 MiB") || runner.status.LastFetchError != "" ||
-		runner.status.InboundApplied == target || runner.incoming != nil {
+		runner.status.InboundApplied == target || runner.incomingActive() {
 		t.Fatal("oversized incoming blob not exposed as conflict", runner.status)
+	}
+
+	pending, err := runner.catalog.Incoming(t.Context())
+	if err != nil || pending == nil || pending.Target != target || !strings.Contains(pending.Conflict, "64 MiB") {
+		t.Fatal("oversized incoming blob conflict not persisted for its target", pending, err)
 	}
 
 	assertIncomingFile(t, filepath.Join(runner.roots[0], "a"), "initial")

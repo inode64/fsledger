@@ -285,7 +285,7 @@ func TestIncomingOutsideSelectionAndDisabled(t *testing.T) {
 	target := incomingEdit(t, runner, editor, "../../unselected", "must not appear")
 	runner.syncRemote(t.Context(), time.Now())
 
-	if runner.status.SyncBlocked == "" || runner.status.InboundApplied == target || runner.incoming != nil {
+	if runner.status.SyncBlocked == "" || runner.status.InboundApplied == target || runner.incomingActive() {
 		t.Fatal("unsafe remote tree accepted", runner.status)
 	}
 
@@ -293,7 +293,7 @@ func TestIncomingOutsideSelectionAndDisabled(t *testing.T) {
 	runner.status.SyncBlocked = ""
 	runner.syncRemote(t.Context(), time.Now().Add(time.Hour))
 
-	if runner.status.SyncBlocked != "" || runner.incoming != nil {
+	if runner.status.SyncBlocked != "" || runner.incomingActive() {
 		t.Fatal("disabled incoming attempted an import")
 	}
 }
