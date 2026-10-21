@@ -37,7 +37,7 @@ func TestInotifyCreateAfterAttributedWrite(t *testing.T) {
 				manager.Add(raw)
 			}
 
-			groups := manager.Due(now.Add(time.Minute), true)
+			groups := manager.DueWithAttributionDelay(now.Add(time.Minute), true, 0)
 			if len(groups) != 1 || groups[0].Actor.Known != testCase.known {
 				t.Fatalf("creation %v after the write: want known=%v, got %+v", testCase.delay, testCase.known, groups)
 			}

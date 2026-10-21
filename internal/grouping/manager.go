@@ -37,9 +37,10 @@ func New(policy config.Grouping, debounce, maxDelay time.Duration) *Manager {
 // actors are downgraded to unknown because the filesystem retains only one value.
 func (m *Manager) Add(raw event.Raw) { m.add(raw) }
 
-// Due drains expired groups in deterministic first-event order.
-func (m *Manager) Due(now time.Time, all bool) []event.Group {
-	return m.DueWithAttributionDelay(now, all, 0)
+// Clear discards all pending groups and their path memberships.
+func (m *Manager) Clear() {
+	clear(m.groups)
+	m.paths = pathindex.Index[string]{}
 }
 
 // DueWithAttributionDelay retains unresolved events until delayed attribution can run.

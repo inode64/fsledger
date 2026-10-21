@@ -121,7 +121,7 @@ func (w *worker) shutdown(ctx context.Context) error {
 
 	// After detectors close, queued actors cannot certify the bytes now on disk.
 	// One unknown reconciliation covers pending groups and the final observation gap.
-	w.manager.Due(time.Now(), true)
+	w.manager.Clear()
 
 	if !w.cfg.Watch.Reconcile.OnStop {
 		return w.finishShutdown(ctx, shutdown, nil)

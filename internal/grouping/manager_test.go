@@ -66,18 +66,24 @@ func TestDebounceAndMaximum(t *testing.T) {
 	for second := range 5 {
 		manager.Add(event.Raw{Path: "/a", Time: now.Add(time.Duration(second) * time.Second)})
 
-		if groups := manager.Due(now.Add(time.Duration(second)*time.Second), false); len(groups) != 0 {
+		if groups := manager.DueWithAttributionDelay(
+			now.Add(time.Duration(second)*time.Second),
+			false,
+			0,
+		); len(
+			groups,
+		) != 0 {
 			t.Fatal("premature flush")
 		}
 	}
 
-	if len(manager.Due(now.Add(5*time.Second), false)) != 1 {
+	if len(manager.DueWithAttributionDelay(now.Add(5*time.Second), false, 0)) != 1 {
 		t.Fatal("max delay did not expire")
 	}
 
 	manager.Add(event.Raw{Path: "/a", Time: now})
 
-	if len(manager.Due(now.Add(2*time.Second), false)) != 1 {
+	if len(manager.DueWithAttributionDelay(now.Add(2*time.Second), false, 0)) != 1 {
 		t.Fatal("debounce did not expire")
 	}
 }
@@ -91,11 +97,17 @@ func TestDelayedAttributionPreservesDeadlines(t *testing.T) {
 	manager.Add(event.Raw{Path: "/a", Time: first.Add(2*time.Second + 500*time.Millisecond)})
 	manager.Enrich(func(event.Raw) event.Actor { return actor(10, 100, 1000) })
 
-	if groups := manager.Due(first.Add(2*time.Second+800*time.Millisecond), false); len(groups) != 0 {
+	if groups := manager.DueWithAttributionDelay(
+		first.Add(2*time.Second+800*time.Millisecond),
+		false,
+		0,
+	); len(
+		groups,
+	) != 0 {
 		t.Fatal("enrichment shortened debounce")
 	}
 
-	if groups := manager.Due(first.Add(3*time.Second), false); len(groups) != 1 {
+	if groups := manager.DueWithAttributionDelay(first.Add(3*time.Second), false, 0); len(groups) != 1 {
 		t.Fatal("enrichment extended max_delay")
 	}
 }
@@ -107,7 +119,7 @@ func TestOverlappingActorsBecomeUnknown(t *testing.T) {
 	manager.Add(event.Raw{Path: "/a", Actor: actor(1, 1, 1000), Backend: event.Fanotify, Operation: event.Write})
 	manager.Add(event.Raw{Path: "/a/b", Actor: actor(2, 2, 1001), Backend: event.Fanotify, Operation: event.Write})
 
-	groups := manager.Due(time.Now(), true)
+	groups := manager.DueWithAttributionDelay(time.Now(), true, 0)
 	if len(groups) != 1 || groups[0].Actor.Known || len(groups[0].Paths) != 2 {
 		t.Fatalf("unsafe overlap grouping: %+v", groups)
 	}
@@ -134,7 +146,7 @@ func TestDetectorEnrichmentBothOrders(t *testing.T) {
 				manager.Add(raw)
 			}
 
-			groups := manager.Due(time.Now(), true)
+			groups := manager.DueWithAttributionDelay(time.Now(), true, 0)
 			if len(groups) != 1 || !groups[0].Actor.Known {
 				t.Fatalf("lost fanotify attribution: %+v", groups)
 			}
@@ -151,7 +163,7 @@ func TestDisabledProcessGroupingDoesNotInventAProcess(t *testing.T) {
 	manager.Add(event.Raw{Path: "/a", Actor: actor(1, 1, 1000)})
 	manager.Add(event.Raw{Path: "/b", Actor: actor(2, 2, 1000)})
 
-	groups := manager.Due(time.Now(), true)
+	groups := manager.DueWithAttributionDelay(time.Now(), true, 0)
 	if len(groups) != 1 || !groups[0].Actor.Known || groups[0].Actor.PID != 0 || !groups[0].Actor.UserKnown {
 		t.Fatalf("unsafe user-only grouping: %+v", groups)
 	}
@@ -165,7 +177,28 @@ func TestOutOfOrderNotificationsDoNotShortenDebounce(t *testing.T) {
 	manager.Add(event.Raw{Path: "/a", Time: now.Add(time.Second)})
 	manager.Add(event.Raw{Path: "/a", Time: now})
 
-	if len(manager.Due(now.Add(time.Second), false)) != 0 {
+	if len(manager.DueWithAttributionDelay(now.Add(time.Second), false, 0)) != 0 {
 		t.Fatal("older event shortened debounce")
+	}
+}
+
+func TestClearReleasesPathMemberships(t *testing.T) {
+	t.Parallel()
+
+	manager := grouping.New(policy(), time.Second, 10*time.Second)
+	manager.Add(event.Raw{Path: "/a", Actor: actor(1, 1, 1000)})
+	manager.Add(event.Raw{Path: "/b", Actor: actor(2, 2, 1001)})
+	manager.Clear()
+
+	if groups, paths := manager.Pending(); groups != 0 || paths != 0 {
+		t.Fatalf("groups=%d paths=%d after clearing", groups, paths)
+	}
+
+	manager.Clear()
+	manager.Add(event.Raw{Path: "/a/child", Actor: actor(3, 3, 1002)})
+
+	groups := manager.DueWithAttributionDelay(time.Now(), true, 0)
+	if len(groups) != 1 || !groups[0].Actor.Known || groups[0].Actor.PID != 3 || len(groups[0].Paths) != 1 {
+		t.Fatalf("cleared paths affected the new group: %+v", groups)
 	}
 }

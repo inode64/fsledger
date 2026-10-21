@@ -67,7 +67,7 @@ func TestAuditReplayProducesSeparateGitCommits(t *testing.T) {
 
 	manager.Enrich(func(raw event.Raw) event.Actor { return provider.Resolve(t.Context(), raw, "fsledger") })
 
-	groups := manager.Due(time.Now(), true)
+	groups := manager.DueWithAttributionDelay(time.Now(), true, 0)
 	if len(groups) != 2 {
 		t.Fatalf("Audit failed to separate actors: %+v", groups)
 	}
