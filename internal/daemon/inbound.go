@@ -156,8 +156,7 @@ func (w *worker) beginIncoming(ctx context.Context, base, target string) error {
 		return fault.New("source selection is changing, incomplete or unavailable")
 	}
 
-	groups, _ := w.manager.Pending()
-	if groups != 0 || w.dirty || len(w.deferred) > 0 || len(w.unstable) > 0 {
+	if w.manager.HasPending() || w.dirty || len(w.deferred) > 0 || len(w.unstable) > 0 {
 		return fault.New("local observations or deferred versions are pending")
 	}
 
