@@ -1,6 +1,6 @@
 # fsledger
 
-**Change history, file integrity, and alerts for your Linux servers.**
+**Change history, file integrity, and intrusion alerts for your Linux servers.**
 
 fsledger tracks how your services' configuration and files evolve.
 You can preserve their contents in Git, check their integrity without copying them,

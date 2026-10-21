@@ -1,6 +1,6 @@
 # fsledger
 
-**Historial de cambios, integridad de archivos y avisos para tus servidores Linux.**
+**Historial de cambios, integridad de archivos y avisos de intrusión para tus servidores Linux.**
 
 fsledger registra cómo evolucionan la configuración y los archivos de tus servicios.
 Puedes conservar su contenido en Git, comprobar su integridad sin copiarlo o combinar
