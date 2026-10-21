@@ -278,6 +278,11 @@ func (w *worker) refreshHashes(ctx context.Context, identifier, message string) 
 		return err
 	}
 
+	err = w.scanner.Do(ctx, w.mirror.SyncDirectories)
+	if err != nil {
+		return fmt.Errorf("refresh mirror: %w", err)
+	}
+
 	return w.commitGit(ctx, message, nil)
 }
 
