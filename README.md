@@ -1,16 +1,23 @@
 # fsledger
 
-**Change history, file integrity, and intrusion alerts for your Linux servers.**
+**Detect unexpected file changes, investigate incidents, and recover recorded versions on Linux.**
 
-fsledger tracks how your services' configuration and files evolve.
-You can preserve their contents in Git, check their integrity without copying them,
-or combine both approaches. When the system provides the information, it records
-the observed user and process to help you investigate what changed.
+[English](README.md) | [Español](README.es.md)
+
+fsledger combines file integrity monitoring (FIM), automatic Git history, and alerts.
+It helps you answer which files changed, when the changes were observed, and how they
+differ from a trusted baseline. When Linux provides the evidence, it also records the
+observed user and process.
+
+Preserve contents in Git for investigation and recovery, keep hashes and metadata
+without copying contents, or combine both approaches. Use that evidence to investigate
+suspected malware, unauthorized changes, and deployment mistakes.
 
 ## Contents
 
 - [Use cases](#use-cases)
 - [Features](#features)
+- [Malware detection and incident response](#malware-detection-and-incident-response)
 - [Comparison with similar tools](#comparison-with-similar-tools)
 - [Architecture](#architecture)
 - [Requirements](#requirements)
@@ -23,6 +30,8 @@ the observed user and process to help you investigate what changed.
 
 ## Use cases
 
+- **Investigate suspected malware.** Identify unexpected scripts, altered application
+  files, or changes to startup configuration in the paths you monitor.
 - **Understand configuration changes.** Keep versions of `/etc` and your applications'
   configuration to compare their previous and current states.
 - **Monitor websites and services.** Detect changes to contents, permissions, ownership,
@@ -50,10 +59,84 @@ the observed user and process to help you investigate what changed.
   and defer commits for frequent changes while retaining the latest observed pending version.
 - **Alerts and reports.** Send alerts by email or Slack and scheduled summaries by email.
   Pending queues survive restarts.
+- **Recovery from recorded versions.** Inspect Git diffs, preview a restore, and extract
+  an earlier version to a separate directory before deciding what to put back into service.
 - **Optional AI.** Add summaries to commits or reports, with path selection and redaction
   rules applied before information is sent to the provider.
 - **CLI administration.** Validate configuration, check status, diagnose capabilities,
   review differences, and approve changes. Includes OpenRC and systemd integration.
+
+## Malware detection and incident response
+
+An unexpected write can be the first visible sign of a compromised website or service.
+fsledger makes those writes easier to notice and investigate: alerts identify affected
+paths, integrity checks compare them with an approved state, and Git history lets you
+inspect the recorded contents before and after a change.
+Hash and attribute comparisons can reveal an unexpected change without knowing the
+malware family or the vulnerability involved in advance.
+
+| Observed change | How fsledger helps |
+| --- | --- |
+| A script appears in a monitored web directory | Records the addition and can alert on a baseline violation. |
+| PHP or JavaScript code is modified | Records hash differences; Git profiles also preserve contents for review. |
+| Cron jobs, service settings, or SSH keys change | Records selected attributes and available user/process evidence. |
+
+These signals need investigation: a legitimate deployment can produce the same kinds
+of changes. A Git commit or a delivered alert does not approve a change. The integrity
+baseline changes only through explicit administration, and Git history can contain
+malicious versions as well as legitimate ones.
+
+### Example: PHP2Shell
+
+[Aikido's PHP2Shell article][php2shell] discusses CVE-2026-109618 and CVE-2026-109619.
+The [PHP advisory of 21 October 2026][php-security] confirms critical remote code
+execution vulnerabilities and lists the fixes. Apply the relevant PHP or distribution
+security updates; installing fsledger does not close those vulnerabilities.
+
+As an illustrative scenario, suppose an attacker gains code execution and then writes
+a web shell into a monitored `/srv/www` tree or modifies an existing PHP file.
+If fsledger observes that write, it can record the change, notify your team, and retain
+the contents in a Git profile. Comparing against a baseline established before the
+incident helps identify deviations, even when the filename itself looks ordinary.
+This illustrates filesystem monitoring, not a detector specific to those CVEs or a
+claim about how they have been exploited.
+
+### Make monitoring useful before an incident
+
+1. **Establish trust first.** Review a clean deployment and
+   [initialize its baseline](#integrity-and-change-approval) with the daemon stopped.
+   Starting monitoring on an already infected server does not establish a clean reference.
+   Approve expected deployment changes only after review.
+2. **Select paths for the evidence you need.** Include application code and relevant
+   configuration, scheduled jobs, and access keys. Consider upload directories too:
+   excluding an entire writable tree can hide unexpected scripts. Use a DB profile
+   where retaining contents would expose secrets or consume too much space, and review
+   [exclusions and reserved paths](#data-protection).
+3. **Enable timely alerts and verify delivery.** Use `watch.backend: auto`, keep
+   reconciliation and full hash scans enabled, and keep `integrity.hash.on_event: true`.
+   Select a configured destination in `notifications.use` and include `change`,
+   `integrity_violation`, `error`, and `recovery` in `notifications.events`.
+   Check `fsledger doctor` and `fsledger status`, then confirm
+   that a controlled change produces an alert. The nightly `web-polling` example reports
+   file changes on its report schedule; it is not configured for prompt change alerts.
+4. **Keep evidence beyond the affected host.** Publish Git history to a private remote
+   and protect backups and notifications independently. Local state and a writable Git
+   remote are not tamper-proof: an attacker with sufficient privileges can alter evidence
+   or stop monitoring. Publication copies Git history, not the complete integrity catalog.
+5. **Investigate before restoring.** Preserve evidence and contain the affected service.
+   With the daemon stopped, use `verify` and `changes` to inspect baseline differences;
+   avoid approving a suspect state. For Git profiles, review the history and
+   [restore a verified version to a separate directory](#everyday-use). Fix the entry
+   point before returning the service to production. Restoring recorded files neither
+   removes every extra malicious file nor proves the host is clean; DB profiles retain
+   no file contents to restore.
+
+fsledger provides evidence about observed filesystem changes. It does not block exploit
+requests or process execution, classify files as malware, or remove infections. An attack
+that only uses memory, reads secrets, or changes data outside the monitored paths may
+leave no evidence in fsledger. Detection also depends on exclusions, watcher coverage,
+scan timing, and notification delivery. Use it alongside patching, least privilege,
+application protection, logs, and independent backups.
 
 ## Comparison with similar tools
 
@@ -102,8 +185,8 @@ flowchart LR
 
 **History kept separate from applications.** Git repositories store their own copies;
 DB profiles preserve metadata without duplicating file contents. Both maintain an
-integrity catalog. By default, fsledger observes the sources; writing to them requires
-explicitly enabling bidirectional synchronization.
+integrity catalog. Monitoring leaves the sources unchanged unless you explicitly enable
+bidirectional synchronization. The CLI also supports restoring files on request.
 
 **Continuity for everyday operations.** Watchers detect events, and reconciliation checks
 the state on disk. An unstable file retains its last valid copy while other files can
@@ -122,7 +205,7 @@ baselines, and pending work. No additional database server is required.
 
 - **Linux** to run the daemon and CLI.
 - **Git 2.28 or later** for content repositories.
-- **Go 1.27.3+ or later and Make** to build from source. Production binaries are built
+- **Go 1.27.3 or later and Make** to build from source. Production binaries are built
   without CGO and do not require Go to be installed at runtime.
 - Read permissions on the sources and write permissions on state directories.
   fanotify may require additional privileges; automatic mode provides alternatives
@@ -534,3 +617,5 @@ It is distributed without warranty. See [LICENSE](LICENSE).
 [gitwatch]: https://github.com/gitwatch/gitwatch
 [etckeeper]: https://etckeeper.branchable.com/
 [aide]: https://aide.github.io/
+[php2shell]: https://www.aikido.dev/blog/critical-vulnerabilities-in-php-php2shell
+[php-security]: https://www.php.net/archive/2026.php
