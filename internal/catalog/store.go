@@ -101,6 +101,7 @@ func acquireCache() *pebble.Cache { return caches.acquire() }
 func releaseCache() { caches.release() }
 
 // Store serializes writes per repository; scans and approvals share a separate operation lock.
+// Its integrity policy is fixed at Open; a policy change requires closing and reopening the store.
 type Store struct {
 	reportCalendar        *reportclock.Schedule
 	now                   func() time.Time
@@ -109,14 +110,12 @@ type Store struct {
 	database              *pebble.DB
 	versions              map[string]string
 	windows               map[string]notificationWindow
-	policyFields          []string
-	policyAlgorithm       string
 	policyDigest          string
 	reportHead            string
 	notificationOperation string
 	Repository            string
 	Host                  string
-	Policy                config.Integrity
+	policy                config.Integrity
 	reports               config.Reports
 	Notifications         config.Notifications
 	state                 diskState
@@ -124,7 +123,6 @@ type Store struct {
 	operation             sync.Mutex
 	scanActive            bool
 	replacingBaseline     bool
-	policyDirectories     bool
 }
 
 // Stats describes live state, never cumulative change history. ExhaustedNotifications counts the pending
@@ -192,6 +190,8 @@ func Open(
 		return nil, fault.Wrap("open Pebble catalog", err)
 	}
 
+	policy.Compare = slices.Clone(policy.Compare)
+
 	store := &Store{
 		now:           time.Now,
 		ignore:        ignore,
@@ -199,7 +199,8 @@ func Open(
 		database:      database,
 		Repository:    repository,
 		Host:          host,
-		Policy:        policy,
+		policy:        policy,
+		policyDigest:  integrity.PolicyID(policy.Compare, policy.Hash.Algorithm, policy.Directories),
 		Notifications: notifications,
 	}
 
@@ -295,17 +296,6 @@ func (store *Store) initialize() error {
 	return transaction.commit()
 }
 
-func (store *Store) policyID() string {
-	if store.policyDigest == "" || store.policyAlgorithm != store.Policy.Hash.Algorithm ||
-		store.policyDirectories != store.Policy.Directories || !slices.Equal(store.policyFields, store.Policy.Compare) {
-		store.policyFields = slices.Clone(store.Policy.Compare)
-		store.policyAlgorithm = store.Policy.Hash.Algorithm
-		store.policyDirectories = store.Policy.Directories
-		store.policyDigest = integrity.PolicyID(store.policyFields, store.policyAlgorithm, store.policyDirectories)
-	}
-
-	return store.policyDigest
-}
 func changeID() string { return rand.Text() }
 func baselinePrefix(slot int) string {
 	if slot == 0 {

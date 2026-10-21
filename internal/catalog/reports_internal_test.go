@@ -187,7 +187,7 @@ func TestReportSurvivesAlertAcknowledgementAndRestart(t *testing.T) {
 		t.Fatal("alert acknowledgement lost evidence", draft)
 	}
 
-	policy, notifications := store.Policy, store.Notifications
+	policy, notifications := store.policy, store.Notifications
 	resource.Close(store)
 	store.database = nil
 

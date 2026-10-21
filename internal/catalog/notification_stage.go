@@ -83,7 +83,7 @@ func (store *Store) enqueueObservedChange(
 	} else {
 		staged.Path = slices.Clone(record.Path)
 		staged.ID = identifier
-		staged.Compare = slices.Clone(store.Policy.Compare)
+		staged.Compare = slices.Clone(store.policy.Compare)
 		staged.Routes = store.notificationRoutes()
 
 		if compared.oldData != nil {

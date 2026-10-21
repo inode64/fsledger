@@ -147,7 +147,7 @@ func verifyWorkload(t *testing.T, store *Store, expected int) {
 			return readErr
 		}
 
-		if len(integrity.Differences(reference, record, store.Policy.Compare)) != 0 {
+		if len(integrity.Differences(reference, record, store.policy.Compare)) != 0 {
 			t.Fatal("approved state mismatch")
 		}
 
@@ -257,9 +257,10 @@ func TestCatalogDataset(t *testing.T) {
 func replayDataset(t *testing.T, path string) uint64 {
 	t.Helper()
 	directory := filepath.Join(t.TempDir(), "catalog.pebble")
-	store := testStoreAt(t, directory)
-	store.Policy.Compare = []string{"hash", "inode", "target", "type"}
-	store.Notifications.Use = nil
+	cfg := testStoreConfig(t)
+	cfg.Integrity.Compare = []string{"hash", "inode", "target", "type"}
+	cfg.Notifications.Use = nil
+	store := openTestStore(t, directory, cfg.Integrity, cfg.Notifications)
 
 	input, operationErr1 := os.Open(path)
 	if operationErr1 != nil {

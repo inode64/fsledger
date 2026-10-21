@@ -34,8 +34,9 @@ func deferredObservation(t *testing.T, store *Store, identifier string, record i
 
 func TestDeferredHashKeepsPendingContentViolation(t *testing.T) {
 	t.Parallel()
-	store := testStore(t)
-	store.Policy.Hash.OnEvent = false
+	cfg := testStoreConfig(t)
+	cfg.Integrity.Hash.OnEvent = false
+	store := openTestStore(t, t.TempDir(), cfg.Integrity, cfg.Notifications)
 	tampered, untouched := workloadRecord(0), workloadRecord(1)
 	reference(t, store, tampered, untouched)
 	tampered.Hash = strings.Repeat("e", 64)

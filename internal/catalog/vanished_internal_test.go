@@ -12,8 +12,9 @@ import (
 // Deferred hashing observes a new file twice; a deletion in between is a deletion, not a failure.
 func TestObserveNewFileVanishedBeforeHash(t *testing.T) {
 	t.Parallel()
-	store := testStore(t)
-	store.Policy.Hash.OnEvent = false
+	cfg := testStoreConfig(t)
+	cfg.Integrity.Hash.OnEvent = false
+	store := openTestStore(t, t.TempDir(), cfg.Integrity, cfg.Notifications)
 	root := t.TempDir()
 	vanished := filepath.Join(root, "vanished")
 	kept := filepath.Join(root, "kept")

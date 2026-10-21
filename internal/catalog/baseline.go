@@ -73,7 +73,7 @@ func (store *Store) freezeBaselineInventory(ctx context.Context, replace bool) e
 	transaction.clear(tokenPrefix)
 	transaction.clear(approvalPrefix)
 	transaction.state.Baseline = slot
-	transaction.state.Policy = store.policyID()
+	transaction.state.Policy = store.policyDigest
 	transaction.state.Stats.BaselineReady = true
 	transaction.state.Stats.Violations = 0
 

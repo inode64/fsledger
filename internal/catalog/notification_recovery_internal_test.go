@@ -139,7 +139,7 @@ func checkStagedRoutingRestart(t *testing.T, scenario string) {
 
 	record.Mode = 0o700
 	observeRecords(t, store, "update", record)
-	policy, notifications := store.Policy, store.Notifications
+	policy, notifications := store.policy, store.Notifications
 	resource.Close(store)
 	store.database = nil
 

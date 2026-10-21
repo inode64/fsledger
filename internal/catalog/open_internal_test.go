@@ -46,7 +46,7 @@ func TestOpenRepositoryUsesOverridesAndTracksRestart(t *testing.T) {
 			}
 			defer resource.Close(store)
 
-			if !reflect.DeepEqual(store.Policy, repo.Integrity) ||
+			if !reflect.DeepEqual(store.policy, repo.Integrity) ||
 				!reflect.DeepEqual(store.Notifications, repo.Notifications) ||
 				!reflect.DeepEqual(store.reports, repo.Reports) {
 				t.Fatal("catalog did not use the repository overrides")

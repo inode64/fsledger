@@ -110,9 +110,9 @@ func (store *Store) reconcile(
 	generation := store.generation()
 	batch := store.newBatcher(generation, &result, actor)
 
-	algorithm := store.Policy.Hash.Algorithm
-	content := full && slices.Contains(store.Policy.Compare, fieldHash)
-	err := scanner.ScanPaths(ctx, roots, paths, matcher, algorithm, content, store.Policy.Directories,
+	algorithm := store.policy.Hash.Algorithm
+	content := full && slices.Contains(store.policy.Compare, fieldHash)
+	err := scanner.ScanPaths(ctx, roots, paths, matcher, algorithm, content, store.policy.Directories,
 		func(record integrity.Record) error {
 			update, err := store.scanMutation(ctx, scanner, record, full)
 			if err != nil {
@@ -243,7 +243,7 @@ func (store *Store) prepare(
 	record integrity.Record,
 	full bool,
 ) (integrity.Record, *storedRecord, error) {
-	if record.Type != integrity.TypeRegular || full || !slices.Contains(store.Policy.Compare, fieldHash) {
+	if record.Type != integrity.TypeRegular || full || !slices.Contains(store.policy.Compare, fieldHash) {
 		return record, nil, nil
 	}
 
@@ -263,7 +263,7 @@ func (store *Store) prepare(
 				[]string{fieldSize, fieldMtime, fieldCtime, fieldInode, fieldDevice, fieldType},
 			),
 		) == 0 &&
-		previous.Algorithm == store.Policy.Hash.Algorithm
+		previous.Algorithm == store.policy.Hash.Algorithm
 	if unchanged {
 		record.Hash, record.Algorithm = previous.Hash, previous.Algorithm
 		record.HashedAt, record.NoAtime = previous.HashedAt, previous.NoAtime
@@ -271,7 +271,7 @@ func (store *Store) prepare(
 		return record, cached, nil
 	}
 
-	if exists && !store.Policy.Hash.OnEvent {
+	if exists && !store.policy.Hash.OnEvent {
 		// Metadata now describes another version. Its content remains unverified
 		// until a full scan; the old digest is not evidence for this observation.
 		record.Hash, record.Algorithm = "", ""
@@ -280,7 +280,7 @@ func (store *Store) prepare(
 		return record, cached, nil
 	}
 
-	record, err = scanner.Observe(ctx, string(record.Path), store.Policy.Hash.Algorithm, true, store.copiedHashes)
+	record, err = scanner.Observe(ctx, string(record.Path), store.policy.Hash.Algorithm, true, store.copiedHashes)
 
 	return record, cached, err
 }
@@ -485,9 +485,9 @@ func (store *Store) readAffected(
 	scanner *integrity.Scanner,
 	path string,
 ) (mutation, bool, error) {
-	content := store.Policy.Hash.OnEvent && slices.Contains(store.Policy.Compare, fieldHash)
+	content := store.policy.Hash.OnEvent && slices.Contains(store.policy.Compare, fieldHash)
 
-	record, err := scanner.Observe(ctx, path, store.Policy.Hash.Algorithm, content, store.copiedHashes)
+	record, err := scanner.Observe(ctx, path, store.policy.Hash.Algorithm, content, store.copiedHashes)
 	if integrity.Missing(err) {
 		return missingMutation(path), false, nil
 	}
@@ -507,7 +507,7 @@ func (store *Store) readAffected(
 		excluded:    false,
 		refreshHash: false,
 	}
-	if !store.Policy.Hash.OnEvent {
+	if !store.policy.Hash.OnEvent {
 		update.record, update.previous, err = store.prepare(ctx, scanner, record, false)
 		// prepare observes a new file again to hash it; it may have vanished meanwhile.
 		if integrity.Missing(err) {

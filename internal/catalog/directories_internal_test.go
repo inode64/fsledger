@@ -40,11 +40,13 @@ func writeTree(t *testing.T, root string, names ...string) {
 }
 
 // untrackedFixture records a web tree while directories are still tracked, as an existing catalog would.
-func untrackedFixture(t *testing.T) (*Store, *integrity.Scanner, *exclude.Matcher, string) {
+func untrackedFixture(t *testing.T) (*Store, *integrity.Scanner, *exclude.Matcher, string, string) {
 	t.Helper()
 
-	store := testStore(t)
-	store.Policy.Reference = config.ReferencePrevious
+	cfg := testStoreConfig(t)
+	cfg.Integrity.Reference = config.ReferencePrevious
+	directory := t.TempDir()
+	store := openTestStore(t, directory, cfg.Integrity, cfg.Notifications)
 	root := t.TempDir()
 	writeTree(t, root, untrackedIndex, untrackedLogo)
 
@@ -62,7 +64,7 @@ func untrackedFixture(t *testing.T) (*Store, *integrity.Scanner, *exclude.Matche
 
 	announced(t, store)
 
-	return store, scanner, matcher, root
+	return store, scanner, matcher, root, directory
 }
 
 // announced acknowledges every due delivery and returns the announced paths with their change kind.
@@ -109,12 +111,14 @@ func entries(t *testing.T, store *Store) int64 {
 func TestUntrackedDirectoriesLeaveInventorySilently(t *testing.T) {
 	t.Parallel()
 
-	store, scanner, matcher, root := untrackedFixture(t)
+	store, scanner, matcher, root, directory := untrackedFixture(t)
 	if got := entries(t, store); got != 5 {
 		t.Fatalf("tracked inventory has %d entries, want root, 2 directories and 2 files", got)
 	}
 
-	store.Policy.Directories = false
+	policy := store.policy
+	policy.Directories = false
+	store = reopenTestStore(t, store, directory, policy)
 
 	_, err := store.Reconcile(t.Context(), scanner, []string{root}, matcher, true, "periodic", "")
 	if err != nil {
@@ -143,8 +147,10 @@ func TestUntrackedDirectoriesLeaveInventorySilently(t *testing.T) {
 func TestUntrackedDirectoriesStillTrackFiles(t *testing.T) {
 	t.Parallel()
 
-	store, scanner, matcher, root := untrackedFixture(t)
-	store.Policy.Directories = false
+	store, scanner, matcher, root, directory := untrackedFixture(t)
+	policy := store.policy
+	policy.Directories = false
+	store = reopenTestStore(t, store, directory, policy)
 
 	_, err := store.Reconcile(t.Context(), scanner, []string{root}, matcher, true, "periodic", "")
 	if err != nil {
@@ -227,9 +233,10 @@ func TestDirectoriesPolicyDigest(t *testing.T) {
 func TestImportSkipsUntrackedDirectories(t *testing.T) {
 	t.Parallel()
 
-	store := testStore(t)
-	store.Notifications.Use = nil
-	store.Policy.Directories = false
+	cfg := testStoreConfig(t)
+	cfg.Notifications.Use = nil
+	cfg.Integrity.Directories = false
+	store := openTestStore(t, t.TempDir(), cfg.Integrity, cfg.Notifications)
 
 	var input bytes.Buffer
 
@@ -263,9 +270,10 @@ func TestImportSkipsUntrackedDirectories(t *testing.T) {
 func TestImportOfOnlyUntrackedDirectoriesIsEmpty(t *testing.T) {
 	t.Parallel()
 
-	store := testStore(t)
-	store.Notifications.Use = nil
-	store.Policy.Directories = false
+	cfg := testStoreConfig(t)
+	cfg.Notifications.Use = nil
+	cfg.Integrity.Directories = false
+	store := openTestStore(t, t.TempDir(), cfg.Integrity, cfg.Notifications)
 
 	data, err := json.Marshal(integrity.Record{Path: []byte("/srv/www"), Type: integrity.TypeDirectory})
 	if err != nil {
