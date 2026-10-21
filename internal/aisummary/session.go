@@ -24,6 +24,19 @@ func (session *Session) acquire(ctx context.Context) (context.Context, context.C
 	}
 }
 
+// coolingDown reports that tryProviders would skip every provider. Only tryProviders sets
+// cooldowns, from the same serialized caller, so none can start cooling before it runs.
+func (session *Session) coolingDown() bool {
+	now := time.Now()
+	for _, name := range session.names {
+		if !now.Before(session.cooldowns[name]) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // tryProviders shares timeouts and cooldown handling while callers retain their
 // separate input preparation, redaction and local-result policies.
 func (session *Session) tryProviders(

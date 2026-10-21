@@ -33,7 +33,28 @@ func (detail Detail) DisplayFields() []FieldChange {
 
 // DisplayBaseline renders the approved-reference comparison the same way.
 func (detail Detail) DisplayBaseline() []FieldChange {
-	return displayFields(detail.VisibleBaseline(), "")
+	fields := detail.VisibleBaseline()
+
+	return displayFields(fields, snapshotKind(fields))
+}
+
+// snapshotKind recovers a creation or deletion relative to the reference, which Detail.Kind does not
+// describe. The missing side of such a snapshot is the zero record, and only it has no file type.
+func snapshotKind(fields []FieldChange) string {
+	for _, field := range fields {
+		if field.Field != fieldType {
+			continue
+		}
+
+		switch {
+		case unquoted(field.Before) == "":
+			return changeAdded
+		case unquoted(field.After) == "":
+			return changeDeleted
+		}
+	}
+
+	return ""
 }
 
 // BackdatedBy returns how much earlier the modification time of the current version is than its
@@ -152,7 +173,7 @@ func (view *fieldView) status(field FieldChange) (FieldChange, bool) {
 
 // presentable humanizes both values and marks the side that does not exist as absent.
 func presentable(field FieldChange, kind string) FieldChange {
-	before, after := displayValues(field)
+	before, after := displayValues(field, kind)
 
 	switch kind {
 	case changeAdded:
@@ -251,7 +272,9 @@ func unquoted(value string) string {
 	return value
 }
 
-func displayValues(field FieldChange) (string, string) {
+// displayValues renders times and sizes as a pair: the precision that tells them apart depends on
+// both sides. Other values are rendered one by one, so a version that does not exist is not looked up.
+func displayValues(field FieldChange, kind string) (string, string) {
 	switch field.Field {
 	case fieldMtime, fieldCtime, fieldAtime:
 		return displayTimes(field.Before, field.After, parseTime)
@@ -259,20 +282,34 @@ func displayValues(field FieldChange) (string, string) {
 		return displayTimes(field.Before, field.After, parseBtime)
 	case fieldSize:
 		return displaySizes(field.Before, field.After)
+	}
+
+	before, after := humanize.Absent, humanize.Absent
+	if kind != changeAdded {
+		before = displayValue(field.Field, field.Before)
+	}
+
+	if kind != changeDeleted {
+		after = displayValue(field.Field, field.After)
+	}
+
+	return before, after
+}
+
+func displayValue(name, value string) string {
+	switch name {
 	case fieldMode:
-		return displayMode(field.Before), displayMode(field.After)
+		return displayMode(value)
 	case fieldUID:
-		return displayUID(field.Before), displayUID(field.After)
+		return displayUID(value)
 	case fieldGID:
-		return displayGID(field.Before), displayGID(field.After)
-	case fieldType:
-		return displayType(field.Before), displayType(field.After)
+		return displayGID(value)
+	case fieldType, fieldAttributesStatus:
+		return displayText(value)
 	case fieldHash:
-		return displayHash(field.Before), displayHash(field.After)
-	case fieldAttributesStatus:
-		return displayStatus(field.Before), displayStatus(field.After)
+		return displayHash(value)
 	default:
-		return field.Before, field.After
+		return value
 	}
 }
 
@@ -359,22 +396,14 @@ func displayMode(value string) string {
 	return humanize.Mode(uint32(mode))
 }
 
-func displayType(value string) string {
-	kind := unquoted(value)
-	if kind == "" {
+// displayText shows a stored string such as a file type or attribute status, or "—" when empty.
+func displayText(value string) string {
+	text := unquoted(value)
+	if text == "" {
 		return humanize.Absent
 	}
 
-	return humanize.Printable(kind)
-}
-
-func displayStatus(value string) string {
-	status := unquoted(value)
-	if status == "" {
-		return humanize.Absent
-	}
-
-	return humanize.Printable(status)
+	return humanize.Printable(text)
 }
 
 func displayHash(value string) string {

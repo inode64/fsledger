@@ -17,6 +17,8 @@ const (
 	fieldNameHash     = "hash"
 	fieldNameMode     = "mode"
 	fieldNameSize     = "size"
+	fieldNameType     = "type"
+	fieldNameDevice   = "device"
 	actorProcess      = "apache (81): php-fpm modified files\n\nUser:\n  real: apache (81)\n  login: unknown\n" +
 		"  effective: apache (81)\n\nProcess:\n  pid: 3785335\n  start_time: 17173045\n" +
 		"  executable: \"/usr/lib64/php7.4/bin/php-fpm\"\n\nDetection:\n  backend: fanotify"
