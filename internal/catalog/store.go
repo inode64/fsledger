@@ -96,10 +96,6 @@ func (shared *sharedCache) release() {
 	}
 }
 
-func acquireCache() *pebble.Cache { return caches.acquire() }
-
-func releaseCache() { caches.release() }
-
 // Store serializes writes per repository; scans and approvals share a separate operation lock.
 // Its integrity policy is fixed at Open; a policy change requires closing and reopening the store.
 type Store struct {
@@ -175,7 +171,7 @@ func Open(
 	options := &pebble.Options{}
 	options.Logger = engineLogger{repository: repository}
 	options.EnsureDefaults()
-	options.Cache = acquireCache()
+	options.Cache = caches.acquire()
 	options.MemTableSize = memtableBytes
 
 	options.CompactionConcurrencyRange = func() (int, int) { return 1, 1 }
@@ -185,7 +181,7 @@ func Open(
 
 	database, err := pebble.Open(path, options)
 	if err != nil {
-		releaseCache()
+		caches.release()
 
 		return nil, fault.Wrap("open Pebble catalog", err)
 	}
@@ -259,7 +255,7 @@ func (store *Store) BindDestinations(notifiers map[string]config.Notifier) {
 func (store *Store) Close() error {
 	err := store.database.Close()
 
-	releaseCache()
+	caches.release()
 
 	return fault.Wrap("close catalog", err)
 }
