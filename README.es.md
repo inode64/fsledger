@@ -1,16 +1,23 @@
 # fsledger
 
-**Historial de cambios, integridad de archivos y avisos de intrusión para tus servidores Linux.**
+**Detecta cambios inesperados, investiga incidentes y recupera versiones registradas en Linux.**
 
-fsledger registra cómo evolucionan la configuración y los archivos de tus servicios.
-Puedes conservar su contenido en Git, comprobar su integridad sin copiarlo o combinar
-ambas opciones. Cuando el sistema proporciona esa información, añade el usuario y el
-proceso observados para ayudarte a investigar qué cambió.
+[English](README.md) | [Español](README.es.md)
+
+fsledger combina vigilancia de integridad de archivos (FIM), historial automático en
+Git y alertas. Te ayuda a saber qué archivos cambiaron, cuándo se observaron esos cambios
+y en qué difieren de una referencia confiable. Cuando Linux proporciona la evidencia,
+también registra el usuario y el proceso observados.
+
+Conserva contenidos en Git para investigar y recuperar versiones, guarda hashes y
+metadatos sin copiar contenidos, o combina ambas opciones. Esa evidencia ayuda a
+investigar posibles infecciones, cambios no autorizados y errores de despliegue.
 
 ## Contenido
 
 - [Para qué sirve](#para-qué-sirve)
 - [Qué aporta](#qué-aporta)
+- [Detección de malware y respuesta a incidentes](#detección-de-malware-y-respuesta-a-incidentes)
 - [Comparación con herramientas similares](#comparación-con-herramientas-similares)
 - [Arquitectura](#arquitectura)
 - [Requisitos](#requisitos)
@@ -23,6 +30,8 @@ proceso observados para ayudarte a investigar qué cambió.
 
 ## Para qué sirve
 
+- **Investigar posibles infecciones.** Identifica scripts inesperados, archivos de la
+  aplicación alterados o cambios de configuración de arranque en las rutas que vigilas.
 - **Entender un cambio de configuración.** Conserva versiones de `/etc` y de la
   configuración de tus aplicaciones para comparar el estado anterior y el actual.
 - **Vigilar sitios web y servicios.** Detecta cambios de contenido, permisos,
@@ -51,10 +60,89 @@ proceso observados para ayudarte a investigar qué cambió.
   y aplaza commits de cambios frecuentes sin perder la última versión observada pendiente.
 - **Avisos e informes.** Envía alertas por correo o Slack y resúmenes programados por
   correo. Las colas pendientes sobreviven a los reinicios.
+- **Recuperación de versiones registradas.** Consulta diferencias en Git, previsualiza
+  una restauración y extrae una versión anterior a otro directorio antes de decidir
+  qué devolver al servicio.
 - **IA opcional.** Añade resúmenes a los commits o a los informes, con selección de rutas
   y reglas de ocultación antes de enviar información al proveedor.
 - **Operación desde la CLI.** Valida la configuración, consulta el estado, diagnostica
   capacidades, revisa diferencias y aprueba cambios. Incluye integración con OpenRC y systemd.
+
+## Detección de malware y respuesta a incidentes
+
+Una escritura inesperada puede ser la primera señal visible de un sitio web o servicio
+comprometido. fsledger facilita detectarla e investigarla: los avisos identifican las
+rutas afectadas, las comprobaciones de integridad las comparan con un estado aprobado
+y el historial Git permite revisar el contenido registrado antes y después del cambio.
+La comparación de hashes y atributos permite señalar cambios inesperados sin conocer
+previamente la familia de malware o la vulnerabilidad implicada.
+
+| Cambio observado | Qué aporta fsledger |
+| --- | --- |
+| Aparece un script en un directorio web vigilado | Registra el alta y puede avisar de una violación de referencia. |
+| Se modifica código PHP o JavaScript | Registra diferencias de hash; los perfiles Git también conservan el contenido. |
+| Cambian tareas cron, servicios o claves SSH | Registra atributos y la evidencia disponible de usuario/proceso. |
+
+Estas señales requieren investigación: un despliegue legítimo puede producir los mismos
+tipos de cambios. Un commit Git o un aviso entregado no aprueban un cambio. La referencia
+de integridad solo cambia mediante administración explícita, y el historial Git puede
+contener tanto versiones maliciosas como legítimas.
+
+### Ejemplo: PHP2Shell
+
+El [artículo de Aikido sobre PHP2Shell][php2shell] trata las CVE-2026-109618 y CVE-2026-109619.
+El [aviso de PHP del 21 de octubre de 2026][php-security] confirma vulnerabilidades críticas
+de ejecución remota de código y enumera las correcciones. Aplica las actualizaciones de
+seguridad correspondientes de PHP o de tu distribución; instalar fsledger no cierra esas
+vulnerabilidades.
+
+Como escenario ilustrativo, imagina que un atacante consigue ejecutar código y después
+escribe una web shell en un árbol `/srv/www` vigilado o modifica un archivo PHP existente.
+Si fsledger observa esa escritura, puede registrar el cambio, avisar a tu equipo y
+conservar el contenido en un perfil Git. Compararlo con una referencia establecida antes
+del incidente ayuda a identificar desviaciones, aunque el nombre del archivo parezca normal.
+El ejemplo ilustra la vigilancia de archivos; no describe un detector específico de esas
+CVE ni afirma cómo se han explotado.
+
+### Prepara una vigilancia útil antes del incidente
+
+1. **Establece primero una referencia confiable.** Revisa un despliegue limpio e
+   [inicializa su referencia](#integridad-y-aprobación-de-cambios) con el daemon detenido.
+   Empezar a vigilar un servidor ya infectado no establece una referencia limpia.
+   Aprueba los cambios esperados de un despliegue solo después de revisarlos.
+2. **Elige rutas según la evidencia que necesitas.** Incluye el código de la aplicación
+   y la configuración relevante, las tareas programadas y las claves de acceso.
+   Considera también los directorios de subidas: excluir un árbol escribible completo
+   puede ocultar scripts inesperados. Usa un perfil DB cuando guardar el contenido
+   exponga secretos o consuma demasiado espacio, y revisa las
+   [exclusiones y rutas reservadas](#protección-de-datos).
+3. **Activa avisos oportunos y comprueba su entrega.** Usa `watch.backend: auto`, mantén
+   activas las reconciliaciones y los escaneos completos de hashes, y conserva
+   `integrity.hash.on_event: true`. Selecciona un destino configurado en `notifications.use`
+   e incluye `change`, `integrity_violation`, `error` y `recovery` en `notifications.events`.
+   Consulta `fsledger doctor` y `fsledger status`, y comprueba que un cambio controlado
+   genera un aviso. El ejemplo nocturno `web-polling` comunica los cambios de archivos
+   en su informe programado; no está configurado para avisar de ellos de forma inmediata.
+4. **Conserva evidencia fuera del servidor afectado.** Publica el historial Git en un
+   remoto privado y protege las copias de seguridad y las notificaciones por separado.
+   El estado local y un remoto Git escribible no son inalterables: un atacante con
+   suficientes privilegios puede modificar evidencias o detener la vigilancia.
+   La publicación copia el historial Git, no el catálogo de integridad completo.
+5. **Investiga antes de restaurar.** Preserva la evidencia y aísla el servicio afectado.
+   Con el daemon detenido, usa `verify` y `changes` para consultar las diferencias frente
+   a la referencia; evita aprobar un estado sospechoso. En perfiles Git, revisa el historial
+   y [extrae una versión verificada a otro directorio](#uso-diario). Corrige la vía de entrada
+   antes de devolver el servicio a producción. Restaurar archivos registrados no elimina
+   todos los archivos maliciosos añadidos ni demuestra que el servidor esté limpio;
+   los perfiles DB no conservan contenidos que restaurar.
+
+fsledger aporta evidencia sobre cambios observados en el sistema de archivos. No bloquea
+peticiones de explotación ni la ejecución de procesos, no clasifica archivos como malware
+ni elimina infecciones. Un ataque que solo utilice memoria, lea secretos o cambie datos
+fuera de las rutas vigiladas puede no dejar evidencia en fsledger. La detección también
+depende de las exclusiones, la cobertura de los detectores, los horarios de escaneo y la
+entrega de avisos. Combínalo con actualizaciones, mínimos privilegios, protección de la
+aplicación, logs y copias de seguridad independientes.
 
 ## Comparación con herramientas similares
 
@@ -103,8 +191,9 @@ flowchart LR
 
 **Un historial separado de las aplicaciones.** Los repositorios Git guardan sus propias
 copias; los perfiles DB conservan metadatos, sin duplicar el contenido de los archivos.
-Ambos mantienen un catálogo de integridad. Por defecto, fsledger observa las fuentes;
-solo la sincronización bidireccional habilitada expresamente permite escribir en ellas.
+Ambos mantienen un catálogo de integridad. La vigilancia no modifica las fuentes salvo
+que habilites expresamente la sincronización bidireccional. La CLI también permite
+restaurar archivos cuando lo solicitas.
 
 **Continuidad para el trabajo diario.** La vigilancia detecta eventos y las reconciliaciones
 contrastan el estado del disco. Un archivo inestable conserva su última copia válida
@@ -124,7 +213,7 @@ aprobadas y el trabajo pendiente. No necesitas un servidor de base de datos adic
 
 - **Linux** para ejecutar el daemon y la CLI.
 - **Git 2.28 o posterior** para los repositorios de contenido.
-- **Go 1.27.3+ o posterior y Make** para compilar desde el código fuente. Los binarios
+- **Go 1.27.3 o posterior y Make** para compilar desde el código fuente. Los binarios
   de producción se construyen sin CGO y no necesitan Go instalado para ejecutarse.
 - Permisos de lectura sobre las fuentes y de escritura sobre las rutas de estado.
   fanotify puede necesitar privilegios adicionales; el modo automático dispone de
@@ -537,3 +626,5 @@ Se distribuye sin garantía. Consulta [LICENSE](LICENSE).
 [gitwatch]: https://github.com/gitwatch/gitwatch
 [etckeeper]: https://etckeeper.branchable.com/
 [aide]: https://aide.github.io/
+[php2shell]: https://www.aikido.dev/blog/critical-vulnerabilities-in-php-php2shell
+[php-security]: https://www.php.net/archive/2026.php
