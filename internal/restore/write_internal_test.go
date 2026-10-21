@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -113,5 +114,46 @@ func TestWriteRegularKeepsReplacementPrivateUntilCopied(t *testing.T) {
 				t.Fatal(string(content), err)
 			}
 		})
+	}
+}
+
+func TestEntryOffPreservesConcurrentCreation(t *testing.T) {
+	t.Parallel()
+
+	root, parent, _ := replacementFixture(t, 0o600)
+
+	err := root.Remove(replacementName)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The destination appears only when content is read, after the overwrite policy was checked.
+	reader := inspectingReader{Reader: strings.NewReader("archived"), inspect: sync.OnceFunc(func() {
+		writeErr := root.WriteFile(replacementName, []byte("concurrent"), 0o600)
+		if writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	})}
+	state := new(run)
+	state.root = parent
+	state.options.Policy = Off
+
+	//nolint:exhaustruct_v5 // Only the entry type and executable bits are needed here.
+	header := &tar.Header{Typeflag: tar.TypeReg, Mode: 0o644}
+
+	outcome, reason := state.entry(reader, header, replacementName)
+	if outcome != actionFail || reason == "" {
+		t.Fatal("concurrent creation was not reported:", outcome, reason)
+	}
+
+	content, err := root.ReadFile(replacementName)
+	if err != nil || string(content) != "concurrent" {
+		t.Fatal("concurrent file was replaced:", string(content), err)
+	}
+
+	assertPermissions(t, root, replacementName, 0o600)
+
+	if leftovers := temporaries(t, root); len(leftovers) != 0 {
+		t.Fatal("temporary copy left behind:", leftovers)
 	}
 }
