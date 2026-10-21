@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/inode64/fsledger/internal/event"
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/filter"
 
@@ -120,6 +121,12 @@ func (c *Config) ForRepository(name string) *Config {
 	resolved.Reports = repo.Reports
 
 	return &resolved
+}
+
+// AuditEnabled reports whether the daemon subscribes to Audit for this repository. Polling has no
+// change events for Audit records to enrich, so it never subscribes.
+func (repo *Repository) AuditEnabled() bool {
+	return repo.Attribution.Audit.Enabled && repo.Watch.Backend != event.Polling
 }
 
 // Names returns deterministic repository order.

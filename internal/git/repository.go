@@ -30,9 +30,12 @@ type Repository struct {
 	// publishable is the branch name Git has already accepted for publication.
 	publishable string
 	Timeout     time.Duration
+	// exclusive records that Init claimed the repository, so killed commands release their locks.
+	exclusive bool
 }
 
-// Init initializes only an independent mirror; returns whether HEAD is absent.
+// Init initializes only an independent mirror; returns whether HEAD is absent. It claims the
+// repository and removes stale locks, so the caller must hold the repository directory lock.
 func (r *Repository) Init(ctx context.Context) (bool, error) {
 	mkdirAllErr := os.MkdirAll(r.Path, 0o700)
 	if mkdirAllErr != nil {
@@ -63,9 +66,9 @@ func (r *Repository) Init(ctx context.Context) (bool, error) {
 		return false, fault.New("Git worktree is not the configured mirror")
 	}
 
-	attributeErr := r.preserveContent()
-	if attributeErr != nil {
-		return false, attributeErr
+	claimErr := r.claim()
+	if claimErr != nil {
+		return false, claimErr
 	}
 
 	_, err = r.run(ctx, "rev-parse", "--verify", "--quiet", "HEAD")
@@ -115,6 +118,16 @@ func (r *Repository) Head(ctx context.Context) (string, error) {
 	out, err := r.run(ctx, "rev-parse", "--verify", "HEAD")
 
 	return strings.TrimSpace(string(out)), err
+}
+
+// HasHistory distinguishes an unborn HEAD from a Git failure; HEAD must peel to a commit.
+func (r *Repository) HasHistory(ctx context.Context) (bool, error) {
+	_, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+	if missingGitObject(err) {
+		return false, nil
+	}
+
+	return err == nil, err
 }
 
 // Status returns Git's stable porcelain representation.
@@ -189,6 +202,8 @@ func (r *Repository) runInput(ctx context.Context, input string, args ...string)
 type process struct {
 	// expired reports the timeout cause once the command has been reaped.
 	expired func() error
+	// release removes the locks a cancelled command leaves in an exclusively owned repository.
+	release func() error
 	cancel  context.CancelFunc
 	cmd     *exec.Cmd
 }
@@ -229,7 +244,13 @@ func (r *Repository) command(ctx context.Context, args []string) process {
 	// Hooks and helpers may print credentials. Keep their output out of errors and persistent diagnostics.
 	command.Stderr = io.Discard
 
-	return process{expired: ctx.Err, cancel: cancel, cmd: command}
+	// Restores read a mirror the daemon owns; only the owner may delete locks.
+	release := func() error { return nil }
+	if r.exclusive {
+		release = r.removeStaleLocks
+	}
+
+	return process{expired: ctx.Err, release: release, cancel: cancel, cmd: command}
 }
 
 // start launches Git; a failed launch releases the timeout immediately.
@@ -249,7 +270,13 @@ func (p process) start() error {
 func (p process) wait() error {
 	defer p.cancel()
 
-	return fault.Wrap("Git command failed", errors.Join(p.cmd.Wait(), p.expired()))
+	err := errors.Join(p.cmd.Wait(), p.expired())
+	if p.expired() != nil {
+		// Cancellation killed the whole process group before Wait reaped it: no lock holder survives.
+		err = errors.Join(err, p.release())
+	}
+
+	return fault.Wrap("Git command failed", err)
 }
 
 func (r *Repository) commandTimeout(args []string) time.Duration {

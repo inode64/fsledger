@@ -174,7 +174,7 @@ func TestLargeUpdateFitsTwoEmails(t *testing.T) {
 		message.ChangeID = details[start].ChangeID
 		deliveries = append(deliveries, catalog.Delivery{
 			ID: int64(len(deliveries) + 1), Message: message, Destination: "email-ops", Version: "",
-			LastError: "", Attempts: 0, NextAttempt: 0,
+			LastError: "", Progress: catalog.Progress{}, Attempts: 0, NextAttempt: 0,
 		})
 	}
 

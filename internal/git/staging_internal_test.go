@@ -13,7 +13,7 @@ func TestStagePathsRejectsSymlinkParents(t *testing.T) {
 	for _, target := range []string{"outside", "inside"} {
 		t.Run(target, func(t *testing.T) {
 			t.Parallel()
-			repository := Repository{Path: t.TempDir(), Host: "test", publishable: "", Timeout: 0}
+			repository := Repository{Path: t.TempDir(), Host: "test", publishable: "", Timeout: 0, exclusive: false}
 
 			destination := t.TempDir()
 			if target == "inside" {
@@ -45,7 +45,7 @@ func TestStagePathsRejectsSymlinkParents(t *testing.T) {
 
 func TestStagePathsPreservesLeafLinksAndMissingDescendants(t *testing.T) {
 	t.Parallel()
-	repository := Repository{Path: t.TempDir(), Host: "test", publishable: "", Timeout: 0}
+	repository := Repository{Path: t.TempDir(), Host: "test", publishable: "", Timeout: 0, exclusive: false}
 
 	err := os.WriteFile(filepath.Join(repository.Path, "replacement"), []byte("file"), 0o600)
 	if err != nil {

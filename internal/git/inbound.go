@@ -14,6 +14,9 @@ const incomingRef = "refs/fsledger/incoming"
 // ErrIncomingTreeChanged distinguishes local content conflicts from retryable Git failures.
 var ErrIncomingTreeChanged = errors.New("source tree changed during incoming synchronization")
 
+// ErrIncomingBlobTooLarge distinguishes a permanently rejected blob from retryable Git failures.
+var ErrIncomingBlobTooLarge = errors.New("incoming blob exceeds 64 MiB")
+
 // MaxInboundBlob bounds memory used for a single source replacement.
 const MaxInboundBlob = 64 << 20
 
@@ -34,9 +37,11 @@ func (r *Repository) FetchBranch(ctx context.Context, remote, branch string) (st
 		return "", nil
 	}
 
+	// The private ref is forced so rewritten remote history still reaches the ancestry checks;
+	// pending operations are pinned separately and never depend on its previous value.
 	_, err = r.run(ctx, "-c", "core.hooksPath=/dev/null", "-c", "fetch.fsckObjects=true",
 		"fetch", "--no-tags", "--no-prune", "--no-prune-tags", "--no-recurse-submodules", "--no-auto-gc",
-		"--refmap=", "--", remote, "refs/heads/"+branch+":"+incomingRef)
+		"--refmap=", "--", remote, "+refs/heads/"+branch+":"+incomingRef)
 	if err != nil {
 		return "", fault.New("Git fetch failed; check connectivity, credentials and branch access")
 	}
@@ -87,7 +92,7 @@ func (r *Repository) ReadBlob(ctx context.Context, identifier string) ([]byte, e
 	}
 
 	if !eligible {
-		return nil, fault.New("incoming blob exceeds 64 MiB")
+		return nil, ErrIncomingBlobTooLarge
 	}
 
 	return content, nil

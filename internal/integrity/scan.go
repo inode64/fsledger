@@ -172,8 +172,10 @@ func consume(results <-chan observation, visit func(Record) error, cancel contex
 	return errors.Join(failures...)
 }
 
+// consumeObservation skips a path gone since the walk queued it, including below a parent replaced by a
+// file or a symlink: the walk itself rejects a requested path under such a parent.
 func consumeObservation(result observation, visit func(Record) error) (bool, error) {
-	if errors.Is(result.err, os.ErrNotExist) {
+	if Missing(result.err) {
 		return false, nil
 	}
 
@@ -182,7 +184,7 @@ func consumeObservation(result observation, visit func(Record) error) (bool, err
 	}
 
 	err := visit(result.record)
-	if errors.Is(err, os.ErrNotExist) {
+	if Missing(err) {
 		return false, nil
 	}
 
@@ -242,8 +244,9 @@ func (walk scanWalk) queue(ctx context.Context, path string) error {
 
 // walk checks entries by name only: walkPaths checked the root's ancestors and no excluded directory is entered.
 // Directories are queued before they are opened unless the walk leaves them out; a path that turns out
-// not to be a directory is then queued as an ordinary entry.
-func (scanner *Scanner) walk(ctx context.Context, path string, walk scanWalk) error {
+// not to be a directory is then queued as an ordinary entry. A listed directory whose parent became a file
+// or a symlink since is gone with it, while a requested path below such a parent is rejected.
+func (scanner *Scanner) walk(ctx context.Context, path string, listed bool, walk scanWalk) error {
 	if walk.matcher.MatchEntry(path) {
 		return nil
 	}
@@ -256,7 +259,7 @@ func (scanner *Scanner) walk(ctx context.Context, path string, walk scanWalk) er
 	}
 
 	parent, name, err := OpenParent(path)
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) || (listed && Missing(err)) {
 		return nil
 	}
 
@@ -321,7 +324,7 @@ func firstHashSource(sources []HashSource) HashSource {
 
 func (scanner *Scanner) walkEntry(ctx context.Context, path string, entry os.DirEntry, walk scanWalk) error {
 	if entry.IsDir() {
-		return scanner.walk(ctx, path, walk)
+		return scanner.walk(ctx, path, true, walk)
 	}
 
 	if walk.matcher.MatchEntry(path) {
@@ -348,7 +351,7 @@ func (scanner *Scanner) walkPaths(ctx context.Context, paths []string, walk scan
 			continue
 		}
 
-		err := scanner.walk(ctx, root, walk)
+		err := scanner.walk(ctx, root, false, walk)
 		if err != nil {
 			return err
 		}

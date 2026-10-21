@@ -28,15 +28,13 @@ func startAudit(
 	scopes := make(map[string][]auditScope)
 
 	for _, name := range cfg.Names() {
-		settings := cfg.Repositories[name].Attribution.Audit
-		if !settings.Enabled || cfg.Repositories[name].Watch.Backend == event.Polling {
+		repo := cfg.Repositories[name]
+		if !repo.AuditEnabled() {
 			continue
 		}
 
-		scopes[settings.Key] = append(
-			scopes[settings.Key],
-			auditScope{roots: roots[name], matcher: matchers[name]},
-		)
+		key := repo.Attribution.Audit.Key
+		scopes[key] = append(scopes[key], auditScope{roots: roots[name], matcher: matchers[name]})
 	}
 
 	if len(scopes) == 0 {

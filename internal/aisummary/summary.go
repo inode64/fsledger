@@ -177,9 +177,22 @@ func (session *Session) prepare(
 			return nil, fault.Wrap("prepare AI diff", ctx.Err())
 		}
 
-		patch, masked, err := maskedPatch(ctx, repo, path, versions[path], session.masker)
+		// Mask complete raw names before quoting, as reports do; a name that cannot be masked is omitted.
+		name, err := session.masker.Apply(path)
+		if err != nil {
+			prepared.omitted++
+
+			continue
+		}
+
+		patch, masked, unchanged, err := maskedPatch(ctx, repo, name, versions[path], session.masker)
 		if err != nil {
 			return nil, err
+		}
+
+		// Identical text has no diff to summarize, so it is not an omission either.
+		if unchanged {
+			continue
 		}
 
 		prepared.patches = append(prepared.patches, preparedPatch{text: patch, masked: masked})
@@ -236,33 +249,39 @@ func (builder *patchBuilder) result() string {
 	return header + builder.output.String()
 }
 
+// maskedPatch labels the diff with path as given: callers pass a name already masked.
+// Identical text, such as after a mode-only change, is reported as unchanged.
 func maskedPatch(
 	ctx context.Context,
 	repo *gitrepo.Repository,
 	path, signature string,
 	masker *redact.Masker,
-) (string, bool, error) {
+) (string, bool, bool, error) {
 	before, after, eligible, err := repo.StagedText(ctx, signature)
 	if err != nil || !eligible {
-		return "", false, err
+		return "", false, false, err
+	}
+
+	if before == after {
+		return "", false, true, nil
 	}
 
 	oldText, err := masker.Apply(before)
 	if err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
 
 	newText, err := masker.Apply(after)
 	if err != nil {
-		return "", false, err
+		return "", false, false, err
 	}
 
 	if strings.Count(oldText, "\n") > maxLines || strings.Count(newText, "\n") > maxLines {
-		return "", false, nil
+		return "", false, false, nil
 	}
 
 	if oldText == newText {
-		return "", before != after, nil
+		return "", true, false, nil
 	}
 
 	patch, err := udiff.ToUnified(
@@ -271,10 +290,10 @@ func maskedPatch(
 		oldText, udiff.Lines(oldText, newText), diffContext,
 	)
 	if err != nil {
-		return "", false, fault.New("cannot prepare masked AI diff")
+		return "", false, false, fault.New("cannot prepare masked AI diff")
 	}
 
-	return patch, false, nil
+	return patch, false, false, nil
 }
 
 func (session *Session) selected(path string) bool {

@@ -218,6 +218,9 @@ func (w *Watcher) read(ctx context.Context) {
 }
 
 func (w *Watcher) handle(native fsnotify.Event) {
+	// fsnotify appends names to the watch path after a slash: the "/" watch over a root such as /etc reports "//etc".
+	native.Name = filepath.Clean(native.Name)
+
 	if !pathutil.Contains(w.path, native.Name) || w.matcher.Match(native.Name) {
 		return
 	}

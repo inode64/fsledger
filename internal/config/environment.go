@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"slices"
 
 	"go.yaml.in/yaml/v3"
 
@@ -18,20 +19,6 @@ var hostVariable = regexp.MustCompile(`\$\{HOST\}|\$HOST\b`)
 func expandHost(data []byte) ([]byte, error) {
 	if !hostVariable.Match(data) {
 		return data, nil
-	}
-
-	host, present := os.LookupEnv("HOST")
-	if !present {
-		var err error
-
-		host, err = os.Hostname()
-		if err != nil {
-			return nil, fault.Wrap("resolve HOST", err)
-		}
-	}
-
-	if host == "" {
-		return nil, fault.New("HOST must not be empty")
 	}
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
@@ -50,6 +37,23 @@ func expandHost(data []byte) ([]byte, error) {
 		return nil, fault.New("configuration must contain one YAML document")
 	}
 
+	// Comments may mention HOST without requesting it; only scalars count.
+	if !referencesHost(&document) {
+		return data, nil
+	}
+
+	host, present := os.LookupEnv("HOST")
+	if !present {
+		host, err = os.Hostname()
+		if err != nil {
+			return nil, fault.Wrap("resolve HOST", err)
+		}
+	}
+
+	if host == "" {
+		return nil, fault.New("HOST must not be empty")
+	}
+
 	expandHostNode(&document, host)
 
 	result, err := yaml.Marshal(&document)
@@ -61,12 +65,25 @@ func expandHost(data []byte) ([]byte, error) {
 	return result, nil
 }
 
+func referencesHost(node *yaml.Node) bool {
+	if hostScalar(node) && hostVariable.MatchString(node.Value) {
+		return true
+	}
+
+	return slices.ContainsFunc(node.Content, referencesHost)
+}
+
 func expandHostNode(node *yaml.Node, host string) {
-	if node.Kind == yaml.ScalarNode && node.Tag == "!!str" {
+	if hostScalar(node) {
 		node.Value = hostVariable.ReplaceAllStringFunc(node.Value, func(string) string { return host })
 	}
 
 	for _, child := range node.Content {
 		expandHostNode(child, host)
 	}
+}
+
+// String scalars, keys included, are the only nodes HOST expansion rewrites.
+func hostScalar(node *yaml.Node) bool {
+	return node.Kind == yaml.ScalarNode && node.Tag == "!!str"
 }

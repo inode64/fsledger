@@ -130,7 +130,7 @@ func reapedPIDFDRecord(record []byte, pid int) (bool, error) {
 		defer resource.FD(descriptor)
 	}
 
-	pidfd, err := readPIDFD(record[metadataSize:])
+	pidfd, _, err := readPIDFD(record[metadataSize:])
 	if err != nil {
 		return false, err
 	}

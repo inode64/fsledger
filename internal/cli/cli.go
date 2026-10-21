@@ -12,6 +12,7 @@ import (
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/daemon"
 	"github.com/inode64/fsledger/internal/doctor"
+	"github.com/inode64/fsledger/internal/notify"
 )
 
 // Run parses commands and returns errors to the thin executable entry points.
@@ -74,28 +75,43 @@ func runConfigured(command string, arguments []string, stdout, stderr io.Writer)
 		return err
 	}
 
-	if *input != "" {
-		if command != commandBaseline || action != actionImport || *change != "" {
-			return fault.New("--input requires baseline import and cannot be combined with --change")
-		}
-
-		*change = *input
+	err = checkArgumentFlags(command, action, *change, *input)
+	if err != nil {
+		return err
 	}
 
-	return dispatch(stdout, stderr, cfg, command, action, *repository, *change, *debug, *effective)
+	return dispatch(stdout, stderr, cfg, command, action, *repository, *change, *input, *debug, *effective)
+}
+
+// checkArgumentFlags keeps --change and --input to the baseline action each selects: any other command
+// would ignore them silently.
+func checkArgumentFlags(command, action, change, input string) error {
+	if command == commandBaseline && action == actionImport && change != "" {
+		return fault.New("baseline import requires --input; --change is not accepted")
+	}
+
+	if change != "" && (command != commandBaseline || action != actionAccept) {
+		return fault.New("--change requires baseline accept")
+	}
+
+	if input != "" && (command != commandBaseline || action != actionImport) {
+		return fault.New("--input requires baseline import")
+	}
+
+	return nil
 }
 
 func dispatch(
 	stdout, stderr io.Writer,
 	cfg *config.Config,
-	command, action, repository, change string,
+	command, action, repository, change, input string,
 	debug, effective bool,
 ) error {
 	var err error
 
 	switch command {
 	case "check":
-		err = cfg.CheckPaths()
+		err = checkConfiguration(cfg)
 		if err != nil {
 			return err
 		}
@@ -132,11 +148,22 @@ func dispatch(
 		}
 
 		return clearOutbox(context.Background(), stdout, cfg, repository)
-	case commandBaseline, commandVerify, "changes":
-		return inventoryCommand(context.Background(), stdout, cfg, command, action, repository, change)
+	case commandBaseline, commandVerify, commandChanges:
+		return inventoryCommand(context.Background(), stdout, cfg, command, action, repository, change, input)
 	default:
 		return fault.New(fmt.Sprintf("unknown command %q", command))
 	}
+}
+
+// checkConfiguration inspects state locations and renders notification templates, which loading only
+// parses: one that cannot render an event would keep every alert to its notifier retrying.
+func checkConfiguration(cfg *config.Config) error {
+	err := cfg.CheckPaths()
+	if err != nil {
+		return err
+	}
+
+	return notify.CheckTemplates(cfg)
 }
 
 const (
@@ -146,4 +173,5 @@ const (
 	commandBaseline = "baseline"
 	actionImport    = "import"
 	commandVerify   = "verify"
+	commandChanges  = "changes"
 )

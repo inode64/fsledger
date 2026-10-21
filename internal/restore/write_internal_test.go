@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/inode64/fsledger/internal/resource"
 )
 
@@ -25,15 +27,24 @@ func (r inspectingReader) Read(buffer []byte) (int, error) {
 
 const replacementName = "secret"
 
-func replacementFixture(t *testing.T, mode fs.FileMode) (*os.Root, fs.FileInfo) {
+func replacementFixture(t *testing.T, mode fs.FileMode) (*os.Root, int, fs.FileInfo) {
 	t.Helper()
 
-	root, err := os.OpenRoot(t.TempDir())
+	directory := t.TempDir()
+
+	root, err := os.OpenRoot(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Cleanup(func() { resource.Close(root) })
+
+	parent, err := unix.Open(directory, directoryFlags, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { resource.FD(parent) })
 
 	err = root.WriteFile(replacementName, []byte("original"), 0o600)
 	if err != nil {
@@ -50,7 +61,7 @@ func replacementFixture(t *testing.T, mode fs.FileMode) (*os.Root, fs.FileInfo) 
 		t.Fatal(err)
 	}
 
-	return root, existing
+	return root, parent, existing
 }
 
 func assertPermissions(t *testing.T, root *os.Root, name string, want fs.FileMode) {
@@ -79,14 +90,18 @@ func TestWriteRegularKeepsReplacementPrivateUntilCopied(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			t.Parallel()
 
-			root, existing := replacementFixture(t, scenario.mode)
+			root, parent, existing := replacementFixture(t, scenario.mode)
 			reader := inspectingReader{Reader: strings.NewReader("restored"), inspect: func() {
-				assertPermissions(t, root, temporaryPrefix+replacementName, 0o600)
+				staged := temporaries(t, root)
+				if len(staged) != 1 {
+					t.Fatal("staged copies:", staged)
+				}
+
+				assertPermissions(t, root, staged[0], 0o600)
 			}}
 
-			state := run{root: root, base: root.Name(), name: "", options: Options{}, opened: true}
 			//nolint:exhaustruct_v5 // Only the executable bits are consulted when writing file content.
-			err := state.writeRegular(reader, &tar.Header{Mode: 0o755}, replacementName, existing)
+			err := writeRegular(reader, &tar.Header{Mode: 0o755}, parent, replacementName, existing)
 			if err != nil {
 				t.Fatal(err)
 			}

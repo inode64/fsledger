@@ -50,11 +50,15 @@ type Watcher struct {
 	path          string
 	coverageEpoch uint64
 	mask          uint64
+	// device is the root's filesystem, the one the handle anchor resolves; marks never leave it.
+	device        uint64
 	fd            int
 	once          sync.Once
 	coverageMutex sync.Mutex
 	coverageLost  atomic.Bool
-	pidfd         bool
+	// unmarkedFilesystem reports another filesystem left unmarked below the root; only a walk of the root clears it.
+	unmarkedFilesystem atomic.Bool
+	pidfd              bool
 }
 
 // New tries PIDFD independently and falls back to ordinary PID events.
@@ -147,30 +151,47 @@ func (w *Watcher) Close() error {
 	return fault.Wrap("close fanotify", err)
 }
 
+// sinceBoot reads CLOCK_BOOTTIME, the clock of /proc/<pid>/stat start times; zero means unknown.
+func sinceBoot() time.Duration {
+	var now unix.Timespec
+
+	err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &now)
+	if err != nil {
+		return 0
+	}
+
+	return time.Duration(now.Nano())
+}
+
 func signed(value []byte) int {
 	//nolint:gosec // fanotify's ABI encodes signed 32-bit fd/PID values, including -1.
 	return int(int32(binary.NativeEndian.Uint32(value)))
 }
 
-func readPIDFD(info []byte) (*os.File, error) {
+// readPIDFD also reports FAN_NOPIDFD, which marks a writer already reaped when the event was read.
+func readPIDFD(info []byte) (*os.File, bool, error) {
 	var result *os.File
+
+	reaped := false
 
 	for len(info) > 0 {
 		if len(info) < infoHeaderSize {
 			resource.OptionalFile(result)
 
-			return nil, fault.New("truncated fanotify info header")
+			return nil, false, fault.New("truncated fanotify info header")
 		}
 
 		length := int(binary.NativeEndian.Uint16(info[2:4]))
 		if length < infoHeaderSize || length > len(info) {
 			resource.OptionalFile(result)
 
-			return nil, fault.New("invalid fanotify info length")
+			return nil, false, fault.New("invalid fanotify info length")
 		}
 
 		if info[0] == unix.FAN_EVENT_INFO_TYPE_PIDFD && length >= 8 {
 			descriptor := signed(info[4:8])
+			reaped = descriptor == unix.FAN_NOPIDFD
+
 			if descriptor >= 0 {
 				resource.OptionalFile(result)
 
@@ -181,7 +202,7 @@ func readPIDFD(info []byte) (*os.File, error) {
 		info = info[length:]
 	}
 
-	return result, nil
+	return result, reaped, nil
 }
 
 func (w *Watcher) markTree(path string, verified map[string]bool) error {
@@ -207,7 +228,20 @@ func (w *Watcher) markTree(path string, verified map[string]bool) error {
 		return nil
 	}
 
-	err = filepath.WalkDir(path, func(name string, entry fs.DirEntry, walkErr error) error {
+	skipped, err := w.walkTree(path, verified)
+	// A subtree cannot tell that no other filesystem remains below the root; only a walk of the root can.
+	if err == nil && (skipped || path == w.path) {
+		w.unmarkedFilesystem.Store(skipped)
+	}
+
+	return err
+}
+
+// walkTree marks the selected directories below path and reports whether it left another filesystem unmarked.
+func (w *Watcher) walkTree(path string, verified map[string]bool) (bool, error) {
+	skipped := false
+
+	err := filepath.WalkDir(path, func(name string, entry fs.DirEntry, walkErr error) error {
 		if errors.Is(walkErr, os.ErrNotExist) {
 			return nil
 		}
@@ -224,10 +258,19 @@ func (w *Watcher) markTree(path string, verified map[string]bool) error {
 			return filepath.SkipDir
 		}
 
-		return w.markExisting(name, verified)
+		markErr := w.markExisting(name, verified)
+		// A filesystem mounted below the root after Start is a boundary, like the nested mounts excluded at startup,
+		// but without a watcher of its own: reconciliation covers it. At the root itself it is lost coverage.
+		if errors.Is(markErr, errOtherFilesystem) && name != w.path {
+			skipped = true
+
+			return filepath.SkipDir
+		}
+
+		return markErr
 	})
 
-	return fault.Wrap("install fanotify marks", err)
+	return skipped, fault.Wrap("install fanotify marks", err)
 }
 
 const (
@@ -435,7 +478,7 @@ func (w *Watcher) handle(record []byte, metadata int) error {
 		defer resource.FD(descriptor)
 	}
 
-	pidfd, err := readPIDFD(record[metadata:])
+	pidfd, reaped, err := readPIDFD(record[metadata:])
 	if err != nil {
 		return err
 	}
@@ -456,7 +499,7 @@ func (w *Watcher) handle(record []byte, metadata int) error {
 	}
 
 	if descriptor < 0 && w.handles != nil {
-		return w.handleFID(record[metadata:], pid, pidfd, mask)
+		return w.handleFID(record[metadata:], pid, pidfd, reaped, mask)
 	}
 
 	if descriptor < 0 {
@@ -467,10 +510,10 @@ func (w *Watcher) handle(record []byte, metadata int) error {
 		return nil
 	}
 
-	return w.handleDescriptor(descriptor, pid, pidfd)
+	return w.handleDescriptor(descriptor, pid, pidfd, reaped)
 }
 
-func (w *Watcher) handleDescriptor(descriptor, pid int, pidfd *os.File) error {
+func (w *Watcher) handleDescriptor(descriptor, pid int, pidfd *os.File, reaped bool) error {
 	path, err := filehandle.DescriptorPath(descriptor)
 	if errors.Is(err, filehandle.ErrDeleted) {
 		resource.OptionalFile(pidfd)
@@ -491,9 +534,10 @@ func (w *Watcher) handleDescriptor(descriptor, pid int, pidfd *os.File) error {
 		return nil
 	}
 
-	w.queue.Send(
-		event.Raw{Path: path, PID: pid, PIDFD: pidfd, Backend: w.Name(), Time: time.Now(), Operation: event.Write},
-	)
+	w.queue.Send(event.Raw{
+		Path: path, PID: pid, PIDFD: pidfd, Reaped: reaped,
+		Backend: w.Name(), Time: time.Now(), SinceBoot: sinceBoot(), Operation: event.Write,
+	})
 
 	return nil
 }

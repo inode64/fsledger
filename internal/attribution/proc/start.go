@@ -33,6 +33,17 @@ func StartTime(ticks uint64) (time.Time, bool) {
 	return startTime(ticks, bootTime())
 }
 
+// startedBefore reports whether a start time in clock ticks since boot provably precedes an event
+// read at sinceBoot on CLOCK_BOOTTIME. The kernel truncates start times to whole ticks, so a start
+// in the event's own tick stays unproven, as does an unknown event time.
+func startedBefore(ticks uint64, sinceBoot time.Duration) bool {
+	if sinceBoot <= 0 {
+		return false
+	}
+
+	return ticks < uint64(sinceBoot/(time.Second/userHZ))
+}
+
 func startTime(ticks, boot uint64) (time.Time, bool) {
 	if ticks == 0 || boot == 0 {
 		return time.Time{}, false

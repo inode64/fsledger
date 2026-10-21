@@ -10,7 +10,7 @@ import (
 
 func TestCommandFailureOmitsArgumentsAndPreservesCause(t *testing.T) {
 	t.Parallel()
-	repository := Repository{Path: t.TempDir(), Host: "privacy-test", publishable: "", Timeout: 0}
+	repository := Repository{Path: t.TempDir(), Host: "privacy-test", publishable: "", Timeout: 0, exclusive: false}
 
 	_, err := repository.Init(t.Context())
 	if err != nil {

@@ -281,7 +281,11 @@ notifications:
 The file name determines the repository name. Profile directory paths are relative
 to the main YAML file; sources use absolute paths or patterns over them.
 Missing entries are skipped without error and included when they appear in a subsequent
-reconciliation. Selection supports `*`, `?`, and `[...]` within each path component;
+reconciliation. An entry or pattern that cannot be read (permission denied, I/O error, stale
+handle, symlink loop) is skipped too, but never taken as deleted: the daemon keeps what it
+recorded there, and `verify`, `baseline init` and `baseline replace` refuse to run until it
+can be read again.
+Selection supports `*`, `?`, and `[...]` within each path component;
 recursive `**` patterns are reserved for exclusions and other filters that support them.
 
 You can use `${HOST}` or `$HOST` in YAML values and keys. They expand to the `HOST`
@@ -420,8 +424,8 @@ ia_include: [/etc/ssh/sshd_config]
 ```
 
 OpenAI, Anthropic, and OpenAI-compatible endpoints are supported. Redaction rules
-are applied to contents before building the diff sent to the provider. An AI failure
-allows the commit to proceed with its usual message.
+are applied to paths and contents before building the diff sent to the provider.
+An AI failure allows the commit to proceed with its usual message.
 
 Reports can enable `reports.ai` separately. In that case, only selected metadata is sent,
 without file contents, attribute values, or process commands. Both features are disabled
@@ -466,8 +470,10 @@ equivalent); the destination defaults to the original location. The date accepts
 `YYYY-MM-DD` (meaning the end of that day), `YYYY-MM-DD HH:MM[:SS]` in local time, or
 RFC 3339. With `--overwrite off` (the default) existing files are left alone; `always`
 replaces them keeping their mode and owner; `newer` replaces them only when the chosen
-commit is later than the file. `--dry-run` prints the plan without writing. Ownership,
-ACLs and extended attributes are not restored:
+commit is later than the file. Symlinks are never followed: a destination directory that
+is or lies below one is refused, and entries below a symlink or a failed directory fail.
+`--dry-run` prints the plan without writing. Ownership, ACLs and extended attributes are
+not restored:
 
 ```sh
 sudo fsledger restore --repository system --date "2026-10-01 09:00" /etc/ssh /tmp/rescue
@@ -491,11 +497,15 @@ and [fsledgerd(8)](packaging/man/fsledgerd.8) in the repository.
 - **Separate contents and metadata.** Git stores contents, symlinks, and the executable
   bit; the catalog records selected attributes such as ownership, permissions, ACLs,
   or xattrs. Git does not preserve empty directories or all those metadata fields in its tree.
+  Names Git refuses even on Linux, such as `git~1`, `.git.` or a symlink named `.gitmodules`,
+  stay in the catalog but are not copied to the mirror.
 - **Keep sources outside managed state.** Do not edit mirrors while the daemon is running.
   Storage and runtime directories must be private and are automatically excluded from
   that instance's sources. Independent instances need shared exclusions.
 - **Configure exclusions for your applications.** They support recursive globs such as `**`,
-  and global and repository rules are combined. Start with the
+  and global and repository rules are combined. An excluded directory also excludes its contents:
+  a trailing slash, as in gitignore, is dropped and repeated slashes collapse, while patterns
+  with `.` or `..` components are rejected because they never match. Start with the
   [example profile](examples/excludes/common.yaml) and adjust it for caches, temporary files, and secrets.
 - **Protect access to the remote.** Branch restrictions control who can write,
   not who can read other branches. Use separate private repositories when you need

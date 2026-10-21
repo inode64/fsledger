@@ -17,7 +17,7 @@ func TestMergeMessagesGroupsInterleavedEvidence(t *testing.T) {
 		for _, event := range []string{config.NotificationChange, config.NotificationIntegrityViolation} {
 			identifier := fmt.Sprintf("change-%d", index)
 			deliveries = append(deliveries, Delivery{
-				Destination: "sink", Version: "v1", LastError: "",
+				Destination: "sink", Version: "v1", LastError: "", Progress: Progress{},
 				ID: int64(len(deliveries) + 1), Attempts: 0, NextAttempt: 0,
 				Message: Message{
 					Repository: "repo", Host: "host", Hostname: "kernel", Event: event,
@@ -55,7 +55,7 @@ func TestMergeMessagesKeepsRoutingAndOperationalEventsSeparate(t *testing.T) {
 	t.Parallel()
 
 	base := Delivery{
-		Destination: "one", Version: "v1", LastError: "", ID: 1, Attempts: 0, NextAttempt: 0,
+		Destination: "one", Version: "v1", LastError: "", Progress: Progress{}, ID: 1, Attempts: 0, NextAttempt: 0,
 		Message: Message{Repository: "repo", Host: "host", Hostname: "kernel", Event: config.NotificationChange},
 	}
 	deliveries := []Delivery{

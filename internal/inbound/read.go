@@ -15,7 +15,10 @@ import (
 	"github.com/inode64/fsledger/internal/resource"
 )
 
-const maxFileBytes = 64 << 20
+const (
+	maxFileBytes = 64 << 20
+	capabilities = "security.capability"
+)
 
 type observed struct {
 	mode string
@@ -80,6 +83,11 @@ func readRegular(parent int, name string, before unix.Stat_t) (observed, error) 
 		return observed{}, conflict("destination changed or exceeds 64 MiB: " + name)
 	}
 
+	err = rejectCapabilities(fd, name)
+	if err != nil {
+		return observed{}, err
+	}
+
 	data, err := io.ReadAll(io.LimitReader(file, maxFileBytes+1))
 	if err != nil {
 		return observed{}, fault.Wrap("read incoming destination", err)
@@ -96,6 +104,20 @@ func readRegular(parent int, name string, before unix.Stat_t) (observed, error) 
 	}
 
 	return observed{data: data, stat: actual, mode: mode}, nil
+}
+
+// Like setuid bits, file capabilities grant privileges: remote content must neither inherit nor silently drop them.
+func rejectCapabilities(fd int, name string) error {
+	_, err := unix.Fgetxattr(fd, capabilities, nil)
+	if errors.Is(err, unix.ENODATA) || errors.Is(err, unix.ENOTSUP) {
+		return nil
+	}
+
+	if err != nil {
+		return fault.Wrap("inspect incoming capabilities", err)
+	}
+
+	return conflict("incoming replacement does not support file capabilities: " + name)
 }
 
 func sameStat(first, second unix.Stat_t) bool {

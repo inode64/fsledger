@@ -125,7 +125,7 @@ func restorePaths(operands []string) (string, string, error) {
 }
 
 func restoreFromRepository(ctx context.Context, writer io.Writer, cfg *config.Config, request restoreRequest) error {
-	backend, err := restoreBackend(cfg, request.repository)
+	backend, err := restoreBackend(ctx, cfg, request.repository)
 	if err != nil {
 		return err
 	}
@@ -169,9 +169,9 @@ func restoreFromRepository(ctx context.Context, writer io.Writer, cfg *config.Co
 	return nil
 }
 
-// restoreBackend selects an existing Git mirror; Git's own failure on a missing HEAD would be opaque
-// because its stderr is discarded.
-func restoreBackend(cfg *config.Config, name string) (*gitrepo.Repository, error) {
+// restoreBackend selects an existing Git mirror with at least one commit; Git's own failure on a
+// missing HEAD would be opaque because its stderr is discarded.
+func restoreBackend(ctx context.Context, cfg *config.Config, name string) (*gitrepo.Repository, error) {
 	repo, err := selectRepository(cfg, name)
 	if err != nil {
 		return nil, err
@@ -186,6 +186,15 @@ func restoreBackend(cfg *config.Config, name string) (*gitrepo.Repository, error
 	info, err := os.Lstat(filepath.Join(backend.Path, ".git"))
 	if err != nil || !info.IsDir() {
 		return nil, fault.New("repository has no Git mirror yet: " + name)
+	}
+
+	history, err := backend.HasHistory(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !history {
+		return nil, fault.New("repository has no recorded history yet: " + name)
 	}
 
 	return backend, nil

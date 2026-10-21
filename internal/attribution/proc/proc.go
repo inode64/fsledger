@@ -21,6 +21,7 @@ import (
 type Provider struct{}
 
 // Resolve reads start time before and after enrichment and checks pidfd liveness.
+// Without a pidfd, the process must provably predate the event: its PID may have been reused.
 func (provider Provider) Resolve(ctx context.Context, raw event.Raw) event.Actor {
 	return provider.resolve(ctx, raw, nil)
 }
@@ -28,6 +29,10 @@ func (provider Provider) Resolve(ctx context.Context, raw event.Raw) event.Actor
 func (Provider) resolve(ctx context.Context, raw event.Raw, observedAt *time.Time) event.Actor {
 	if ctx.Err() != nil || raw.PID <= 0 {
 		return event.Actor{}
+	}
+
+	if raw.Reaped {
+		return event.Actor{UnavailableReason: "writer exited before the event was read (FAN_NOPIDFD)"}
 	}
 
 	liveErr := alive(raw.PIDFD)
@@ -50,6 +55,8 @@ func (Provider) resolve(ctx context.Context, raw event.Raw, observedAt *time.Tim
 		if birthErr != nil || birth >= float64(observedAt.Unix()-1) {
 			return event.Actor{}
 		}
+	} else if raw.PIDFD == nil && !startedBefore(stat.Starttime, raw.SinceBoot) {
+		return event.Actor{UnavailableReason: "process not proven to predate the event; its PID may have been reused"}
 	}
 
 	actor := event.Actor{PID: raw.PID, StartTime: stat.Starttime, Known: true}

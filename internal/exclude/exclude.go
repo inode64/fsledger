@@ -21,13 +21,70 @@ type Matcher struct {
 
 // New validates all patterns before they can be used.
 func New(patterns ...string) (*Matcher, error) {
+	normalized := make([]string, 0, len(patterns))
+
 	for _, pattern := range patterns {
-		if pattern == "" || !doublestar.ValidatePattern(pattern) {
-			return nil, fault.New(fmt.Sprintf("invalid exclusion %q", pattern))
+		clean, err := normalize(pattern)
+		if err != nil {
+			return nil, err
+		}
+
+		normalized = append(normalized, clean)
+	}
+
+	return &Matcher{rules: compile(normalized), protected: nil}, nil
+}
+
+// normalize drops empty components, which clean candidates never contain: "//"
+// collapses and a trailing slash, gitignore's "this directory", reduces to the
+// directory, which already excludes its contents because Match checks ancestors.
+// "." and ".." have no such reading and are rejected.
+func normalize(pattern string) (string, error) {
+	invalid := fmt.Sprintf("invalid exclusion %q", pattern)
+	kept := make([]string, 0, strings.Count(pattern, "/")+1)
+
+	for _, component := range components(pattern) {
+		if component == "." || component == ".." {
+			return "", fault.New(invalid + `: "." and ".." components never match; write the clean path`)
+		}
+
+		if component != "" {
+			kept = append(kept, component)
 		}
 	}
 
-	return &Matcher{rules: compile(patterns), protected: nil}, nil
+	clean := strings.Join(kept, "/")
+	if strings.HasPrefix(pattern, "/") {
+		clean = "/" + clean
+	}
+
+	if clean == "" || !doublestar.ValidatePattern(clean) {
+		return "", fault.New(invalid)
+	}
+
+	return clean, nil
+}
+
+// components splits at separators. A backslash escapes the next byte, so an
+// escaped separator stays inside its component as written.
+func components(pattern string) []string {
+	var parts []string
+
+	start, escaped := 0, false
+
+	for index := range len(pattern) {
+		switch {
+		case escaped:
+			escaped = false
+		case pattern[index] == '\\':
+			escaped = true
+		case pattern[index] == '/':
+			parts = append(parts, pattern[start:index])
+			start = index + 1
+		}
+	}
+
+	return append(parts, pattern[start:])
 }
 
 // Match checks the full absolute path and each ancestor, so excluded directories

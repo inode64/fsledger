@@ -55,6 +55,10 @@ func (workspace *readWorkspace) hasher(algorithm string) (hash.Hash, error) {
 // ErrUnstable rejects metadata or hashes observed across a concurrent source mutation.
 var ErrUnstable = errors.New("source changed during observation")
 
+// errAttributesTooLarge marks attributes beyond maxAttributesBytes, or names or a value the kernel
+// refuses to return at once (E2BIG past its 64 KiB limits).
+var errAttributesTooLarge = errors.New("extended attributes exceed observation limit")
+
 const (
 	bufferSize         = 64 << 10
 	maxAttributesBytes = 1 << 20
@@ -236,16 +240,9 @@ func (workspace *readWorkspace) hashFile(
 	before *unix.Stat_t,
 	record *Record,
 ) error {
-	flags := unix.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK | unix.O_CLOEXEC
-	fd, err := unix.Openat(parent, name, flags|unix.O_NOATIME, 0)
-
-	record.NoAtime = err == nil
-	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EINVAL) {
-		fd, err = unix.Openat(parent, name, flags, 0)
-	}
-
+	fd, err := openHashed(parent, name, record)
 	if err != nil {
-		return fault.Wrap("open source for hashing", err)
+		return err
 	}
 
 	file := os.NewFile(uintptr(fd), name)
@@ -290,6 +287,25 @@ func (workspace *readWorkspace) hashFile(
 	return nil
 }
 
+// openHashed opens a name the caller saw as a regular file without following it, and without
+// advancing its access time where the kernel permits.
+func openHashed(parent int, name string, record *Record) (int, error) {
+	flags := unix.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK | unix.O_CLOEXEC
+	fd, err := unix.Openat(parent, name, flags|unix.O_NOATIME, 0)
+
+	record.NoAtime = err == nil
+	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EINVAL) {
+		fd, err = unix.Openat(parent, name, flags, 0)
+	}
+
+	// A symlink (ELOOP under O_NOFOLLOW) or a socket (ENXIO) replaced the regular file since.
+	if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENXIO) {
+		return -1, fmt.Errorf("%w: source replaced before hashing", ErrUnstable)
+	}
+
+	return fd, fault.Wrap("open source for hashing", err)
+}
+
 func verifyHashedFile(file *os.File, before *unix.Stat_t, count int64) error {
 	sizeErr := CheckContentSize(file, before.Size, count)
 
@@ -307,7 +323,21 @@ func verifyHashedFile(file *os.File, before *unix.Stat_t, count int64) error {
 	return sizeErr
 }
 
+// readAttributes records xattrs and ACLs. Attributes too large to observe belong to the entry, not
+// to the scan: they are recorded as AttributesTooLarge without a partial list, which keeps memory
+// bounded while the scan, and with it deletion detection, completes.
 func readAttributes(path string, record *Record) error {
+	err := collectAttributes(path, record)
+	if errors.Is(err, errAttributesTooLarge) {
+		record.AttributesStatus, record.Xattrs, record.ACL = AttributesTooLarge, nil, nil
+
+		return nil
+	}
+
+	return err
+}
+
+func collectAttributes(path string, record *Record) error {
 	size, err := unix.Llistxattr(path, nil)
 	if errors.Is(err, unix.ENOTSUP) {
 		record.AttributesStatus = AttributesUnsupported
@@ -324,7 +354,7 @@ func readAttributes(path string, record *Record) error {
 	}
 
 	if size > maxAttributesBytes {
-		return fault.New("extended attributes exceed observation limit")
+		return errAttributesTooLarge
 	}
 
 	names := make([]byte, max(size, 1))
@@ -374,7 +404,7 @@ func readAttribute(path string, name []byte, remaining int) (Attribute, error) {
 	}
 
 	if count > remaining {
-		return Attribute{}, fault.New("extended attributes exceed observation limit")
+		return Attribute{}, errAttributesTooLarge
 	}
 
 	value := make([]byte, max(count, 1))
@@ -411,7 +441,12 @@ func readBirthTime(parent int, name string, record *Record) error {
 
 // A size query and the subsequent read are not atomic. Reject raced buffers and
 // disappearing attributes so Scanner can retry without accepting partial metadata.
+// E2BIG is no race: the kernel reports it only for buffers already at its limit.
 func attributeReadError(count, capacity int, err error) error {
+	if errors.Is(err, unix.E2BIG) {
+		return errAttributesTooLarge
+	}
+
 	if errors.Is(err, unix.ERANGE) || errors.Is(err, unix.ENODATA) || (err == nil && (count < 0 || count > capacity)) {
 		return ErrUnstable
 	}

@@ -28,6 +28,7 @@ const (
 	fixtureType          = "type"
 	fixtureRepository    = "inventory"
 	fixtureRepoFlag      = "--repository"
+	fixtureSystemYaml    = "system.yaml"
 )
 
 type aideFixture struct {

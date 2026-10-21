@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,11 +53,11 @@ Repositorio: {{.Repository}}
 {{if or (eq .Event "error") (eq .Event "recovery")}}{{if eq .Event "error"}}Estado: incidencia detectada.
 {{else}}Estado: recuperado.
 {{end}}{{if .ChangeID}}ID de aviso: {{.ChangeID}}
-{{end}}{{if .Reason}}{{if eq .Event "recovery"}}Incidencia resuelta{{else}}Motivo{{end}}: {{.Reason}}
+{{end}}{{if .Reason}}{{if eq .Event "recovery"}}Incidencia resuelta{{else}}Motivo{{end}}: {{.DisplayReason}}
 {{end}}{{else}}Observaciones: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})
 {{if .ChangeID}}Cambio: {{.ChangeID}}
 {{end}}{{with $common}}Detección: {{.}}
-{{end}}{{if .Reason}}Motivo: {{.Reason}}
+{{end}}{{if .Reason}}Motivo: {{.DisplayReason}}
 {{end}}{{if or .Details .Paths}}{{if .Detailed}}
 Elementos cambiados
 Clave  Ruta
@@ -107,6 +109,13 @@ type renderedNotification struct {
 	subject   string
 	body      string
 	messageID string
+}
+
+// partsLedger resumes one multipart Slack message after the prefix its outbox deliveries recorded and
+// records every newly accepted prefix. Its zero value, outside the outbox, starts at the first part.
+type partsLedger struct {
+	record   func(catalog.Progress) error
+	progress catalog.Progress
 }
 
 // Sender contains injectable clients for isolated HTTP/SMTP transport tests.
@@ -166,12 +175,19 @@ func (buffer *limitedBuffer) Write(data []byte) (int, error) {
 	return count, fault.Wrap("render notification", err)
 }
 
-// Send returns a retry delay and sanitized failure; it never logs the destination secret.
+// Send returns a retry delay and sanitized failure; it never logs the destination secret. The outbox
+// passes its deliveries' ledger so a multipart Slack message resumes after the parts already accepted.
 func (sender *Sender) Send(
 	ctx context.Context,
 	notifier config.Notifier,
 	message catalog.Message,
+	resume ...partsLedger,
 ) (time.Duration, error) {
+	ledger := partsLedger{}
+	if len(resume) > 0 {
+		ledger = resume[0]
+	}
+
 	if notifier.Type == config.NotifierSlack {
 		sender.mutex.Lock()
 		delay := time.Until(sender.next[notifier.URL])
@@ -187,7 +203,7 @@ func (sender *Sender) Send(
 		return time.Hour, err
 	}
 
-	return sender.deliver(ctx, notifier, rendered)
+	return sender.deliver(ctx, notifier, rendered, ledger)
 }
 
 // Run retries the persistent outbox independently of repository work.
@@ -220,6 +236,7 @@ func (sender *Sender) deliver(
 	ctx context.Context,
 	notifier config.Notifier,
 	rendered renderedNotification,
+	ledger partsLedger,
 ) (time.Duration, error) {
 	switch notifier.Type {
 	case config.NotifierSlack:
@@ -228,7 +245,7 @@ func (sender *Sender) deliver(
 			return delay, err
 		}
 
-		delay, sendErr := sender.slackParts(ctx, notifier.URL, rendered.subject+"\n"+rendered.body)
+		delay, sendErr := sender.slackParts(ctx, notifier.URL, rendered.subject+"\n"+rendered.body, ledger)
 		if delay > 0 {
 			sender.mutex.Lock()
 			sender.next[notifier.URL] = time.Now().Add(delay)
@@ -394,7 +411,20 @@ func (sender *Sender) email(ctx context.Context, notifier config.Notifier, rende
 		message.SetMessageIDWithValue(rendered.messageID)
 	}
 
-	err = client.DialAndSendWithContext(ctx, message)
+	smtpClient, err := client.DialToSMTPClientWithContext(ctx)
+	if err != nil {
+		return emailDeliveryError(err)
+	}
+
+	err = client.SendWithSMTPClient(smtpClient, message)
+
+	// The DATA reply settles delivery before QUIT; failing an accepted message
+	// here would resend it with a new Message-ID on every retry.
+	closeErr := client.CloseWithSMTPClient(smtpClient)
+	if closeErr != nil {
+		// A failed QUIT leaves the connection open.
+		slog.Warn("email connection close failed", "error", errors.Join(closeErr, smtpClient.Close()))
+	}
 
 	return emailDeliveryError(err)
 }
@@ -441,10 +471,12 @@ func (sender *Sender) deliverDigest(
 		var rendered *renderedNotification
 
 		digest, rendered = sender.digestChunk(target.notifier, digest)
+
+		ledger := outboxLedger(ctx, store, digest.Deliveries)
 		if rendered != nil {
-			delay, sendErr = sender.deliver(ctx, target.notifier, *rendered)
+			delay, sendErr = sender.deliver(ctx, target.notifier, *rendered, ledger)
 		} else {
-			delay, sendErr = sender.Send(ctx, target.notifier, digest.Message)
+			delay, sendErr = sender.Send(ctx, target.notifier, digest.Message, ledger)
 		}
 	} else {
 		sendErr = fault.New("destination removed or changed")
@@ -464,6 +496,20 @@ func (sender *Sender) deliverDigest(
 	}
 
 	return nil
+}
+
+// outboxLedger records progress on every delivery of the digest in one transaction. The fingerprint covers
+// the whole rendering, so the first delivery's progress resumes only a digest rendered exactly as before.
+func outboxLedger(ctx context.Context, store *catalog.Store, deliveries []catalog.Delivery) partsLedger {
+	identifiers := make([]int64, len(deliveries))
+	for index, delivery := range deliveries {
+		identifiers[index] = delivery.ID
+	}
+
+	return partsLedger{
+		record:   func(progress catalog.Progress) error { return store.ProgressMany(ctx, identifiers, progress) },
+		progress: deliveries[0].Progress,
+	}
 }
 
 func logDigest(logger *slog.Logger, digest catalog.Digest) {
@@ -587,11 +633,24 @@ func (sender *Sender) reserve(ctx context.Context, key string) (time.Duration, e
 	return 0, nil
 }
 
-// Slack messages are split without truncating the sole notification evidence.
-func (sender *Sender) slackParts(ctx context.Context, endpoint, body string) (time.Duration, error) {
+// Slack messages are split without truncating the sole notification evidence. A retry of the same
+// rendering resumes after the parts the ledger recorded, so no accepted part is posted again.
+func (sender *Sender) slackParts(
+	ctx context.Context,
+	endpoint, body string,
+	ledger partsLedger,
+) (time.Duration, error) {
 	characters := []rune(body)
-	for offset := 0; offset < len(characters); offset += slackPartSize {
-		if offset > 0 {
+	sum := sha256.Sum256([]byte(body))
+	fingerprint := hex.EncodeToString(sum[:])
+
+	start := 0
+	if ledger.progress.Fingerprint == fingerprint {
+		start = min(max(ledger.progress.Sent, 0), len(characters))
+	}
+
+	for offset := start; offset < len(characters); offset += slackPartSize {
+		if offset > start {
 			timer := time.NewTimer(slackMessageInterval)
 			select {
 			case <-ctx.Done():
@@ -608,9 +667,31 @@ func (sender *Sender) slackParts(ctx context.Context, endpoint, body string) (ti
 		if err != nil {
 			return delay, err
 		}
+
+		if end < len(characters) {
+			err = sender.partAccepted(endpoint, ledger, catalog.Progress{Fingerprint: fingerprint, Sent: end})
+			if err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	return 0, nil
+}
+
+// partAccepted renews the webhook reservation through the pause and the next part's own interval, so
+// another message to the same webhook neither lands between two parts nor exceeds one message per
+// second, and then records the accepted prefix.
+func (sender *Sender) partAccepted(endpoint string, ledger partsLedger, progress catalog.Progress) error {
+	sender.mutex.Lock()
+	sender.next[endpoint] = time.Now().Add(slackMessageInterval + slackMessageInterval)
+	sender.mutex.Unlock()
+
+	if ledger.record == nil {
+		return nil
+	}
+
+	return ledger.record(progress)
 }
 
 func defaultMailPort(scheme string) int {
@@ -632,6 +713,9 @@ func (sender *Sender) emailClient(notifier config.Notifier) (*mail.Client, error
 		mail.WithTimeout(transportTimeout),
 		mail.WithTLSPolicy(mail.TLSMandatory),
 		mail.WithPort(defaultMailPort(endpoint.Scheme)),
+		// Each connection carries one message and QUIT follows; a failed RSET
+		// after an accepted DATA would otherwise requeue a delivered message.
+		mail.WithoutRset(),
 	}
 	if endpoint.Scheme == config.MailSchemeSMTPS {
 		options = append(options, mail.WithSSL())

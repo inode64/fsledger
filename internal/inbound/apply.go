@@ -20,8 +20,14 @@ import (
 // Apply is idempotent across a crash between replacement and the progress save.
 // The caller must durably save the plan before calling it, and serialize each repository.
 func (plan *Plan) Apply(ctx context.Context, objects Objects, save func() error) error {
+	// A conflict at an earlier index would otherwise stop before reaching the interrupted replacement.
+	err := plan.ClearTemporary()
+	if err != nil {
+		return err
+	}
+
 	for index, change := range plan.Changes {
-		err := ctx.Err()
+		err = ctx.Err()
 		if err != nil {
 			return fault.Wrap("incoming application cancelled", err)
 		}
@@ -52,6 +58,33 @@ func (plan *Plan) Apply(ctx context.Context, objects Objects, save func() error)
 	}
 
 	return nil
+}
+
+// ClearTemporary removes remote content left by an interrupted replacement of the next pending change;
+// callers abandoning the plan need it because only a later application would reach that change.
+func (plan *Plan) ClearTemporary() error {
+	if plan.Done < 0 || plan.Done >= len(plan.Changes) {
+		return nil
+	}
+
+	err := plan.CheckRoots()
+	if err != nil {
+		return err
+	}
+
+	parent, _, err := plan.openParent(string(plan.Changes[plan.Done].Path), false)
+	// A replacement creates missing parents before its temporary.
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	if err != nil {
+		return pathError(err)
+	}
+
+	defer resource.FD(parent)
+
+	return clearTemporary(parent, tempName(plan, plan.Done))
 }
 
 func (plan *Plan) applyOne(ctx context.Context, objects Objects, index int, change Change) error {

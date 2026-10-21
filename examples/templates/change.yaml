@@ -1,10 +1,12 @@
 # Named template "change" for immediate email/Slack alerts; reports use their own renderer.
-# Same as the built-in template. DisplayFields/DisplayBaseline render timestamps, sizes, modes and
-# UID/GID with local user/group names when available. Numeric IDs always remain visible.
+# Same as the built-in template. DisplayFields/DisplayBaseline render timestamps, sizes, modes,
+# UID/GID with local user/group names when available, symlink targets as text and xattrs/ACLs as
+# name="text" or name=0x<hex>. Numeric IDs always remain visible.
 # Fields without evidence for a reader are hidden; BackdatedBy flags an mtime earlier
 # than btime; ActorLines shows the actor evidence as lines; CommonDetection states the detection
-# method once when every path shares it. Up to DetailLimit paths (Detailed) every detail is
-# listed; larger summaries group paths by actor without per-path fields. Stored evidence is unchanged.
+# method once when every path shares it; DisplayReason prints Reason with control characters
+# escaped. Up to DetailLimit paths (Detailed) every detail is listed; larger summaries group paths
+# by actor without per-path fields. Stored evidence is unchanged.
 subject: |-
   fsledger {{.Host}} / {{.Repository}}: {{.Event}}{{if not
   (or (eq .Event "error") (eq .Event "recovery"))}} ({{.Count}}: +{{.Added}} ~{{.Modified}} -{{.Deleted}}){{end}}
@@ -14,11 +16,11 @@ body: |-
   {{if or (eq .Event "error") (eq .Event "recovery")}}{{if eq .Event "error"}}Estado: incidencia detectada.
   {{else}}Estado: recuperado.
   {{end}}{{if .ChangeID}}ID de aviso: {{.ChangeID}}
-  {{end}}{{if .Reason}}{{if eq .Event "recovery"}}Incidencia resuelta{{else}}Motivo{{end}}: {{.Reason}}
+  {{end}}{{if .Reason}}{{if eq .Event "recovery"}}Incidencia resuelta{{else}}Motivo{{end}}: {{.DisplayReason}}
   {{end}}{{else}}Observaciones: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})
   {{if .ChangeID}}Cambio: {{.ChangeID}}
   {{end}}{{with $common}}Detección: {{.}}
-  {{end}}{{if .Reason}}Motivo: {{.Reason}}
+  {{end}}{{if .Reason}}Motivo: {{.DisplayReason}}
   {{end}}{{if or .Details .Paths}}{{if .Detailed}}
   Elementos cambiados
   Clave  Ruta

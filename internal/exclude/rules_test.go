@@ -33,6 +33,7 @@ func edges() []string {
 		"**/a/b*", "/a/**/b*", "**/.a", "**/a.b*c", "/**/a", "**/**/a", "**/a*/**", "/a*/**", "a*",
 		// "/**" may match nothing, the slash before it included.
 		"/a/**/", "/a/**/**", "/etc/**/", "**/a/**/", "a/**/", "/a//**", "/a/**/b/",
+		"//", "//a", "/a//b/", "**//a", "**/a//", "a//b", "/a*//", "/a/b*/",
 	}
 }
 
@@ -142,15 +143,21 @@ func TestCompiledRulesMatchDoublestar(t *testing.T) {
 			t.Fatal(patterns, err)
 		}
 
+		// New drops empty components as filepath.Clean does; these patterns have no dot components to resolve.
+		cleaned := make([]string, 0, len(patterns))
+		for _, pattern := range patterns {
+			cleaned = append(cleaned, filepath.Clean(pattern))
+		}
+
 		for _, path := range paths {
-			want := reference(patterns, path)
+			want := reference(cleaned, path)
 			if matcher.Match(path) != want {
 				t.Errorf("%q on %q: Match=%v, doublestar=%v", patterns, path, !want, want)
 			}
 
 			// Walkers call MatchEntry only below a directory that was not excluded.
 			parent := filepath.Dir(filepath.Clean(path))
-			if parent != path && !reference(patterns, parent) && matcher.MatchEntry(path) != want {
+			if parent != path && !reference(cleaned, parent) && matcher.MatchEntry(path) != want {
 				t.Errorf("%q on %q: MatchEntry=%v, doublestar=%v", patterns, path, !want, want)
 			}
 		}

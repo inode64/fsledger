@@ -190,7 +190,13 @@ func sameWrite(previous, raw event.Raw) bool {
 
 func knownDuplicate(group *event.Group, previous, raw event.Raw) bool {
 	return sameWrite(previous, raw) && group.Actor.Known && raw.Backend == event.Inotify &&
-		previous.Backend == event.Fanotify
+		previous.Backend == event.Fanotify && !createAfterWrite(previous, raw)
+}
+
+// createAfterWrite reports an inotify creation seen after the attributed write. Without fanotify namespace
+// events it is another process replacing the path, such as a rename over it, not the writer's own creation.
+func createAfterWrite(previous, raw event.Raw) bool {
+	return raw.Operation == event.Create && previous.Operation == event.Write && raw.Time.After(previous.Time)
 }
 
 func canEnrich(group *event.Group, previous, raw event.Raw) bool {
@@ -268,6 +274,8 @@ func (m *Manager) collect(raw event.Raw, key string) *collisions {
 		return result
 	}
 
+	var own []string
+
 	for path, existing := range m.paths.Overlaps(raw.Path) {
 		group := m.groups[existing]
 		if group == nil {
@@ -279,6 +287,8 @@ func (m *Manager) collect(raw event.Raw, key string) *collisions {
 		}
 
 		if existing == key {
+			own = append(own, path)
+
 			continue
 		}
 
@@ -290,7 +300,36 @@ func (m *Manager) collect(raw event.Raw, key string) *collisions {
 		}
 	}
 
+	m.release(result, key, own)
+
 	return result
+}
+
+// release moves the actor's own overlapping entries along with a conflicting
+// event, so a path never stays in two groups once the event becomes unknown.
+func (m *Manager) release(result *collisions, key string, paths []string) {
+	if !result.conflict || key == event.Unknown || len(paths) == 0 {
+		return
+	}
+
+	group := m.groups[key]
+	if group == nil {
+		return
+	}
+
+	for _, path := range paths {
+		result.moved[path] = group.Paths[path]
+		delete(group.Paths, path)
+		m.paths.Delete(path)
+	}
+
+	if group.First.Before(result.first) {
+		result.first = group.First
+	}
+
+	if len(group.Paths) == 0 {
+		delete(m.groups, key)
+	}
 }
 
 func (c *collisions) inspect(group *event.Group, path string, raw event.Raw) {

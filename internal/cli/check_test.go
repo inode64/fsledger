@@ -26,7 +26,7 @@ func TestCheckAcceptsAbsentSources(t *testing.T) {
 	for name, text := range map[string]string{
 		fixtureMainYaml: "runtime: " + root + "/run\nstorage: {path: " + root + "/state}\n" +
 			"paths: {repositories: [system.yaml]}\n",
-		"system.yaml": "paths: ['" + root + "/present', '" + root + "/absent', '" + root + "/keys/*.keyfile']\n",
+		fixtureSystemYaml: "paths: ['" + root + "/present', '" + root + "/absent', '" + root + "/keys/*.keyfile']\n",
 	} {
 		err = os.WriteFile(filepath.Join(root, name), []byte(text), 0o600)
 		if err != nil {
