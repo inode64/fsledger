@@ -23,7 +23,7 @@ func OpenRepository(ctx context.Context, cfg *config.Config, name string) (*Stor
 
 	store.BindDestinations(cfg.Notifiers)
 
-	err = store.ConfigureReports(ctx, repo.Reports, true)
+	err = store.ConfigureReports(ctx, repo.Reports)
 	if err != nil {
 		resource.Close(store)
 

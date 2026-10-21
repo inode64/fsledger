@@ -230,7 +230,7 @@ func TestReferenceReplacementCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	operationErr5 := store.freezeBaseline(ctx, true)
+	operationErr5 := store.freezeBaselineInventory(ctx, true)
 	if operationErr5 == nil {
 		t.Fatal("cancelled reference published")
 	}
@@ -240,7 +240,7 @@ func TestReferenceReplacementCancellation(t *testing.T) {
 		t.Fatal("original reference lost", err)
 	}
 
-	err = store.freezeBaseline(t.Context(), true)
+	err = store.freezeBaselineInventory(t.Context(), true)
 	if err != nil {
 		t.Fatal(err)
 	}

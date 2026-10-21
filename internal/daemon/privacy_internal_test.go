@@ -174,7 +174,7 @@ func checkPrivateActor(t *testing.T, actor event.Actor) {
 	settings.Enabled = true
 	settings.Use = []string{privateSink}
 
-	err = runner.catalog.ConfigureReports(t.Context(), settings, false)
+	err = runner.catalog.ConfigureReports(t.Context(), settings)
 	if err != nil {
 		t.Fatal(err)
 	}

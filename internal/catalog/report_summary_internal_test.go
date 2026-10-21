@@ -16,7 +16,7 @@ func summaryFixture(t *testing.T, store *Store, count int) *time.Time {
 	settings.Format = "summary"
 	settings.Use = []string{fixtureDestinationFirst, fixtureDestinationOther}
 
-	err := store.ConfigureReports(t.Context(), settings, false)
+	err := store.ConfigureReports(t.Context(), settings)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestSummaryAggregationResumesAfterRestartAndFreezesPeriod(t *testing.T) {
 
 	reopened.now = func() time.Time { return *now }
 
-	err = reopened.ConfigureReports(t.Context(), reports, true)
+	err = reopened.ConfigureReports(t.Context(), reports)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestSummaryEmptyGapDeferredToNextPeriod(t *testing.T) {
 	settings := reportSettings()
 	settings.Format = "summary"
 
-	err := store.ConfigureReports(t.Context(), settings, true)
+	err := store.ConfigureReports(t.Context(), settings)
 	if err != nil {
 		t.Fatal(err)
 	}
