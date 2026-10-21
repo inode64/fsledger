@@ -43,6 +43,10 @@ type Sync struct {
 	directories *pathindex.Index[struct{}]
 	roots       integrity.RootGuard
 	sources     []string
+	// unsynced lists mirror directories whose entries changed since SyncDirectories last synced them.
+	unsynced pathindex.Index[struct{}]
+	// syncDirectory makes the entries of one mirror directory durable; tests observe it.
+	syncDirectory func(*os.Root, string) error
 	// compareBuffer is reused by serialized comparisons and grows to at most two chunks.
 	compareBuffer []byte
 }
@@ -82,8 +86,9 @@ func Open(path string, sources []string, matcher *exclude.Matcher, algorithm str
 	}
 
 	return &Sync{
-		copyContent: copyContent,
-		algorithm:   algorithm, hashes: make(map[string]copiedFile),
+		copyContent:   copyContent,
+		syncDirectory: syncDirectory,
+		algorithm:     algorithm, hashes: make(map[string]copiedFile),
 		root:    root,
 		sources: sources,
 		exclude: matcher,
@@ -122,7 +127,8 @@ func (s *Sync) RebindSources(sources []string) {
 // Close releases the mirror directory descriptor.
 func (s *Sync) Close() error { return fault.Wrap("close mirror", s.root.Close()) }
 
-// RefreshContext forces a copy within the caller's operation deadline.
+// RefreshContext forces a copy within the caller's operation deadline. Callers refreshing a batch of
+// paths call SyncDirectories before committing them, so each touched directory is synced only once.
 func (s *Sync) RefreshContext(ctx context.Context, path string) error {
 	err := s.roots.Check(s.sources)
 	if err != nil {
@@ -132,11 +138,49 @@ func (s *Sync) RefreshContext(ctx context.Context, path string) error {
 	return s.apply(ctx, path, copyForced)
 }
 
-// ReconcileContext checks cancellation while walking and before pruning.
+// ReconcileContext checks cancellation while walking and before pruning, then syncs the directories it changed.
 func (s *Sync) ReconcileContext(ctx context.Context) error {
 	clear(s.hashes)
 
-	return s.reconcile(ctx, s.sources, copyCached)
+	return errors.Join(s.reconcile(ctx, s.sources, copyCached), s.SyncDirectories())
+}
+
+// SyncDirectories makes durable every mirror entry renamed, removed or created since its last call,
+// before a commit can record them: a crash must not keep the commit and lose its worktree change.
+// Each directory is synced once however many of its entries changed, and none is retried after a
+// failure, which is reported like that of any other mirror write.
+func (s *Sync) SyncDirectories() error {
+	pending := s.unsynced.Subtree("/")
+	s.unsynced = pathindex.Index[struct{}]{}
+
+	var failure error
+
+	for directory := range pending {
+		name := strings.TrimPrefix(directory, "/")
+		if name == "" {
+			name = "."
+		}
+
+		failure = errors.Join(failure, s.syncDirectory(s.root, name))
+	}
+
+	return failure
+}
+
+// syncDirectory reopens a mirror directory readable through the anchored root to sync its entries.
+func syncDirectory(root *os.Root, name string) error {
+	directory, err := root.OpenFile(name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return fault.Wrap("open mirror directory for sync", err)
+	}
+	defer resource.Close(directory)
+
+	return fault.Wrap("sync mirror directory", directory.Sync())
+}
+
+// touch records that the mirror directory holding relative gained, lost or replaced an entry.
+func (s *Sync) touch(relative string) {
+	s.unsynced.Set(filepath.Clean("/"+filepath.Dir(relative)), struct{}{})
 }
 
 func (s *Sync) apply(ctx context.Context, path string, mode copyMode) error {
@@ -255,10 +299,14 @@ func (s *Sync) remove(path string) error {
 }
 
 // removeEntry deletes a mirror entry and forgets any directory the running walk knew below it.
+// Directories removed with it need no sync: syncing their parent makes the removal durable.
 func (s *Sync) removeEntry(relative string) error {
 	if s.directories != nil {
 		s.directories.DeleteSubtree("/" + relative)
 	}
+
+	s.unsynced.DeleteSubtree("/" + relative)
+	s.touch(relative)
 
 	return fault.Wrap("remove mirror entry", s.root.RemoveAll(relative))
 }
@@ -353,6 +401,7 @@ func (s *Sync) copyLink(parent int, name, path, relative string) error {
 		return nil
 	}
 
+	// Removing the previous entry already recorded the parent the new link is created in.
 	err = s.removeEntry(relative)
 	if err != nil {
 		return err
@@ -376,6 +425,10 @@ func (s *Sync) copyDirectory(relative string) error {
 		err = s.root.Mkdir(relative, 0o700)
 		if err != nil && !errors.Is(err, os.ErrExist) {
 			return fault.Wrap("mirror operation", err)
+		}
+
+		if err == nil {
+			s.touch(relative)
 		}
 	}
 
@@ -795,6 +848,10 @@ func (s *Sync) writeTemporary(
 	if err != nil {
 		return fmt.Errorf("replace mirror: %w", err)
 	}
+
+	// The rename changed both the root holding the temporary and the destination directory.
+	s.touch(tempName)
+	s.touch(relative)
 
 	s.rememberCopiedHash(path, digest, sig)
 

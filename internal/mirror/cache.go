@@ -226,7 +226,8 @@ func (s *Sync) CopiedHash(record integrity.Record, algorithm string) (string, in
 	return value.digest, value.hashedAt, true
 }
 
-// ApplyPaths checks configured roots once around one serialized event group.
+// ApplyPaths checks configured roots once around one serialized event group and syncs the directories
+// it changed; a fatal failure, which no commit follows, leaves them to the next operation.
 func (s *Sync) ApplyPaths(ctx context.Context, paths []string) error {
 	clear(s.hashes)
 
@@ -247,7 +248,7 @@ func (s *Sync) ApplyPaths(ctx context.Context, paths []string) error {
 		}
 	}
 
-	return errors.Join(failure, s.roots.Check(s.sources))
+	return errors.Join(failure, s.SyncDirectories(), s.roots.Check(s.sources))
 }
 
 func verifyCopiedContent(source *os.File, sig signature, count int64) error {
