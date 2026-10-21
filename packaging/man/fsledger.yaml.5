@@ -258,6 +258,9 @@ remains enabled. Delivery errors distinguish missing STARTTLS, certificate
 verification failures, hostname mismatches and timeouts without exposing
 credentials or raw server responses. Configure TLS on the SMTP relay; a server
 without STARTTLS is rejected and its notifications remain queued for retry.
+Every email body, from any template or report, ends with a signature after a
+"-- " delimiter line: "FSledger | " and the build version, the project slogan
+and the project URL. Slack messages carry no signature.
 Slack: type: slack and url containing an HTTPS webhook. Redirects are disabled.
 Both may select a template by name. Templates have Host (server.name), Hostname
 (kernel hostname when the message was queued), Repository, Event, ChangeID,

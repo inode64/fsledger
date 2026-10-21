@@ -440,6 +440,8 @@ commands require exclusive access with the daemon stopped.
 ### Alerts and reports
 
 Immediate alerts support email and Slack, templates, and change grouping.
+Every email, alert or report, ends with a signature naming the fsledger version and
+the project URL; Slack messages carry none.
 `notifications.ignore` filters change alerts by user, command, or path; it does not alter
 the inventory, integrity violations, or reports. `commit.defer` lets you defer commits
 for specific paths or actors until another non-deferred change or a `flush`.

@@ -265,6 +265,8 @@ func testEmailImplicitTLS(t *testing.T, serverName string, report bool) {
 		if !report && (!strings.Contains(body, "Subject: Subject fixture") || !strings.Contains(body, "Body fixture")) {
 			t.Fatal(body)
 		}
+
+		assertEmailFooter(t, body)
 	case err = <-failure:
 		t.Fatal(err)
 	case <-time.After(5 * time.Second):

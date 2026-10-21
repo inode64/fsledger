@@ -448,6 +448,8 @@ aprobación e importación requieren acceso exclusivo con el daemon detenido.
 ### Avisos e informes
 
 Los avisos inmediatos admiten correo y Slack, plantillas y agrupación de cambios.
+Todo correo, sea aviso o informe, termina con una firma con la versión de fsledger y
+la URL del proyecto; los mensajes de Slack no la llevan.
 `notifications.ignore` filtra avisos de cambios por usuario, comando o ruta; no altera
 el inventario, las violaciones de integridad ni los informes. `commit.defer` permite
 aplazar commits de rutas o actores concretos hasta otro cambio no aplazado o un `flush`.
