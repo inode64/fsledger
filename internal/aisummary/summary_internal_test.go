@@ -310,6 +310,50 @@ func TestIncludesHaveNoImplicitSelections(t *testing.T) {
 	}
 }
 
+// includeSession compiles one ia_include pattern as the daemon does; no provider is called.
+func includeSession(pattern string) (*Session, error) {
+	var selection config.Repository
+
+	selection.IACommit = []string{"summary"}
+	selection.IAInclude = []string{pattern}
+
+	return New(nil).Session(&selection)
+}
+
+func TestIncludesNormalizeAsExclusions(t *testing.T) {
+	t.Parallel()
+
+	for pattern, paths := range map[string]map[string]bool{
+		// A trailing slash names a directory: what it holds is selected, as with "/**".
+		"/etc/":        {"/etc/hosts": true, "/etc/ssh/sshd_config": true, "/etcetera/hosts": false},
+		"//etc//app/":  {"/etc/app/app.conf": true, "/etc/app/conf.d/a.conf": true, "/etc/application/a": false},
+		"/**/conf.d/":  {"/etc/conf.d/net": true, "/etc/nginx/conf.d/x.conf": true, "/etc/conf.d.bak/net": false},
+		"/srv//a.conf": {"/srv/a.conf": true, "/srv/a.conf/b": false},
+		// Clean patterns keep selecting only the paths they match.
+		"/etc":        {"/etc/hosts": false},
+		"/etc/*.conf": {"/etc/file.conf": true, "/etc/file.conf/secret": false, "/etc/ssh/a.conf": false},
+	} {
+		session, err := includeSession(pattern)
+		if err != nil {
+			t.Fatalf("%q rejected: %v", pattern, err)
+		}
+
+		for path, want := range paths {
+			if session.selected(path) != want {
+				t.Errorf("%q on %q: selected=%v, want %v", pattern, path, !want, want)
+			}
+		}
+	}
+
+	// Relative and dot patterns stay rejected rather than selecting anything.
+	for _, pattern := range []string{"**/conf.d/", "/etc/../shadow", "/etc/./"} {
+		_, err := includeSession(pattern)
+		if err == nil {
+			t.Errorf("%q accepted", pattern)
+		}
+	}
+}
+
 func TestOmittedPatchesProduceLocalSummary(t *testing.T) {
 	t.Parallel()
 	session := testSession(t, New(map[string]config.AIProfile{"local": testProfile("https://unused.invalid")}), "local")

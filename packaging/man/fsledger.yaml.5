@@ -500,6 +500,10 @@ accepts
 .PP
 A Git repository opts in with ia_commit: [profile] and ia_include:
 [absolute-glob].
+As in exclusions, repeated slashes collapse and patterns with . or .. components
+are rejected. A pattern selects only the paths it matches, not the contents of
+a matching directory; a trailing slash names a directory and selects everything
+below it, as dir/** does.
 Both lists must be nonempty to enable summaries; an empty selection leaves them
 disabled. There is no global inheritance. Multiple profiles
 are ordered alternatives. Their redaction rules are combined and applied to
