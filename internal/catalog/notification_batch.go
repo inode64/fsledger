@@ -56,33 +56,27 @@ func (store *Store) enqueue(transaction *transaction, event, identifier string, 
 
 	routes := store.notificationRoutes()
 	for _, detail := range details {
-		for _, route := range routes {
-			store.enqueueTo(transaction, event, identifier, detail, route)
-		}
+		store.enqueueRoutes(transaction, event, identifier, detail, routes)
 	}
 }
 
 // Routes already frozen with inventory evidence bypass current subscription
 // settings. Recovery must not discard or redirect a previously observed change.
-func (store *Store) enqueueTo(
-	transaction *transaction, event, identifier string, detail Detail, route notificationRoute,
+func (store *Store) enqueueRoutes(
+	transaction *transaction, event, identifier string, detail Detail, routes []notificationRoute,
 ) {
+	if len(routes) == 0 {
+		return
+	}
+
 	if store.Notifications.BatchWindow <= 0 {
-		store.enqueueNowTo(transaction, event, identifier, []Detail{detail}, route)
+		for _, route := range routes {
+			store.enqueueNowTo(transaction, event, identifier, []Detail{detail}, route)
+		}
 
 		return
 	}
 
-	if transaction.notifications == nil {
-		transaction.notifications = make(map[notificationBatchKey]notificationBatch)
-	}
-
-	transaction.batchNotification(event, identifier, detail, route)
-}
-
-// Only combine unpublished records within this transaction. A delivery already
-// handed to a sender is immutable, so its acknowledgement cannot erase new evidence.
-func (transaction *transaction) batchNotification(event, identifier string, detail Detail, route notificationRoute) {
 	detail.ChangeID = identifier
 
 	encoded, err := json.Marshal(detail)
@@ -92,6 +86,20 @@ func (transaction *transaction) batchNotification(event, identifier string, deta
 		return
 	}
 
+	if transaction.notifications == nil {
+		transaction.notifications = make(map[notificationBatchKey]notificationBatch)
+	}
+
+	for _, route := range routes {
+		transaction.batchNotification(event, detail, len(encoded), route)
+	}
+}
+
+// Only combine unpublished records within this transaction. A delivery already
+// handed to a sender is immutable, so its acknowledgement cannot erase new evidence.
+func (transaction *transaction) batchNotification(event string, detail Detail, size int, route notificationRoute) {
+	identifier := detail.ChangeID
+
 	key := notificationBatchKey{event: event, route: route}
 
 	batch, exists := transaction.notifications[key]
@@ -100,7 +108,7 @@ func (transaction *transaction) batchNotification(event, identifier string, deta
 	}
 
 	if len(batch.details) >= notificationBatchPaths ||
-		(len(batch.details) > 0 && batch.bytes+len(encoded) > notificationBatchBytes) {
+		(len(batch.details) > 0 && batch.bytes+size > notificationBatchBytes) {
 		transaction.store.enqueueNowTo(transaction, event, batch.identifier, batch.details, route)
 		batch.details, batch.bytes, batch.identifier = nil, 0, identifier
 	}
@@ -110,7 +118,7 @@ func (transaction *transaction) batchNotification(event, identifier string, deta
 	}
 
 	batch.details = append(batch.details, detail)
-	batch.bytes += len(encoded)
+	batch.bytes += size
 	transaction.notifications[key] = batch
 }
 
