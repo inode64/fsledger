@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,5 +88,48 @@ func checkBatchEvidence(t *testing.T, deliveries []Delivery, count int) {
 
 	if len(seen) != count {
 		t.Fatal("lost evidence", len(seen))
+	}
+}
+
+func TestNotificationBatchByteLimitAppliesToEveryDestination(t *testing.T) {
+	t.Parallel()
+	store := testStore(t)
+	store.Notifications.BatchWindow = time.Nanosecond
+
+	transaction := store.begin()
+	defer resource.Close(transaction.batch)
+
+	for index := range 3 {
+		detail := Detail{
+			ChangeID: "", Path: []byte(fmt.Sprintf("/large/%d", index)), Kind: "modified",
+			Actor: strings.Repeat("x", notificationBatchBytes/2), Fields: nil, Baseline: nil, Observed: 1,
+		}
+		store.enqueue(transaction, config.NotificationChange, fmt.Sprintf("large-%d", index), []Detail{detail})
+	}
+
+	err := transaction.commit()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deliveries, err := store.Due(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	counts := make(map[string]int)
+
+	for _, delivery := range deliveries {
+		if delivery.Message.Count != 1 || len(delivery.Message.Details) != 1 {
+			t.Fatal("byte limit did not split large evidence", delivery.Message)
+		}
+
+		counts[delivery.Destination]++
+	}
+
+	for _, destination := range store.Notifications.Use {
+		if counts[destination] != 3 {
+			t.Fatalf("%s received %d batches", destination, counts[destination])
+		}
 	}
 }

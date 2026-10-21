@@ -235,9 +235,7 @@ func (store *Store) publishStagedChanges(entries []stagedChangeEntry) error {
 		}
 
 		if entry.change.Notify && detail.Kind != "" {
-			for _, route := range entry.change.Routes {
-				store.enqueueTo(transaction, config.NotificationChange, entry.change.ID, detail, route)
-			}
+			store.enqueueRoutes(transaction, config.NotificationChange, entry.change.ID, detail, entry.change.Routes)
 		}
 
 		transaction.remove(entry.lookup)
