@@ -68,17 +68,7 @@ func (w *worker) accept(raw event.Raw) {
 	}
 
 	for _, path := range paths {
-		selected := false
-
-		for _, source := range w.roots {
-			if pathutil.Contains(source, path) {
-				selected = true
-
-				break
-			}
-		}
-
-		if !selected || w.matcher.Match(path) {
+		if !pathutil.Within(w.roots, path) || w.matcher.Match(path) {
 			continue
 		}
 

@@ -88,6 +88,11 @@ func (session *Session) Summarize(
 	repo *gitrepo.Repository,
 	versions map[string]string,
 ) (string, string) {
+	// Blobs read and masked now could not be sent, and would hold a slot other repositories need.
+	if session.coolingDown() {
+		return "", statusUnavailable
+	}
+
 	ctx, release := session.acquire(ctx)
 	if release == nil {
 		return "", "busy"

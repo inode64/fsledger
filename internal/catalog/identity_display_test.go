@@ -73,3 +73,44 @@ func TestDisplayOwnershipMissingAndAbsentValues(t *testing.T) {
 		}
 	}
 }
+
+func TestDisplayBaselineMarksSnapshotSide(t *testing.T) {
+	t.Parallel()
+
+	created := []catalog.FieldChange{
+		displayField(fieldNameType, `""`, `"regular"`),
+		displayField(identityUID, "0", "4294967295"),
+		displayField(fieldNameMode, "0", "33212"),
+		displayField(fieldNameDevice, "0", "64514"),
+	}
+	shown := []catalog.FieldChange{
+		displayField(fieldNameType, humanize.Absent, "regular"),
+		displayField(identityUID, humanize.Absent, "4294967295"),
+		displayField(fieldNameMode, humanize.Absent, "-rw-rwxr-- (0x81bc)"),
+	}
+
+	// The observed change is a modification: only the reference lacks, or has lost, the entry.
+	for _, fixture := range []struct {
+		kind           string
+		baseline, want []catalog.FieldChange
+	}{
+		{identityAdded, created, shown},
+		{identityDeleted, swapSides(created), swapSides(shown)},
+	} {
+		detail := displayDetail("modified", displayField(fieldNameSize, "1", "2"))
+		detail.Baseline = fixture.baseline
+
+		if got := detail.DisplayBaseline(); !slices.Equal(got, fixture.want) {
+			t.Errorf("%s reference display = %v, want %v", fixture.kind, got, fixture.want)
+		}
+	}
+}
+
+func swapSides(fields []catalog.FieldChange) []catalog.FieldChange {
+	swapped := make([]catalog.FieldChange, 0, len(fields))
+	for _, field := range fields {
+		swapped = append(swapped, displayField(field.Field, field.After, field.Before))
+	}
+
+	return swapped
+}

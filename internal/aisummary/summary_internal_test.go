@@ -189,6 +189,49 @@ func TestLocalPreparationFailureDoesNotCoolDownProviders(t *testing.T) {
 	}
 }
 
+func TestCoolingProvidersSkipPreparation(t *testing.T) {
+	t.Parallel()
+	repo, versions := stagedFixture(t)
+
+	var requests atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		writeReply(t, writer, openAIReply)
+	}))
+	defer server.Close()
+
+	const cooling, available = "cooling", "available"
+
+	manager := New(map[string]config.AIProfile{cooling: testProfile(server.URL), available: testProfile(server.URL)})
+	session := testSession(t, manager, cooling, available)
+
+	for _, name := range session.names {
+		session.cooldowns[name] = time.Now().Add(cooldown)
+	}
+
+	// A full budget would answer busy: unavailable proves no slot was taken and nothing was prepared.
+	for range maxConcurrent {
+		manager.slots <- struct{}{}
+	}
+
+	text, status := session.Summarize(t.Context(), repo, versions)
+	if text != "" || status != statusUnavailable || requests.Load() != 0 {
+		t.Fatal("cooling providers still prepared a summary", text, status, requests.Load())
+	}
+
+	for range maxConcurrent {
+		<-manager.slots
+	}
+
+	delete(session.cooldowns, available)
+
+	text, status = session.Summarize(t.Context(), repo, versions)
+	if text == "" || status != "summarized:"+available || requests.Load() != 1 {
+		t.Fatal("an available provider was skipped", text, status, requests.Load())
+	}
+}
+
 func TestConcurrentBudgetSkipsWithoutBlockingCommit(t *testing.T) {
 	t.Parallel()
 	repo, versions := stagedFixture(t)
