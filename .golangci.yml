@@ -1,4 +1,4 @@
-# fsledger — golangci-lint v2.14.0 (pinned in tools/versions.mk).
+# fsledger — golangci-lint v2 (exact version pinned in tools/versions.mk).
 # All maintained built-in linters, including checks on test files.
 # NilAway runs separately through make nilaway; no custom binary is needed.
 version: "2"
