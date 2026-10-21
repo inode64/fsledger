@@ -42,7 +42,7 @@ func TestProgressManySurvivesRetryAndRestart(t *testing.T) {
 
 	assertProgress(t, store, progress, 0)
 
-	err = store.RetryMany(t.Context(), identifiers, time.Second, "Slack rate limit")
+	_, err = store.RetryMany(t.Context(), identifiers, time.Second, "Slack rate limit")
 	if err != nil {
 		t.Fatal(err)
 	}

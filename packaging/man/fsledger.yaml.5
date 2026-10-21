@@ -233,10 +233,20 @@ double up to that maximum;
 setting both windows equal disables growth. Error and recovery notices keep the
 base delay and remain separate. A restart resets only the volatile window size;
 queued evidence remains in Pebble. max_pending defaults 10000.
-Delivery retries persist. Saturation increments
+Delivery retries persist. Each failed attempt doubles the retry delay, from
+two seconds up to about 68 minutes, or longer when Slack asks for it. After 32
+failed attempts, about a day, a
+delivery stops retrying: it stays queued with its evidence without delaying
+other deliveries or the Slack pace, is logged once as a warning, and is
+counted in catalog.exhausted_notifications, which adds a status warning. A
+daemon restart, which configuration and template changes require anyway,
+retries it from the first attempt while its notifier is unchanged; outbox
+clear discards it. Saturation increments
 notification_overflow and records a warning. New notices are retained; the
 watermark does not discard evidence. Backlogs can grow until delivery succeeds.
-Changing/removing destinations defers old deliveries without redirecting them.
+Changing/removing destinations defers old deliveries without redirecting them:
+they stop retrying like any failed delivery, and a restart retries them only
+once the original notifier is restored.
 .TP
 .B notifier files
 Email: type: email, dsn: smtp://user:password@host:587?tls=starttls or

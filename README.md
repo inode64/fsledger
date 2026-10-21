@@ -457,6 +457,8 @@ fsledger report preview --repository system
 
 Also with the daemon stopped, `outbox clear` discards every notification queued by a
 repository without sending it, for example when its mail relay cannot accept them.
+A notification that keeps failing stops retrying after about a day: `status` warns about
+it, and it stays queued until a daemon restart retries it or `outbox clear` discards it.
 Recorded changes stay in the catalog:
 
 ```sh

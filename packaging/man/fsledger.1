@@ -88,6 +88,10 @@ sets running=false and adds a stale warning, even if the daemon is merely busy.
 A repository without a snapshot, because the daemon is not running or has not
 started it yet, prints an object with only repository, type, running=false and
 a no status snapshot warning; the remaining repositories are still printed.
+catalog.pending_notifications counts queued notifications;
+catalog.exhausted_notifications, omitted while zero, counts those that stopped
+retrying and adds a warning until a restart retries them or outbox clear
+discards them. See notifications in fsledger.yaml(5).
 This command is not a live daemon RPC.
 .TP
 .B run
@@ -125,7 +129,8 @@ fsledger.yaml(5). Status includes report scheduling and delivery timestamps.
 .TP
 .B outbox clear --repository NAME
 Discard every notification queued by the repository, including delayed
-retries, without sending it. Summary evidence held for a discarded report is
+retries and those that stopped retrying, without sending it. Summary evidence
+held for a discarded report is
 released, but no delivery is recorded. Recorded changes, baselines and
 violations are kept. The catalog must already exist and the repository daemon
 must be stopped.

@@ -18,7 +18,7 @@ func TestMergeMessagesGroupsInterleavedEvidence(t *testing.T) {
 			identifier := fmt.Sprintf("change-%d", index)
 			deliveries = append(deliveries, Delivery{
 				Destination: "sink", Version: "v1", LastError: "", Progress: Progress{},
-				ID: int64(len(deliveries) + 1), Attempts: 0, NextAttempt: 0,
+				ID: int64(len(deliveries) + 1), Attempts: 0, NextAttempt: 0, Exhausted: false,
 				Message: Message{
 					Repository: "repo", Host: "host", Hostname: "kernel", Event: event,
 					ChangeID: identifier, Paths: []string{fmt.Sprintf("/path/%d", index)}, Count: 1,
@@ -55,7 +55,8 @@ func TestMergeMessagesKeepsRoutingAndOperationalEventsSeparate(t *testing.T) {
 	t.Parallel()
 
 	base := Delivery{
-		Destination: "one", Version: "v1", LastError: "", Progress: Progress{}, ID: 1, Attempts: 0, NextAttempt: 0,
+		Destination: "one", Version: "v1", LastError: "", Progress: Progress{}, ID: 1,
+		Attempts: 0, NextAttempt: 0, Exhausted: false,
 		Message: Message{Repository: "repo", Host: "host", Hostname: "kernel", Event: config.NotificationChange},
 	}
 	deliveries := []Delivery{
@@ -102,7 +103,7 @@ func TestDeliveredAndRetryManyAreAtomic(t *testing.T) {
 
 	ids := []int64{due[0].ID, due[1].ID}
 
-	err = store.RetryMany(t.Context(), ids, 1, "temporary")
+	_, err = store.RetryMany(t.Context(), ids, 1, "temporary")
 	if err != nil {
 		t.Fatal(err)
 	}

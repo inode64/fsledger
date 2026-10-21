@@ -73,7 +73,7 @@ func TestSummaryRetainsAllEvidenceUntilEveryDestinationAcknowledges(t *testing.T
 		t.Fatal("expected one summary per destination", deliveries, err)
 	}
 
-	err = store.RetryMany(t.Context(), []int64{deliveries[0].ID}, time.Second, "SMTP unavailable")
+	_, err = store.RetryMany(t.Context(), []int64{deliveries[0].ID}, time.Second, "SMTP unavailable")
 	if err != nil {
 		t.Fatal(err)
 	}

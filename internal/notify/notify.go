@@ -206,7 +206,8 @@ func (sender *Sender) Send(
 	return sender.deliver(ctx, notifier, rendered, ledger)
 }
 
-// Run retries the persistent outbox independently of repository work.
+// Run retries the persistent outbox independently of repository work. Each start gives the deliveries
+// that stopped retrying a new retry cycle.
 func (sender *Sender) Run(
 	ctx context.Context,
 	store *catalog.Store,
@@ -214,6 +215,14 @@ func (sender *Sender) Run(
 	logger *slog.Logger,
 ) {
 	routing := destinations(notifiers)
+
+	retried, err := store.RetryExhausted(ctx)
+	switch {
+	case err != nil && ctx.Err() == nil:
+		logger.Warn("outbox update failed", "error", err)
+	case retried > 0:
+		logger.Info("exhausted notifications retried", "repository", store.Repository, "deliveries", retried)
+	}
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -260,13 +269,14 @@ func (sender *Sender) deliver(
 	}
 }
 
+// finishDeliveries records one transport outcome for every delivery and returns how many stopped retrying.
 func finishDeliveries(
 	ctx context.Context,
 	store *catalog.Store,
 	deliveries []catalog.Delivery,
 	delay time.Duration,
 	sendErr error,
-) error {
+) (int, error) {
 	identifiers := make([]int64, len(deliveries))
 	attempts := 0
 
@@ -277,9 +287,9 @@ func finishDeliveries(
 
 	switch {
 	case sendErr == nil:
-		return store.DeliveredMany(ctx, identifiers)
+		return 0, store.DeliveredMany(ctx, identifiers)
 	case errors.Is(sendErr, errLocalRateLimit):
-		return store.DeferMany(ctx, identifiers, delay)
+		return 0, store.DeferMany(ctx, identifiers, delay)
 	}
 
 	backoff := time.Second * time.Duration(1<<min(attempts+1, maxBackoffExponent))
@@ -486,9 +496,21 @@ func (sender *Sender) deliverDigest(
 		logger.Warn("notification delivery deferred", "destination", digest.Destination, "error", sendErr)
 	}
 
-	err := finishDeliveries(ctx, store, digest.Deliveries, delay, sendErr)
+	exhausted, err := finishDeliveries(ctx, store, digest.Deliveries, delay, sendErr)
 	if err != nil {
 		return err
+	}
+
+	// Logged once: the outbox keeps these deliveries, and status warns about them, but no longer retries them.
+	if exhausted > 0 {
+		logger.Warn(
+			"notification retries exhausted; deliveries kept queued",
+			"repository", digest.Message.Repository,
+			"destination", digest.Destination,
+			"deliveries", exhausted,
+			"attempts", catalog.MaxDeliveryAttempts,
+			"error", sendErr,
+		)
 	}
 
 	if sendErr == nil {

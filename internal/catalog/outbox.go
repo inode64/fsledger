@@ -74,6 +74,7 @@ type Progress struct {
 
 // Delivery tracks one destination independently; acknowledgements remove it permanently.
 // Deliveries queued before Progress existed decode without it and start from the first part.
+// Exhausted marks a delivery that stopped retrying; it stays queued, outside the due index.
 type Delivery struct {
 	Destination string   `json:"destination"`
 	Version     string   `json:"version"`
@@ -83,7 +84,13 @@ type Delivery struct {
 	ID          int64    `json:"id"`
 	Attempts    int      `json:"attempts"`
 	NextAttempt int64    `json:"next_attempt"`
+	Exhausted   bool     `json:"exhausted,omitzero"`
 }
+
+// MaxDeliveryAttempts failed attempts stop the automatic retries of one delivery. The sender's backoff
+// doubles from two seconds to about 68 minutes, so they span about a day. The delivery keeps its evidence
+// until a daemon restart retries it or outbox clear discards it.
+const MaxDeliveryAttempts = 32
 
 type notificationWindow struct {
 	due      time.Time
@@ -165,6 +172,7 @@ func (transaction *transaction) enqueueDelivery(message Message, destination, ve
 	delivery := Delivery{
 		Destination: destination, Version: version, Message: message, Progress: Progress{},
 		ID: transaction.state.NextDelivery, NextAttempt: due.UnixNano(), LastError: "", Attempts: 0,
+		Exhausted: false,
 	}
 	transaction.put(numberKey(outboxPrefix, delivery.ID), delivery)
 	transaction.set(deliveryDue(delivery), nil)
@@ -264,17 +272,87 @@ func (store *Store) Due(ctx context.Context) ([]Delivery, error) {
 
 // DeliveredMany acknowledges every delivery in one durable transaction.
 func (store *Store) DeliveredMany(ctx context.Context, identifiers []int64) error {
-	return store.updateDeliveries(ctx, identifiers, 0, "", false)
+	_, err := store.updateDeliveries(ctx, identifiers, 0, "", false)
+
+	return err
 }
 
-// RetryMany records a shared retry schedule while preserving per-delivery attempts.
-func (store *Store) RetryMany(ctx context.Context, identifiers []int64, delay time.Duration, reason string) error {
+// RetryMany records a shared retry schedule while preserving per-delivery attempts. It returns how many
+// deliveries reached MaxDeliveryAttempts with this failure and stopped retrying.
+func (store *Store) RetryMany(
+	ctx context.Context, identifiers []int64, delay time.Duration, reason string,
+) (int, error) {
 	return store.updateDeliveries(ctx, identifiers, max(delay, time.Millisecond), reason, true)
 }
 
 // DeferMany schedules a shared local transport slot without failed attempts.
 func (store *Store) DeferMany(ctx context.Context, identifiers []int64, delay time.Duration) error {
-	return store.updateDeliveries(ctx, identifiers, max(delay, time.Millisecond), "", false)
+	_, err := store.updateDeliveries(ctx, identifiers, max(delay, time.Millisecond), "", false)
+
+	return err
+}
+
+// RetryExhausted gives every delivery that stopped retrying a new retry cycle, due now, while its frozen
+// destination is still configured unchanged. The daemon calls it at start, so a restart after repairing a
+// relay, credentials or a template sends them. Deliveries frozen for a removed or changed destination stay
+// exhausted: they are never redirected. The scan also recounts them, since an earlier version rewrites the
+// catalog state without that counter.
+func (store *Store) RetryExhausted(ctx context.Context) (int, error) {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
+	var deliveries []Delivery
+
+	kept := int64(0)
+
+	err := store.iterate(ctx, outboxPrefix, func(_, data []byte) error {
+		var delivery Delivery
+
+		err := json.Unmarshal(data, &delivery)
+		if err != nil {
+			return fault.Wrap("decode delivery", err)
+		}
+
+		if !delivery.Exhausted {
+			return nil
+		}
+
+		version, configured := store.versions[delivery.Destination]
+		if configured && (delivery.Version == "" || delivery.Version == version) {
+			deliveries = append(deliveries, delivery)
+		} else {
+			kept++
+		}
+
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	if len(deliveries) == 0 && kept == store.state.Stats.ExhaustedNotifications {
+		return 0, nil
+	}
+
+	transaction := store.begin()
+	defer resource.Close(transaction.batch)
+
+	now := store.now()
+
+	for _, delivery := range deliveries {
+		delivery.Exhausted, delivery.Attempts, delivery.NextAttempt = false, 0, now.UnixNano()
+		transaction.put(numberKey(outboxPrefix, delivery.ID), delivery)
+		transaction.set(deliveryDue(delivery), nil)
+	}
+
+	transaction.state.Stats.ExhaustedNotifications = kept
+
+	err = transaction.commit()
+	if err != nil {
+		return 0, err
+	}
+
+	return len(deliveries), nil
 }
 
 // ProgressMany records, in one durable transaction, the prefix of a multipart message accepted for every
@@ -323,13 +401,13 @@ func (store *Store) updateDeliveries(
 	delay time.Duration,
 	reason string,
 	attempted bool,
-) error {
+) (int, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
 	operationErr1 := ctx.Err()
 	if operationErr1 != nil {
-		return fault.Wrap("update delivery", operationErr1)
+		return 0, fault.Wrap("update delivery", operationErr1)
 	}
 
 	transaction := store.begin()
@@ -337,17 +415,18 @@ func (store *Store) updateDeliveries(
 
 	now := store.now()
 	seen := make(map[int64]bool, len(identifiers))
+	exhausted := 0
 
 	for _, identifier := range identifiers {
 		if seen[identifier] {
-			return fault.New("duplicate delivery identifier")
+			return 0, fault.New("duplicate delivery identifier")
 		}
 
 		seen[identifier] = true
 
 		data, err := get(store.database, numberKey(outboxPrefix, identifier))
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		if data == nil {
@@ -358,7 +437,7 @@ func (store *Store) updateDeliveries(
 
 		err = json.Unmarshal(data, &delivery)
 		if err != nil {
-			return fault.Wrap("decode delivery", err)
+			return 0, fault.Wrap("decode delivery", err)
 		}
 
 		transaction.remove(deliveryDue(delivery))
@@ -369,20 +448,49 @@ func (store *Store) updateDeliveries(
 			continue
 		}
 
-		if attempted {
-			delivery.Attempts++
-			delivery.LastError = reason
+		if transaction.reschedule(delivery, now.Add(delay), reason, attempted) {
+			exhausted++
 		}
-
-		delivery.NextAttempt = now.Add(delay).UnixNano()
-		transaction.put(numberKey(outboxPrefix, identifier), delivery)
-		transaction.set(deliveryDue(delivery), nil)
 	}
 
-	return transaction.commit()
+	err := transaction.commit()
+	if err != nil {
+		return 0, err
+	}
+
+	return exhausted, nil
 }
 
-// DiscardPending drops every queued delivery, due or delayed, in one durable transaction. Summary
+// reschedule records a failed attempt or a local deferral. The failure that reaches MaxDeliveryAttempts
+// stops the retries and returns true: the delivery stays queued and counted, outside the due index, so it
+// delays neither later deliveries nor their transport slots.
+func (transaction *transaction) reschedule(delivery Delivery, due time.Time, reason string, attempted bool) bool {
+	if delivery.Exhausted {
+		// Only a restart, an acknowledgement or outbox clear changes a delivery that stopped retrying.
+		return false
+	}
+
+	if attempted {
+		delivery.Attempts++
+		delivery.LastError = reason
+	}
+
+	if attempted && delivery.Attempts >= MaxDeliveryAttempts {
+		delivery.Exhausted = true
+		transaction.put(numberKey(outboxPrefix, delivery.ID), delivery)
+		transaction.state.Stats.ExhaustedNotifications++
+
+		return true
+	}
+
+	delivery.NextAttempt = due.UnixNano()
+	transaction.put(numberKey(outboxPrefix, delivery.ID), delivery)
+	transaction.set(deliveryDue(delivery), nil)
+
+	return false
+}
+
+// DiscardPending drops every queued delivery, due, delayed or exhausted, in one durable transaction. Summary
 // evidence held for a discarded report is released as if it had been sent, but no report is recorded
 // as delivered. Recorded changes, baselines and violations are untouched.
 func (store *Store) DiscardPending(ctx context.Context) (int, error) {
@@ -419,6 +527,10 @@ func (store *Store) DiscardPending(ctx context.Context) (int, error) {
 
 		transaction.remove(numberKey(outboxPrefix, delivery.ID))
 		transaction.state.Stats.PendingNotifications--
+
+		if delivery.Exhausted {
+			transaction.state.Stats.ExhaustedNotifications--
+		}
 	}
 
 	err = transaction.commit()
@@ -437,4 +549,8 @@ func (transaction *transaction) acknowledge(delivery Delivery, now time.Time) {
 
 	transaction.remove(numberKey(outboxPrefix, delivery.ID))
 	transaction.state.Stats.PendingNotifications--
+
+	if delivery.Exhausted {
+		transaction.state.Stats.ExhaustedNotifications--
+	}
 }

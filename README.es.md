@@ -459,7 +459,9 @@ fsledger report preview --repository system
 
 También con el daemon detenido, `outbox clear` descarta sin enviarlos todos los avisos
 encolados de un repositorio, por ejemplo cuando su relay de correo no puede aceptarlos.
-Los cambios registrados se conservan en el catálogo:
+Un aviso que sigue fallando deja de reintentarse tras un día aproximadamente: `status`
+lo advierte y sigue encolado hasta que un reinicio del daemon lo reintente o `outbox clear`
+lo descarte. Los cambios registrados se conservan en el catálogo:
 
 ```sh
 fsledger outbox clear --repository system

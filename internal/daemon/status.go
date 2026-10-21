@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -89,9 +90,18 @@ func (w *worker) advise(message string) {
 	w.refreshWarnings()
 }
 
-// refreshWarnings rebuilds the published list: advisories first, then the warnings since the last recovery.
+// refreshWarnings rebuilds the published list: advisories first, then the warnings since the last recovery,
+// then the notifications the outbox stopped retrying, which no recovery clears.
 func (w *worker) refreshWarnings() {
 	w.status.Warnings = append(append([]string{}, w.advisories...), w.errorReasons...)
+
+	if exhausted := w.status.Catalog.ExhaustedNotifications; exhausted > 0 {
+		w.status.Warnings = append(w.status.Warnings, fmt.Sprintf(
+			"%d queued notifications stopped retrying after %d failed attempts; "+
+				"a daemon restart retries them while their notifier is unchanged, outbox clear discards them",
+			exhausted, catalog.MaxDeliveryAttempts,
+		))
+	}
 }
 
 func (w *worker) saveStatus(ctx context.Context) {
@@ -114,6 +124,7 @@ func (w *worker) saveStatus(ctx context.Context) {
 	if err == nil {
 		w.status.Catalog = stats
 		w.status.Scan.Initialized = stats.LastFullScan != 0
+		w.refreshWarnings()
 	} else {
 		w.logger.Warn("catalog status unavailable", "error", err)
 	}

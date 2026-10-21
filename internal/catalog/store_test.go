@@ -252,7 +252,7 @@ func TestRetryAndQueueOverload(t *testing.T) {
 		t.Fatalf("%v %v", due, err)
 	}
 
-	err = store.RetryMany(t.Context(), []int64{due[0].ID}, time.Hour, "temporary failure")
+	_, err = store.RetryMany(t.Context(), []int64{due[0].ID}, time.Hour, "temporary failure")
 	if err != nil {
 		t.Fatal(err)
 	}
