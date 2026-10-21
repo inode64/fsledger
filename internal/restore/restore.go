@@ -473,7 +473,13 @@ func writeRegular(reader io.Reader, header *tar.Header, parent int, name string,
 		return fault.Wrap("close temporary file", err)
 	}
 
-	err = unix.Renameat(parent, temporary, parent, name)
+	if existing == nil {
+		// A destination created during the copy has not passed the overwrite policy check.
+		err = unix.Renameat2(parent, temporary, parent, name, unix.RENAME_NOREPLACE)
+	} else {
+		err = unix.Renameat(parent, temporary, parent, name)
+	}
+
 	if err != nil {
 		return fault.Wrap("replace file", err)
 	}
