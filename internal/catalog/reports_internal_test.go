@@ -84,7 +84,7 @@ func TestReportDisableAndCancellationRetainEvidence(t *testing.T) {
 	settings := reportSettings()
 	settings.Enabled = false
 
-	err := store.ConfigureReports(t.Context(), settings, false)
+	err := store.ConfigureReports(t.Context(), settings)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestReportDisableAndCancellationRetainEvidence(t *testing.T) {
 
 	settings.Enabled = true
 
-	err = store.ConfigureReports(t.Context(), settings, false)
+	err = store.ConfigureReports(t.Context(), settings)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func configureReportClock(t *testing.T, store *Store) *time.Time {
 
 	store.now = func() time.Time { return now }
 
-	err := store.ConfigureReports(t.Context(), reportSettings(), false)
+	err := store.ConfigureReports(t.Context(), reportSettings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestReportSurvivesAlertAcknowledgementAndRestart(t *testing.T) {
 
 	reopened.now = func() time.Time { return *now }
 
-	err = reopened.ConfigureReports(t.Context(), reportSettings(), true)
+	err = reopened.ConfigureReports(t.Context(), reportSettings())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestReportPartsFreezeCutAndRouting(t *testing.T) {
 
 	settings.Use = []string{fixtureDestinationOther}
 
-	err := store.ConfigureReports(t.Context(), settings, false)
+	err := store.ConfigureReports(t.Context(), settings)
 	if err != nil {
 		t.Fatal(err)
 	}

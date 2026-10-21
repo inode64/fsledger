@@ -303,7 +303,7 @@ func TestReportClosedDuringSubtreeScanMarksCoverageGap(t *testing.T) {
 
 	settings.SendEmpty = true
 
-	err := store.ConfigureReports(t.Context(), settings, false)
+	err := store.ConfigureReports(t.Context(), settings)
 	if err != nil {
 		t.Fatal(err)
 	}

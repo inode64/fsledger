@@ -127,8 +127,9 @@ type ReportStatus struct {
 	CoverageGap   bool  `json:"coverage_gap"`
 }
 
-// ConfigureReports is called before starting a repository's workers. Disabled reports retain pending evidence.
-func (store *Store) ConfigureReports(ctx context.Context, settings config.Reports, restarted bool) error {
+// ConfigureReports starts reporting for an opened repository, recording any gap since its previous run.
+// Disabled reports retain pending evidence.
+func (store *Store) ConfigureReports(ctx context.Context, settings config.Reports) error {
 	calendar, err := reportclock.Parse(settings.Schedule, settings.Timezone)
 	if err != nil {
 		return err
@@ -150,7 +151,7 @@ func (store *Store) ConfigureReports(ctx context.Context, settings config.Report
 	defer resource.Close(transaction.batch)
 
 	state := &transaction.state.Reports
-	if restarted && state.Since != 0 {
+	if state.Since != 0 {
 		state.CoverageGap = true
 	}
 

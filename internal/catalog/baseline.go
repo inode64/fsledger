@@ -10,7 +10,12 @@ import (
 )
 
 // InitBaseline approves a complete inventory without keeping old reference versions.
-func (store *Store) InitBaseline(ctx context.Context) error { return store.freezeBaseline(ctx, false) }
+func (store *Store) InitBaseline(ctx context.Context) error {
+	store.operation.Lock()
+	defer store.operation.Unlock()
+
+	return store.freezeBaselineInventory(ctx, false)
+}
 
 // ScanAndReplaceBaseline permits a new policy while continuing to track differences
 // against the approved baseline. Failed scans never interpret those differences as resolved.
@@ -29,13 +34,6 @@ func (store *Store) ScanAndReplaceBaseline(
 	}
 
 	return result, store.freezeBaselineInventory(ctx, true)
-}
-
-func (store *Store) freezeBaseline(ctx context.Context, replace bool) error {
-	store.operation.Lock()
-	defer store.operation.Unlock()
-
-	return store.freezeBaselineInventory(ctx, replace)
 }
 
 func (store *Store) freezeBaselineInventory(ctx context.Context, replace bool) error {
