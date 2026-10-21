@@ -27,11 +27,13 @@ const (
 )
 
 // partsFixture renders an error as exactly one full Slack part followed by partsTail.
-func partsFixture() (map[string]config.Template, string, string) {
+func partsFixture(t *testing.T) (map[string]config.Template, string, string) {
+	t.Helper()
+
 	head := config.NotificationError + "\n"
 	first := head + strings.Repeat("a", slackPartSize-len(head))
 
-	return map[string]config.Template{partsTemplate: {Subject: "{{.Event}}", Body: "{{.Reason}}"}},
+	return map[string]config.Template{partsTemplate: parsedTemplate(t, "{{.Event}}", "{{.Reason}}")},
 		first[len(head):] + partsTail, first
 }
 
@@ -118,7 +120,7 @@ func partsOutbox(t *testing.T, reason string) *catalog.Store {
 func TestSlackRetryResumesAfterAcceptedParts(t *testing.T) {
 	t.Parallel()
 
-	templates, reason, first := partsFixture()
+	templates, reason, first := partsFixture(t)
 	ctx, cancel := context.WithCancel(t.Context())
 
 	server, accepted := partsWebhook(t, func(writer http.ResponseWriter, request int) bool {
@@ -172,7 +174,7 @@ func TestSlackRetryResumesAfterAcceptedParts(t *testing.T) {
 func TestSlackPartsKeepTheWebhookReserved(t *testing.T) {
 	t.Parallel()
 
-	templates, reason, first := partsFixture()
+	templates, reason, first := partsFixture(t)
 	started := make(chan struct{})
 
 	server, accepted := partsWebhook(t, func(_ http.ResponseWriter, request int) bool {

@@ -1,11 +1,8 @@
 package notify
 
 import (
-	"os"
 	"strings"
 	"testing"
-
-	"go.yaml.in/yaml/v3"
 
 	"github.com/inode64/fsledger/internal/catalog"
 	"github.com/inode64/fsledger/internal/config"
@@ -69,17 +66,7 @@ func assertChangeLayout(t *testing.T, body string) {
 func TestDefaultAndExampleChangeLayouts(t *testing.T) {
 	t.Parallel()
 
-	data, err := os.ReadFile("../../examples/templates/change.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var definition config.Template
-
-	err = yaml.Unmarshal(data, &definition)
-	if err != nil {
-		t.Fatal(err)
-	}
+	definition := exampleTemplate(t)
 
 	sender := New(map[string]config.Template{displayExample: definition})
 	for _, name := range []string{"", displayExample} {
@@ -123,17 +110,7 @@ func TestReportUsesSameChangeLayout(t *testing.T) {
 func TestDefaultAndExampleBodiesShowReason(t *testing.T) {
 	t.Parallel()
 
-	data, err := os.ReadFile("../../examples/templates/change.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var definition config.Template
-
-	err = yaml.Unmarshal(data, &definition)
-	if err != nil {
-		t.Fatal(err)
-	}
+	definition := exampleTemplate(t)
 
 	const reason = "fanotify directory left watched coverage; reconciliation required"
 

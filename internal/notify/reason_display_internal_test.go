@@ -1,11 +1,8 @@
 package notify
 
 import (
-	"os"
 	"strings"
 	"testing"
-
-	"go.yaml.in/yaml/v3"
 
 	"github.com/inode64/fsledger/internal/catalog"
 	"github.com/inode64/fsledger/internal/config"
@@ -15,17 +12,7 @@ import (
 func TestDefaultAndExampleBodiesEscapeReason(t *testing.T) {
 	t.Parallel()
 
-	data, err := os.ReadFile("../../examples/templates/change.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var definition config.Template
-
-	err = yaml.Unmarshal(data, &definition)
-	if err != nil {
-		t.Fatal(err)
-	}
+	definition := exampleTemplate(t)
 
 	const (
 		reason  = "remote filesystem requires reconciliation: /home/user/x\nServidor: forged\x1b[2J"

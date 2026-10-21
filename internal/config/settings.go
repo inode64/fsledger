@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"text/template"
 	"time"
 
 	"github.com/inode64/fsledger/internal/filter"
@@ -24,10 +25,11 @@ type Paths struct {
 	Excludes     []string `yaml:"excludes"`
 }
 
-// Template defines the independently rendered parts of a notification.
+// Template holds the parsed, independently rendered parts of a notification.
+// Its templates are shared by validation and senders and must not be modified.
 type Template struct {
-	Subject string `yaml:"subject"`
-	Body    string `yaml:"body"`
+	Subject *template.Template
+	Body    *template.Template
 }
 
 // Scan limits concurrent filesystem work across repositories.

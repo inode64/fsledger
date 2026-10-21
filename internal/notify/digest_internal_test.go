@@ -33,7 +33,7 @@ func checkIndivisibleDigest(t *testing.T, body string) {
 		},
 	}).Parse("{{count}}"))
 	sender := New(nil)
-	sender.templates[""] = compiledTemplate{subject: subject, body: template.Must(template.New("body").Parse(body))}
+	sender.templates[""] = config.Template{Subject: subject, Body: template.Must(template.New("body").Parse(body))}
 	deliveries := []catalog.Delivery{
 		{
 			ID:          1,

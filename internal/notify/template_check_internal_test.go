@@ -45,23 +45,23 @@ func TestCheckTemplatesRejectsRenderFailures(t *testing.T) {
 		sample     string
 		want       string
 	}{
-		{config.Template{Subject: checkedSubject, Body: "{{.Nope}}"}, config.NotificationChange, "", "Nope"},
-		{config.Template{Subject: checkedSubject, Body: checkedFirst}, config.NotificationError, "", "index"},
+		{parsedTemplate(t, checkedSubject, "{{.Nope}}"), config.NotificationChange, "", "Nope"},
+		{parsedTemplate(t, checkedSubject, checkedFirst), config.NotificationError, "", "index"},
 		{
-			config.Template{Subject: checkedSubject, Body: "{{.Report.ID}}"},
+			parsedTemplate(t, checkedSubject, "{{.Report.ID}}"),
 			config.NotificationChange, "", "nil pointer",
 		},
 		{
-			config.Template{Subject: checkedSubject, Body: "{{(index .Details 1).Path}}"},
+			parsedTemplate(t, checkedSubject, "{{(index .Details 1).Path}}"),
 			config.NotificationIntegrityViolation, "", "index",
 		},
 		{
 			// Digests merged from several operations share no change ID.
-			config.Template{Subject: checkedSubject, Body: "{{if not .Detailed}}{{slice .ChangeID 0 8}}{{end}}"},
+			parsedTemplate(t, checkedSubject, "{{if not .Detailed}}{{slice .ChangeID 0 8}}{{end}}"),
 			config.NotificationChange, " of more than 250 paths", "slice",
 		},
 		{
-			config.Template{Subject: checkedSubject + "\n", Body: "{{.Reason}}"},
+			parsedTemplate(t, checkedSubject+"\n", "{{.Reason}}"),
 			config.NotificationRecovery, "", "line break",
 		},
 	} {
@@ -70,7 +70,7 @@ func TestCheckTemplatesRejectsRenderFailures(t *testing.T) {
 		prefix := "notifier " + checkedNotifier + ": template " + checkedTemplate + " fails for " +
 			test.event + " events" + test.sample
 		if err == nil || !strings.Contains(err.Error(), prefix) || !strings.Contains(err.Error(), test.want) {
-			t.Errorf("%q for %s accepted or unexplained: %v", test.definition.Body, test.event, err)
+			t.Errorf("%q for %s accepted or unexplained: %v", test.definition.Body.Root.String(), test.event, err)
 		}
 	}
 }
@@ -80,14 +80,14 @@ func TestCheckTemplatesRejectsRenderFailures(t *testing.T) {
 func TestCheckTemplatesFollowsRouting(t *testing.T) {
 	t.Parallel()
 
-	paths := config.Template{Subject: checkedSubject, Body: checkedFirst}
+	paths := parsedTemplate(t, checkedSubject, checkedFirst)
 
 	err := CheckTemplates(checkedConfig(paths, config.NotificationChange, config.NotificationIntegrityViolation))
 	if err != nil {
 		t.Fatal("template valid for its routed events rejected:", err)
 	}
 
-	unrouted := checkedConfig(config.Template{Subject: checkedSubject, Body: "{{.Nope}}"})
+	unrouted := checkedConfig(parsedTemplate(t, checkedSubject, "{{.Nope}}"))
 
 	err = CheckTemplates(unrouted)
 	if err != nil {
@@ -105,17 +105,7 @@ func TestCheckTemplatesFollowsRouting(t *testing.T) {
 func TestCheckTemplatesAcceptsShippedTemplates(t *testing.T) {
 	t.Parallel()
 
-	data, err := os.ReadFile("../../examples/templates/change.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var example config.Template
-
-	err = yaml.Unmarshal(data, &example)
-	if err != nil {
-		t.Fatal(err)
-	}
+	example := exampleTemplate(t)
 
 	events := []string{
 		config.NotificationChange, config.NotificationIntegrityViolation,
@@ -123,16 +113,17 @@ func TestCheckTemplatesAcceptsShippedTemplates(t *testing.T) {
 	}
 	for _, definition := range []config.Template{
 		example,
-		{Subject: defaultSubject, Body: defaultBody},
-		{Subject: "{{.Host}} {{.Hostname}}", Body: "added={{.Added}} modified={{.Modified}} deleted={{.Deleted}}"},
+		parsedTemplate(t, defaultSubject, defaultBody),
+		parsedTemplate(t, "{{.Host}} {{.Hostname}}", "added={{.Added}} modified={{.Modified}} deleted={{.Deleted}}"),
 		// The fsledger.yaml(5) example.
-		{
-			Subject: "fsledger {{.Host}} / {{.Repository}}: {{.Event}} ({{.Count}})",
-			Body: "Paths: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})\n" +
+		parsedTemplate(
+			t,
+			"fsledger {{.Host}} / {{.Repository}}: {{.Event}} ({{.Count}})",
+			"Paths: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})\n"+
 				"{{if .ChangeID}}Change: {{.ChangeID}}{{end}}\n",
-		},
+		),
 	} {
-		err = CheckTemplates(checkedConfig(definition, events...))
+		err := CheckTemplates(checkedConfig(definition, events...))
 		if err != nil {
 			t.Error(err)
 		}
@@ -152,4 +143,36 @@ func TestCheckTemplatesAcceptsExampleConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func parsedTemplate(t *testing.T, subject, body string) config.Template {
+	t.Helper()
+
+	parsed, err := config.ParseTemplate("test", subject, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return parsed
+}
+
+func exampleTemplate(t *testing.T) config.Template {
+	t.Helper()
+
+	data, err := os.ReadFile("../../examples/templates/change.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var definition struct {
+		Subject string `yaml:"subject"`
+		Body    string `yaml:"body"`
+	}
+
+	err = yaml.Unmarshal(data, &definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return parsedTemplate(t, definition.Subject, definition.Body)
 }

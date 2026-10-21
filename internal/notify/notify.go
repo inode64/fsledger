@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math/big"
 	"net/http"
 	"strconv"
@@ -100,9 +101,10 @@ Clave  Ruta
 
 var errLocalRateLimit = errors.New("slack delivery rate limited")
 
-type compiledTemplate struct {
-	subject *template.Template
-	body    *template.Template
+//nolint:gochecknoglobals // Parsed once and only executed after initialization.
+var builtinTemplate = config.Template{
+	Subject: template.Must(config.NotificationTemplate("notification:subject").Parse(defaultSubject)),
+	Body:    template.Must(config.NotificationTemplate("notification:body").Parse(defaultBody)),
 }
 
 type renderedNotification struct {
@@ -124,26 +126,17 @@ type Sender struct {
 	next         map[string]time.Time
 	HTTP         *http.Client
 	TLS          *tls.Config
-	templates    map[string]compiledTemplate
+	templates    map[string]config.Template
 	mutex        sync.Mutex
 }
 
 // New constructs bounded transport clients; redirects cannot leak a webhook secret.
 func New(templates map[string]config.Template) *Sender {
-	compiled := make(map[string]compiledTemplate, len(templates)+1)
+	compiled := make(map[string]config.Template, len(templates)+1)
 
-	for name, definition := range templates {
-		subject, subjectErr := config.NotificationTemplate(name + ":subject").Parse(definition.Subject)
+	maps.Copy(compiled, templates)
 
-		body, bodyErr := config.NotificationTemplate(name + ":body").Parse(definition.Body)
-		if subjectErr == nil && bodyErr == nil {
-			compiled[name] = compiledTemplate{subject: subject, body: body}
-		}
-	}
-
-	compiledSubject := template.Must(config.NotificationTemplate("notification:subject").Parse(defaultSubject))
-	compiledBody := template.Must(config.NotificationTemplate("notification:body").Parse(defaultBody))
-	compiled[""] = compiledTemplate{subject: compiledSubject, body: compiledBody}
+	compiled[""] = builtinTemplate
 
 	return &Sender{
 		slackEscaper: strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;"),
@@ -322,7 +315,7 @@ func (sender *Sender) render(notifier config.Notifier, message catalog.Message) 
 	}
 
 	parsed, exists := sender.templates[notifier.Template]
-	if !exists {
+	if !exists || parsed.Subject == nil || parsed.Body == nil {
 		return renderedNotification{}, fault.New("notification template unavailable")
 	}
 
@@ -330,7 +323,7 @@ func (sender *Sender) render(notifier config.Notifier, message catalog.Message) 
 
 	subject := limitedBuffer{Buffer: bytes.Buffer{}, remaining: maxMessage}
 
-	err := parsed.subject.Execute(&subject, message)
+	err := parsed.Subject.Execute(&subject, message)
 	if err != nil {
 		return renderedNotification{}, fault.New("notification subject execution failed")
 	}
@@ -341,7 +334,7 @@ func (sender *Sender) render(notifier config.Notifier, message catalog.Message) 
 
 	body := limitedBuffer{Buffer: bytes.Buffer{}, remaining: subject.remaining}
 
-	err = parsed.body.Execute(&body, message)
+	err = parsed.Body.Execute(&body, message)
 	if err != nil {
 		return renderedNotification{}, fault.New("notification body execution failed")
 	}
