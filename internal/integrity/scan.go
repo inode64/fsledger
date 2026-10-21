@@ -45,7 +45,7 @@ func (scanner *Scanner) Observe(
 	ctx context.Context,
 	path, algorithm string,
 	content bool,
-	copied ...HashSource,
+	copied HashSource,
 ) (Record, error) {
 	var workspace *readWorkspace
 
@@ -64,7 +64,7 @@ func (scanner *Scanner) Observe(
 		err    error
 	)
 	for range attempts {
-		record, err = workspace.read(ctx, path, algorithm, content, firstHashSource(copied))
+		record, err = workspace.read(ctx, path, algorithm, content, copied)
 		if !errors.Is(err, ErrUnstable) {
 			break
 		}
@@ -92,7 +92,7 @@ func (scanner *Scanner) ScanPaths(
 	algorithm string,
 	content, directories bool,
 	visit func(Record) error,
-	copied ...HashSource,
+	copied HashSource,
 ) error {
 	admissionErr := scanner.admitScan(ctx)
 	if admissionErr != nil {
@@ -127,7 +127,7 @@ func (scanner *Scanner) ScanPaths(
 	for range cap(scanner.slots) {
 		workers.Go(func() {
 			for path := range jobs {
-				record, err := scanner.Observe(ctx, path, algorithm, content, copied...)
+				record, err := scanner.Observe(ctx, path, algorithm, content, copied)
 				select {
 				case results <- observation{record: record, err: err}:
 				case <-ctx.Done():
@@ -312,14 +312,6 @@ func (scanner *Scanner) walkChildren(ctx context.Context, directory *os.File, pa
 			return fault.Wrap("read scan directory", readErr)
 		}
 	}
-}
-
-func firstHashSource(sources []HashSource) HashSource {
-	if len(sources) == 0 {
-		return nil
-	}
-
-	return sources[0]
 }
 
 func (scanner *Scanner) walkEntry(ctx context.Context, path string, entry os.DirEntry, walk scanWalk) error {

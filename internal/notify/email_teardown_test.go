@@ -50,7 +50,7 @@ func TestEmailAcceptedDataSurvivesTeardownFailure(t *testing.T) {
 				Type: config.NotifierEmail, URL: "", Template: "",
 				DSN:  "smtps://" + listener.Addr().String(),
 				From: "teardown-sender@example.invalid", To: []string{"teardown-recipient@example.invalid"},
-			}, catalog.Message{Repository: "teardown", Event: testChangeEvent, Count: 1})
+			}, catalog.Message{Repository: "teardown", Event: testChangeEvent, Count: 1}, nil)
 			if (err == nil) != (accepted == 1) {
 				t.Fatal("delivery result does not follow the DATA reply", err)
 			}

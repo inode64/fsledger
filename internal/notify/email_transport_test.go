@@ -35,7 +35,7 @@ func TestEmailReportsMissingSTARTTLSWithoutSending(t *testing.T) {
 		Type: config.NotifierEmail, URL: "", Template: "",
 		DSN:  "smtp://private-user:private-password@" + listener.Addr().String() + "?tls=starttls",
 		From: "sender@example.invalid", To: []string{"recipient@example.invalid"},
-	}, catalog.Message{Repository: "fixture"})
+	}, catalog.Message{Repository: "fixture"}, nil)
 	if err == nil || err.Error() != "email delivery failed: SMTP server does not support required STARTTLS" {
 		t.Fatal("missing STARTTLS failure was not safely identified", err)
 	}

@@ -40,7 +40,7 @@ func TestScanAdmissionLeavesFileBudgetAvailable(t *testing.T) {
 			}
 
 			return nil
-		})
+		}, nil)
 	}()
 
 	select {
@@ -49,7 +49,7 @@ func TestScanAdmissionLeavesFileBudgetAvailable(t *testing.T) {
 		t.Fatal(ctx.Err())
 	}
 	// Admission must not consume the sole observation slot needed by events/prepare.
-	_, err = scanner.Observe(ctx, root, "sha256", false)
+	_, err = scanner.Observe(ctx, root, "sha256", false, nil)
 	if err != nil {
 		t.Fatal("event blocked by traversal budget", err)
 	}
@@ -67,7 +67,7 @@ func TestScanAdmissionLeavesFileBudgetAvailable(t *testing.T) {
 			t.Error("scan exceeded limit")
 
 			return nil
-		},
+		}, nil,
 	)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal("admission did not cancel", err)
@@ -81,10 +81,10 @@ func TestScanAdmissionLeavesFileBudgetAvailable(t *testing.T) {
 	}
 	// A released permit must remain usable, including nested file observation.
 	err = scanner.ScanPaths(ctx, []string{root}, nil, matcher, "sha256", false, true, func(record Record) error {
-		_, observeErr := scanner.Observe(ctx, string(record.Path), "sha256", false)
+		_, observeErr := scanner.Observe(ctx, string(record.Path), "sha256", false, nil)
 
 		return observeErr
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

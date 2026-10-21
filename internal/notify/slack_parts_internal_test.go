@@ -203,7 +203,7 @@ func TestSlackPartsKeepTheWebhookReserved(t *testing.T) {
 		}
 
 		for {
-			_, err := sender.Send(t.Context(), notifier, catalog.Message{Event: config.NotificationRecovery})
+			_, err := sender.Send(t.Context(), notifier, catalog.Message{Event: config.NotificationRecovery}, nil)
 			if !errors.Is(err, errLocalRateLimit) {
 				probe <- err
 
@@ -214,7 +214,7 @@ func TestSlackPartsKeepTheWebhookReserved(t *testing.T) {
 		}
 	}()
 
-	_, err := sender.Send(t.Context(), notifier, catalog.Message{Event: config.NotificationError, Reason: reason})
+	_, err := sender.Send(t.Context(), notifier, catalog.Message{Event: config.NotificationError, Reason: reason}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

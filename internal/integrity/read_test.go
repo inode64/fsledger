@@ -63,7 +63,7 @@ func TestFileTypesAndMetadata(t *testing.T) {
 			found[filepath.Base(string(record.Path))] = record
 
 			return nil
-		})
+		}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,13 +117,13 @@ func TestParentSymlinksAndRawNames(t *testing.T) {
 		t.Context(),
 		filepath.Join(root, "alias", filepath.Base(name)),
 		"sha256",
-		true,
+		true, nil,
 	)
 	if err == nil {
 		t.Fatal("parent symlink traversed")
 	}
 
-	record, err := integrity.NewScanner(1, 2).Observe(t.Context(), name, "sha256", true)
+	record, err := integrity.NewScanner(1, 2).Observe(t.Context(), name, "sha256", true, nil)
 	if err != nil || !bytes.Equal(record.Path, []byte(name)) {
 		t.Fatalf("%v %+v", err, record)
 	}
@@ -203,7 +203,7 @@ func TestHashIgnoresRestoredMtime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	before, err := integrity.NewScanner(1, 2).Observe(t.Context(), path, "sha256", true)
+	before, err := integrity.NewScanner(1, 2).Observe(t.Context(), path, "sha256", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestHashIgnoresRestoredMtime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	after, err := integrity.NewScanner(1, 2).Observe(t.Context(), path, "sha256", true)
+	after, err := integrity.NewScanner(1, 2).Observe(t.Context(), path, "sha256", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

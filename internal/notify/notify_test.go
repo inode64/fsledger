@@ -56,7 +56,7 @@ func TestSlackTransportAndRateLimit(t *testing.T) {
 		config.Notifier{
 			Type: testSlackType, URL: server.URL + "/secret", DSN: "", From: "", To: nil, Template: transportTemplate,
 		},
-		catalog.Message{Repository: "repo", Event: testChangeEvent, Count: 1},
+		catalog.Message{Repository: "repo", Event: testChangeEvent, Count: 1}, nil,
 	)
 	if err == nil || delay != 2*time.Second || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("%v %v", delay, err)
@@ -74,7 +74,7 @@ func TestSlackTransportAndRateLimit(t *testing.T) {
 		config.Notifier{
 			Type: testSlackType, URL: server.URL + "/secret", DSN: "", From: "", To: nil, Template: transportTemplate,
 		},
-		catalog.Message{},
+		catalog.Message{}, nil,
 	)
 	if err == nil {
 		t.Fatal("cancelled rate limiter sent")
@@ -237,7 +237,7 @@ func testEmailImplicitTLS(t *testing.T, serverName string, report bool) {
 	_, err = sender.Send(
 		t.Context(),
 		notifier,
-		message,
+		message, nil,
 	)
 	if sender.TLS.ServerName != "" {
 		t.Fatal("shared TLS configuration was mutated")

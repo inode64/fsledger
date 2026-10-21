@@ -64,7 +64,7 @@ func checkPrivateNotification(t *testing.T, message catalog.Message) {
 
 	_, err = notify.New(nil).Send(t.Context(), config.Notifier{
 		Type: config.NotifierSlack, URL: server.URL, Template: "", DSN: "", From: "", To: nil,
-	}, message)
+	}, message, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

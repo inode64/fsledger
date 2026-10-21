@@ -158,7 +158,7 @@ func TestExcludedObservationRetiresTrackingWithoutDeletionAlert(t *testing.T) {
 		t.Fatal("exclusion reported source deletion", err)
 	}
 
-	record, err := scanner.Observe(t.Context(), path, "sha256", true)
+	record, err := scanner.Observe(t.Context(), path, "sha256", true, nil)
 	if err != nil || record.Type != "regular" {
 		t.Fatal("source was removed", err)
 	}

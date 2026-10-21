@@ -174,11 +174,11 @@ func (sender *Sender) Send(
 	ctx context.Context,
 	notifier config.Notifier,
 	message catalog.Message,
-	resume ...partsLedger,
+	resume *partsLedger,
 ) (time.Duration, error) {
 	ledger := partsLedger{}
-	if len(resume) > 0 {
-		ledger = resume[0]
+	if resume != nil {
+		ledger = *resume
 	}
 
 	if notifier.Type == config.NotifierSlack {
@@ -479,7 +479,7 @@ func (sender *Sender) deliverDigest(
 		if rendered != nil {
 			delay, sendErr = sender.deliver(ctx, target.notifier, *rendered, ledger)
 		} else {
-			delay, sendErr = sender.Send(ctx, target.notifier, digest.Message, ledger)
+			delay, sendErr = sender.Send(ctx, target.notifier, digest.Message, &ledger)
 		}
 	} else {
 		sendErr = fault.New("destination removed or changed")

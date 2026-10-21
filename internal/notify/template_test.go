@@ -49,7 +49,7 @@ func TestTemplateSummaryVariables(t *testing.T) {
 	delay, err := sender.Send(
 		t.Context(),
 		config.Notifier{Type: testSlackType, URL: server.URL, DSN: "", From: "", Template: "summary", To: nil},
-		message,
+		message, nil,
 	)
 	if err != nil || delay != 0 {
 		t.Fatal(delay, err)

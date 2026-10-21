@@ -100,7 +100,7 @@ func aideFixtureData(t *testing.T, source string) []byte {
 	for _, name := range []string{"", "changed", "deleted", "untouched", "link"} {
 		path := filepath.Join(source, name)
 
-		record, err := integrity.NewScanner(1, 2).Observe(t.Context(), path, "sha256", true)
+		record, err := integrity.NewScanner(1, 2).Observe(t.Context(), path, "sha256", true, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
