@@ -9,8 +9,7 @@ import (
 const maximumReconcileBackoff = time.Minute
 
 func (w *worker) flushReconciliation(ctx context.Context, now time.Time) {
-	groups, _ := w.manager.Pending()
-	if !w.dirty || groups != 0 || now.Before(w.retryAt) {
+	if !w.dirty || now.Before(w.retryAt) || w.manager.HasPending() {
 		return
 	}
 

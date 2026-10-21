@@ -96,6 +96,9 @@ func firstPath(group event.Group) string {
 	return first
 }
 
+// HasPending reports whether any group is waiting to be drained.
+func (m *Manager) HasPending() bool { return len(m.groups) > 0 }
+
 // Pending reports groups and unique path counts.
 func (m *Manager) Pending() (int, int) {
 	paths := 0
