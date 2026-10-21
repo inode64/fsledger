@@ -267,6 +267,27 @@ func TestIncomingExclusionsRejectWholePlan(t *testing.T) {
 	assertContent(t, filepath.Join(state.source, "a"), "initial")
 }
 
+// Sources ignore these names like .git, so a remote must not plant one that local scans would never record.
+func TestIncomingRejectsTemporaryNames(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{".fsledger-inbound-ID-0", ".fsledger-restore-ABC"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			state := newFixture(t)
+			write(t, state.archived("a"), "remote")
+			write(t, state.archived(name), "planted")
+
+			_, err := state.prepare(t)
+			if !errors.Is(err, inbound.ErrConflict) {
+				t.Fatal("reserved temporary name accepted", err)
+			}
+
+			assertContent(t, filepath.Join(state.source, "a"), "initial")
+		})
+	}
+}
+
 func TestIncomingPreservesPermissionsAndAttributes(t *testing.T) {
 	t.Parallel()
 	state := newFixture(t)

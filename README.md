@@ -501,7 +501,9 @@ and [fsledgerd(8)](packaging/man/fsledgerd.8) in the repository.
   stay in the catalog but are not copied to the mirror.
 - **Keep sources outside managed state.** Do not edit mirrors while the daemon is running.
   Storage and runtime directories must be private and are automatically excluded from
-  that instance's sources. Independent instances need shared exclusions.
+  that instance's sources. Independent instances need shared exclusions. `.git` components
+  and names starting with `.fsledger-inbound-` or `.fsledger-restore-`, the temporaries that
+  fsledger itself creates in sources, are always excluded too; incoming changes cannot add them.
 - **Configure exclusions for your applications.** They support recursive globs such as `**`,
   and global and repository rules are combined. An excluded directory also excludes its contents:
   a trailing slash, as in gitignore, is dropped and repeated slashes collapse, while patterns

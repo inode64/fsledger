@@ -504,6 +504,9 @@ y [fsledgerd(8)](packaging/man/fsledgerd.8) en el repositorio.
 - **Conserva las fuentes fuera del estado administrado.** No edites los mirrors mientras
   corre el daemon. Storage y runtime deben ser privados y se excluyen automáticamente
   de las fuentes de esa instancia. Las instancias independientes necesitan exclusiones compartidas.
+  Los componentes `.git` y los nombres que empiezan por `.fsledger-inbound-` o `.fsledger-restore-`,
+  los temporales que el propio fsledger crea en las fuentes, también se excluyen siempre; los
+  cambios entrantes no pueden añadirlos.
 - **Configura exclusiones para tus aplicaciones.** Admiten globs recursivos como `**` y
   se suman las reglas globales y las del repositorio. Excluir un directorio excluye también su
   contenido: la barra final, como en gitignore, se elimina y las barras repetidas se unen; los

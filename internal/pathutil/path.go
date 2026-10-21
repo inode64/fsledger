@@ -28,6 +28,25 @@ func HasGitComponent(path string) bool {
 	return false
 }
 
+// Temporary prefixes begin the names inbound synchronization and restore stage beside their
+// destinations, which may lie inside a watched source.
+const (
+	InboundTemporaryPrefix = ".fsledger-inbound-"
+	RestoreTemporaryPrefix = ".fsledger-restore-"
+)
+
+// HasTemporaryComponent reserves fsledger's own temporaries at every depth, so one left by a crash
+// or observed mid-operation is never recorded as a source entry. Unlike .git, case is significant.
+func HasTemporaryComponent(path string) bool {
+	for part := range strings.SplitSeq(path, "/") {
+		if strings.HasPrefix(part, InboundTemporaryPrefix) || strings.HasPrefix(part, RestoreTemporaryPrefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Contains compares components of already canonical paths, not textual prefixes.
 func Contains(parent, child string) bool {
 	return parent == child || strings.HasPrefix(child, strings.TrimSuffix(parent, "/")+"/")

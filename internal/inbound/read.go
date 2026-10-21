@@ -12,6 +12,7 @@ import (
 
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/integrity"
+	"github.com/inode64/fsledger/internal/pathutil"
 	"github.com/inode64/fsledger/internal/resource"
 )
 
@@ -200,5 +201,5 @@ func pathError(err error) error {
 }
 
 func tempName(plan *Plan, index int) string {
-	return ".fsledger-inbound-" + plan.ID + "-" + strconv.Itoa(index)
+	return pathutil.InboundTemporaryPrefix + plan.ID + "-" + strconv.Itoa(index)
 }

@@ -138,5 +138,5 @@ func (m *Matcher) reserved(path string) bool {
 		}
 	}
 
-	return pathutil.HasGitComponent(path)
+	return pathutil.HasGitComponent(path) || pathutil.HasTemporaryComponent(path)
 }

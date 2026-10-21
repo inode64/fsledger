@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/pathutil"
 	"github.com/inode64/fsledger/internal/resource"
 )
 
@@ -77,7 +78,7 @@ const (
 	executableMode  = 0o755
 	executableBits  = 0o111
 	directoryMode   = 0o755
-	temporaryPrefix = ".fsledger-restore-"
+	temporaryPrefix = pathutil.RestoreTemporaryPrefix
 	// preservedBits is the part of a replaced file's mode its replacement inherits.
 	preservedBits = fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky
 	// directoryFlags opens a directory only when the component itself is one, never through a symlink.

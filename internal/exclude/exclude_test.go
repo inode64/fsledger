@@ -37,6 +37,12 @@ func TestMatchCoversDirectoriesAncestorsAndProtectedTrees(t *testing.T) {
 		"/var/lib/state[1]/catalog": true, // protected trees are literal, not patterns
 		"/var/lib/state1/catalog":   false,
 		"/srv/repo/.git/config":     true,
+		// fsledger's own temporaries, possibly left by a crash, but only under their exact prefixes.
+		"/srv/site/.fsledger-inbound-ID-0":     true,
+		"/srv/site/.fsledger-restore-ABC":      true,
+		"/srv/site/.fsledger-restore-ABC/file": true,
+		"/srv/site/.fsledger-restored":         false,
+		"/srv/site/.FSLEDGER-RESTORE-ABC":      false,
 	} {
 		if matcher.Match(path) != excluded {
 			t.Errorf("%s: excluded=%v, want %v", path, !excluded, excluded)
