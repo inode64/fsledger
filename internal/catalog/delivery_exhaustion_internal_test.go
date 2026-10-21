@@ -148,14 +148,17 @@ func assertDue(t *testing.T, store *Store, identifiers ...int64) []Delivery {
 	t.Helper()
 
 	due, err := store.Due(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	got := make([]int64, 0, len(due))
 	for _, delivery := range due {
 		got = append(got, delivery.ID)
 	}
 
-	if err != nil || !slices.Equal(got, identifiers) {
-		t.Fatalf("due=%v error=%v; want %v", got, err, identifiers)
+	if !slices.Equal(got, identifiers) {
+		t.Fatalf("due=%v; want %v", got, identifiers)
 	}
 
 	return due
