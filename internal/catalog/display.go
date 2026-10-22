@@ -47,38 +47,30 @@ func (detail Detail) Code() string {
 		return "D"
 	}
 
-	classes := classifyFields(detail.Fields)
+	var content, permissions, retimed bool
+
+	for _, field := range detail.Fields {
+		switch field.Field {
+		case fieldHash, fieldTarget, fieldType:
+			content = true
+		case fieldMode, fieldUID, fieldGID, fieldXattrs, fieldACL:
+			permissions = true
+		case fieldMtime:
+			retimed = true
+		}
+	}
+
+	// Differences reports mtime only when it moved back before btime; beside other changes it does not classify.
 	switch {
-	case classes.content && classes.permissions:
+	case content && permissions:
 		return "MP"
-	case classes.content:
+	case content:
 		return "M"
-	case classes.permissions:
+	case permissions:
 		return "P"
-	case classes.retimed && detail.BackdatedBy > 0:
+	case retimed:
 		return "T"
 	default:
 		return "—"
 	}
-}
-
-type changeClasses struct{ content, permissions, retimed bool }
-
-func classifyFields(fields []FieldChange) changeClasses {
-	var classes changeClasses
-
-	for _, field := range fields {
-		switch field.Field {
-		case fieldHash, fieldTarget, fieldType:
-			classes.content = true
-		case fieldMode, fieldUID, fieldGID, fieldXattrs, fieldACL:
-			classes.permissions = true
-		case fieldMtime:
-			// A backdated time classifies only on its own, and only on a backdated version: details
-			// stored by an earlier policy carry mtime for any time change.
-			classes.retimed = true
-		}
-	}
-
-	return classes
 }

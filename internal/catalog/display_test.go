@@ -3,7 +3,6 @@ package catalog_test
 import (
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/inode64/fsledger/internal/catalog"
 )
@@ -20,10 +19,6 @@ func TestDisplayCodesUseObservedDifferences(t *testing.T) {
 	changed := func(field string) catalog.FieldChange {
 		return catalog.FieldChange{Field: field, Before: "before", After: "after"}
 	}
-	// Only a backdated version makes an mtime change T; an earlier policy stored mtime for any time change.
-	backdated := displayDetail("modified", changed("mtime"))
-	backdated.BackdatedBy = time.Hour + 1
-
 	for _, fixture := range []struct {
 		name, want string
 		detail     catalog.Detail
@@ -38,8 +33,7 @@ func TestDisplayCodesUseObservedDifferences(t *testing.T) {
 		{"both", "MP", displayDetail("modified", changed("hash"), changed("mode"))},
 		{"xattrs", "P", displayDetail("modified", changed("xattrs"))},
 		{"acl", "P", displayDetail("modified", changed(displayACL))},
-		{"backdated", "T", backdated},
-		{"earlier-policy-time", "—", displayDetail("modified", changed("mtime"))},
+		{"backdated", "T", displayDetail("modified", changed("mtime"))},
 		{"backdated-content", "M", displayDetail("modified", changed("hash"), changed("mtime"))},
 		{"no-evidence", "—", displayDetail("modified")},
 	} {
