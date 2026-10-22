@@ -70,7 +70,8 @@ func TestActorMessagesRenderAsDisplayLines(t *testing.T) {
 
 	for _, fixture := range actorDisplayFixtures() {
 		detail := catalog.Detail{
-			Actor: fixture.message, ChangeID: "", Kind: "", Path: nil, Fields: nil, Baseline: nil, Observed: 0,
+			Actor: fixture.message, ChangeID: "", Kind: "", Path: nil, Fields: nil, Observed: 0,
+			BackdatedBy: 0,
 		}
 		lines := detail.ActorLines()
 

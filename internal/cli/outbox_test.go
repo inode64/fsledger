@@ -2,7 +2,7 @@ package cli_test
 
 import (
 	"bytes"
-	"os"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,24 +13,15 @@ import (
 func writeOutboxFixture(t *testing.T, root string) {
 	t.Helper()
 
-	for name, body := range map[string]string{
-		"source": "contents",
-		"mail.yaml": `type: email
-dsn: smtps://unreachable.invalid
-from: sender@example.org
-to: [reader@example.org]
-`,
+	writeFiles(t, root, map[string]string{
+		"source":     "contents",
+		"mail.yaml":  fixtureMailNotifier,
 		"repo.yaml":  "type: db\npaths: ['" + root + "/source']\n",
 		"other.yaml": "type: db\npaths: ['" + root + "/other']\n",
 		fixtureMainYaml: "runtime: '" + root + "/run'\nstorage: {path: '" + root + "/state'}\n" +
 			"paths: {repositories: [repo.yaml, other.yaml], notifiers: [mail.yaml]}\n" +
-			"integrity: {reference: previous}\nnotifications: {use: [mail]}\n",
-	} {
-		err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
+			"notifications: {use: [mail]}\n",
+	})
 }
 
 func TestOutboxClearDiscardsQueuedNotificationsOnce(t *testing.T) {
@@ -49,7 +40,7 @@ func TestOutboxClearDiscardsQueuedNotificationsOnce(t *testing.T) {
 	}
 
 	err := invoke(verifyCommand, "--repository", "repo")
-	if err != nil {
+	if !errors.Is(err, cli.ErrChanges) {
 		t.Fatal(output.String(), err)
 	}
 

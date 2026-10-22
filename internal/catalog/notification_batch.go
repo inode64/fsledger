@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/fault"
 )
 
@@ -25,11 +26,6 @@ type notificationRoute struct {
 	Version     string `json:"version"`
 }
 
-type notificationBatchKey struct {
-	route notificationRoute
-	event string
-}
-
 func (store *Store) notificationRoutes() []notificationRoute {
 	routes := make([]notificationRoute, 0, len(store.Notifications.Use))
 	for _, destination := range store.Notifications.Use {
@@ -43,27 +39,13 @@ func (store *Store) notifies(event string) bool {
 	return len(store.Notifications.Use) > 0 && slices.Contains(store.Notifications.Events, event)
 }
 
-func (store *Store) enqueue(transaction *transaction, event, identifier string, details []Detail) {
-	if !store.notifies(event) {
-		return
-	}
-
-	if store.Notifications.BatchWindow <= 0 || len(details) == 0 {
-		store.enqueueNow(transaction, event, identifier, "", details)
-
-		return
-	}
-
-	routes := store.notificationRoutes()
-	for _, detail := range details {
-		store.enqueueRoutes(transaction, event, identifier, detail, routes)
-	}
-}
-
 // Routes already frozen with inventory evidence bypass current subscription
 // settings. Recovery must not discard or redirect a previously observed change.
 func (store *Store) enqueueRoutes(
-	transaction *transaction, event, identifier string, detail Detail, routes []notificationRoute,
+	transaction *transaction,
+	identifier string,
+	detail Detail,
+	routes []notificationRoute,
 ) {
 	if len(routes) == 0 {
 		return
@@ -71,7 +53,7 @@ func (store *Store) enqueueRoutes(
 
 	if store.Notifications.BatchWindow <= 0 {
 		for _, route := range routes {
-			store.enqueueNowTo(transaction, event, identifier, []Detail{detail}, route)
+			store.enqueueChange(transaction, identifier, []Detail{detail}, route)
 		}
 
 		return
@@ -87,29 +69,27 @@ func (store *Store) enqueueRoutes(
 	}
 
 	if transaction.notifications == nil {
-		transaction.notifications = make(map[notificationBatchKey]notificationBatch)
+		transaction.notifications = make(map[notificationRoute]notificationBatch)
 	}
 
 	for _, route := range routes {
-		transaction.batchNotification(event, detail, len(encoded), route)
+		transaction.batchNotification(detail, len(encoded), route)
 	}
 }
 
 // Only combine unpublished records within this transaction. A delivery already
 // handed to a sender is immutable, so its acknowledgement cannot erase new evidence.
-func (transaction *transaction) batchNotification(event string, detail Detail, size int, route notificationRoute) {
+func (transaction *transaction) batchNotification(detail Detail, size int, route notificationRoute) {
 	identifier := detail.ChangeID
 
-	key := notificationBatchKey{event: event, route: route}
-
-	batch, exists := transaction.notifications[key]
+	batch, exists := transaction.notifications[route]
 	if !exists {
 		batch = notificationBatch{identifier: identifier, details: nil, bytes: 0}
 	}
 
 	if len(batch.details) >= notificationBatchPaths ||
 		(len(batch.details) > 0 && batch.bytes+size > notificationBatchBytes) {
-		transaction.store.enqueueNowTo(transaction, event, batch.identifier, batch.details, route)
+		transaction.store.enqueueChange(transaction, batch.identifier, batch.details, route)
 		batch.details, batch.bytes, batch.identifier = nil, 0, identifier
 	}
 
@@ -119,21 +99,27 @@ func (transaction *transaction) batchNotification(event string, detail Detail, s
 
 	batch.details = append(batch.details, detail)
 	batch.bytes += size
-	transaction.notifications[key] = batch
+	transaction.notifications[route] = batch
 }
 
 func (transaction *transaction) flushNotifications() {
-	keys := slices.SortedFunc(maps.Keys(transaction.notifications), func(first, second notificationBatchKey) int {
-		return cmp.Or(
-			cmp.Compare(first.event, second.event),
-			cmp.Compare(first.route.Destination, second.route.Destination),
-			cmp.Compare(first.route.Version, second.route.Version),
-		)
+	routes := slices.SortedFunc(maps.Keys(transaction.notifications), func(first, second notificationRoute) int {
+		return cmp.Or(cmp.Compare(first.Destination, second.Destination), cmp.Compare(first.Version, second.Version))
 	})
-	for _, key := range keys {
-		batch := transaction.notifications[key]
-		transaction.store.enqueueNowTo(transaction, key.event, batch.identifier, batch.details, key.route)
+	for _, route := range routes {
+		batch := transaction.notifications[route]
+		transaction.store.enqueueChange(transaction, batch.identifier, batch.details, route)
 	}
 
 	transaction.notifications = nil
+}
+
+// enqueueChange persists one change message for route.
+func (store *Store) enqueueChange(
+	transaction *transaction,
+	identifier string,
+	details []Detail,
+	route notificationRoute,
+) {
+	store.enqueueTo(transaction, store.notificationMessage(config.NotificationChange, identifier, "", details), route)
 }

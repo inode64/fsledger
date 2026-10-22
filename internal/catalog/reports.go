@@ -21,10 +21,9 @@ const (
 
 // ReportItem preserves observed metadata, not source contents or inferred identities.
 type ReportItem struct {
-	Head      string `json:"head,omitempty"`
-	Detail    Detail `json:"detail"`
-	Deferred  bool   `json:"deferred"`
-	Violation bool   `json:"violation"`
+	Head     string `json:"head,omitempty"`
+	Detail   Detail `json:"detail"`
+	Deferred bool   `json:"deferred"`
 }
 
 // ReportInfo is a frozen, numbered part of an observation period.
@@ -43,11 +42,10 @@ type ReportInfo struct {
 
 // ReportCounts counts observations in one part, not distinct files or Git commits.
 type ReportCounts struct {
-	Added      int `json:"added"`
-	Modified   int `json:"modified"`
-	Deleted    int `json:"deleted"`
-	Deferred   int `json:"deferred"`
-	Violations int `json:"violations"`
+	Added    int `json:"added"`
+	Modified int `json:"modified"`
+	Deleted  int `json:"deleted"`
+	Deferred int `json:"deferred"`
 }
 
 // Counts derives factual totals independently of the optional AI introduction.
@@ -77,10 +75,6 @@ func (counts *ReportCounts) add(item ReportItem) {
 
 	if item.Deferred {
 		counts.Deferred++
-	}
-
-	if item.Violation {
-		counts.Violations++
 	}
 }
 
@@ -222,7 +216,7 @@ func (store *Store) Reports() ReportStatus {
 	}
 }
 
-func (store *Store) recordReport(transaction *transaction, detail Detail, violation bool) error {
+func (store *Store) recordReport(transaction *transaction, detail Detail) error {
 	data, err := get(transaction.batch, key(deferredPrefix, detail.Path))
 	if err != nil {
 		return err
@@ -230,7 +224,7 @@ func (store *Store) recordReport(transaction *transaction, detail Detail, violat
 
 	transaction.state.Reports.Sequence++
 	transaction.state.Reports.Pending++
-	item := ReportItem{Detail: detail, Deferred: data != nil, Head: store.reportHead, Violation: violation}
+	item := ReportItem{Detail: detail, Deferred: data != nil, Head: store.reportHead}
 	transaction.put(numberKey(reportJournalPrefix, transaction.state.Reports.Sequence), item)
 
 	return nil

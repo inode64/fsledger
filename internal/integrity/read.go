@@ -175,7 +175,7 @@ func finishObservation(parent int, name, path string, before *unix.Stat_t, recor
 	// Hashing without O_NOATIME may have advanced access time. Persist the
 	// post-read value rather than stale metadata from before our own access.
 	record.Atime = after.Atim.Nano()
-	// Zero records access time as unsupported: it is neither stored nor shown nor compared.
+	// Zero marks an access time the mount does not maintain: it is not shown.
 	if !accessTimesMaintained(parent, anchored, record.Type) {
 		record.Atime = 0
 	}
@@ -208,16 +208,11 @@ func accessTimesMaintained(parent int, anchored, kind string) bool {
 }
 
 func fromStat(path string, stat *unix.Stat_t) Record {
-	record := Record{
+	return Record{
 		Path: []byte(path), Type: FileType(stat.Mode), Mode: stat.Mode, UID: stat.Uid, GID: stat.Gid,
 		Size: stat.Size, Device: stat.Dev, Inode: stat.Ino, Nlink: stat.Nlink,
 		Atime: stat.Atim.Nano(), Mtime: stat.Mtim.Nano(), Ctime: stat.Ctim.Nano(), Observed: time.Now().UnixNano(),
 	}
-	if record.Type == "" {
-		record.Type = TypeSpecial
-	}
-
-	return record
 }
 
 func sameVersion(first, second *unix.Stat_t) bool {
@@ -381,7 +376,7 @@ func collectAttributes(path string, record *Record) error {
 
 		remaining -= len(attribute.Value)
 
-		if string(name) == "system.posix_acl_access" || string(name) == "system.posix_acl_default" {
+		if string(name) == aclAccess || string(name) == aclDefault {
 			record.ACL = append(record.ACL, attribute)
 		} else {
 			record.Xattrs = append(record.Xattrs, attribute)

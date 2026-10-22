@@ -14,17 +14,18 @@ func TestMergeMessagesGroupsInterleavedEvidence(t *testing.T) {
 	deliveries := make([]Delivery, 0, 600)
 
 	for index := range 300 {
-		for _, event := range []string{config.NotificationChange, config.NotificationIntegrityViolation} {
+		for _, repository := range []string{"repo", "other"} {
 			identifier := fmt.Sprintf("change-%d", index)
 			deliveries = append(deliveries, Delivery{
 				Destination: "sink", Version: "v1", LastError: "", Progress: Progress{},
 				ID: int64(len(deliveries) + 1), Attempts: 0, NextAttempt: 0, Exhausted: false,
 				Message: Message{
-					Repository: "repo", Host: "host", Hostname: "kernel", Event: event,
+					Repository: repository, Host: "host", Hostname: "kernel", Event: config.NotificationChange,
 					ChangeID: identifier, Paths: []string{fmt.Sprintf("/path/%d", index)}, Count: 1,
 					Details: []Detail{{
 						ChangeID: "", Path: []byte(fmt.Sprintf("/path/%d", index)), Kind: changeModified,
-						Actor: fixtureActorUnknown, Fields: nil, Baseline: nil, Observed: 0,
+						Actor: fixtureActorUnknown, Fields: nil, Observed: 0,
+						BackdatedBy: 0,
 					}},
 				},
 			})

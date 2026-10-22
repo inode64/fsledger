@@ -17,7 +17,7 @@ integrity:
   hash:
     full_scan_schedule: "15 3 * * *"
     full_scan_timezone: UTC
-# Changes and baseline violations are delivered in the scheduled summary.
+# Changes are delivered in the scheduled summary.
 # Errors and recovery use immediate-alert delivery with the inherited batch window.
 notifications:
   use: [email-ops]
@@ -30,4 +30,3 @@ reports:
   timezone: UTC
   use: [email-ops]
   send_empty: false
-# The inherited baseline is never approved automatically; review it with the CLI.

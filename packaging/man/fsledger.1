@@ -1,11 +1,23 @@
-.TH FSLEDGER 1 "2026-10-09" "fsledger" "User Commands"
+.TH FSLEDGER 1 "2026-10-22" "fsledger" "User Commands"
 .SH NAME
 fsledger \- maintain Git histories and filesystem integrity inventories
 .SH SYNOPSIS
+.B fsledger check
+.RB [ \-\-effective ]
+.RB [ \-c " configuration" ]
+.br
 .B fsledger
-.BR check | doctor | status | run | flush | verify | changes | baseline
+.BR doctor | status
+.RB [ \-c " configuration" ]
+.br
+.B fsledger run
 .RB [ \-c " configuration" ]
 .RB [ \-\-debug ]
+.br
+.B fsledger
+.BR flush | verify
+.BI \-\-repository " NAME"
+.RB [ \-c " configuration" ]
 .br
 .B fsledger report preview
 .BI \-\-repository " NAME"
@@ -22,10 +34,6 @@ fsledger \- maintain Git histories and filesystem integrity inventories
 .RB [ \-\-dry\-run ]
 .I SOURCE
 .RI [ DESTINATION ]
-.RB [ \-c " configuration" ]
-.br
-.B fsledger migrate_aide
-.I db_old repository
 .RB [ \-c " configuration" ]
 .br
 .B fsledger \-\-help
@@ -109,17 +117,17 @@ deferred_paths and deferred_since; queuing does not confirm a commit or Git
 publication. Pending versions survive restart; the volatile request may not.
 .TP
 .B verify --repository NAME
-Recompute selected content hashes using the configured integrity policy.
-With reference=baseline, compare with the approved reference; a missing baseline
-or unresolved violations return 1. With reference=previous, update the current
-inventory and report changes without requiring an approved baseline.
-The repository daemon must be stopped. Like baseline init and baseline replace,
-verify refuses to run while a source entry or pattern cannot be read; see paths
-in fsledger.yaml(5).
-.TP
-.B changes --repository NAME
-Show up to 100 unresolved differences and their per-file approval IDs.
-The catalog must already exist; this command never creates one.
+Rescan every source and recompute content hashes, comparing each entry with its
+previous observation as described under integrity in fsledger.yaml(5).
+Differences are recorded in the catalog and their notifications are queued;
+the daemon sends them when it runs again. verify does not commit to the Git
+mirror; the daemon's next reconciliation does. The repository daemon must be
+stopped. Prints one JSON object: result (id, observed, hashed, changed) and
+status, the catalog counters that status shows under catalog. It exits with
+status 2 when it recorded changes, including every entry of a first
+inventory. A Go runtime crash also exits with 2, so scripts also require the
+JSON object. verify refuses to run while a source entry or pattern cannot be
+read; see paths in fsledger.yaml(5).
 .TP
 .B report preview --repository NAME
 Render the first pending scheduled-report part from an existing catalog opened
@@ -131,9 +139,8 @@ fsledger.yaml(5). Status includes report scheduling and delivery timestamps.
 Discard every notification queued by the repository, including delayed
 retries and those that stopped retrying, without sending it. Summary evidence
 held for a discarded report is
-released, but no delivery is recorded. Recorded changes, baselines and
-violations are kept. The catalog must already exist and the repository daemon
-must be stopped.
+released, but no delivery is recorded. Recorded changes are kept. The catalog
+must already exist and the repository daemon must be stopped.
 .TP
 .B restore --repository NAME --date DATE [--overwrite off|always|newer] [--dry-run] SOURCE [DESTINATION]
 Write the contents of SOURCE as recorded in the last commit at or before DATE
@@ -152,52 +159,6 @@ lies below one is refused, and entries below a symbolic link or below a
 directory that failed are reported as failed. Ownership, ACLs and extended
 attributes are not restored. Only Git objects are read, so the daemon may keep
 running.
-.TP
-.B baseline init --repository NAME
-Scan and explicitly approve the initial reference. No automatic approval occurs.
-.TP
-.B baseline accept --repository NAME --change ID
-Approve the identified observation without rereading source files. New
-observations
-that change a difference invalidate its old ID; an operation ID keeps covering a
-path that its own operation observes again. Operation IDs may approve up to
-4096 paths while every member is still current; otherwise use per-file IDs.
-A change from another policy cannot be approved.
-.TP
-.B baseline replace --repository NAME
-Scan and explicitly replace the entire approved reference, including its policy.
-A failed scan retains the previous reference. All inventory commands require
-exclusive access to the repository.
-.TP
-.B baseline import --repository NAME --input FILE
-Import reviewed JSON observations into an empty catalog, without reading source
-files. Importing does not enqueue or send notifications. Failed imports remain
-unapproved. For AIDE databases use migrate_aide directly; other legacy database
-formats are not migrated.
-.TP
-.B migrate_aide <db_old> <repository>
-Import an AIDE reference into an empty catalog. Entries are selected by
-comparing them with the configured paths and patterns as text, without reading
-disk, so a source reached through a symlinked parent is not selected.
-The existing named repository
-selects sources, exclusions, integrity policy, destination and Git or DB
-storage.
-Reads plain or gzip databases using @@db_spec; does not execute AIDE
-configuration
-or depend on a web profile. No Python or AIDE executable is required.
-Preserves original hashes and metadata without reading source contents. Requires
-exclusive repository access and integrity.reference: baseline. Does not start
-services, send notifications, modify cron or rewrite the original database.
-Supported metadata: type, mode, uid, gid, size, inode, nlink, target and times.
-Supported AIDE hashes: SHA-256, SHA-512, SHA-512/256, SHA3-256 and SHA3-512;
-the configured algorithm must be present. AIDE timestamps retain second
-precision.
-Missing configured fields are errors. ACL/xattrs and other unrepresented columns
-are reported as ignored; they cannot satisfy configured comparisons.
-The JSON report includes counts, catalog path and the SHA-256 of the input
-database.
-With Git storage only metadata can be imported: an AIDE database contains no old
-file contents from which to create historical commits.
 .SH OPTIONS
 Options follow the command and may appear before or after subcommands and
 operands. Use -- to separate operands beginning with a dash.
@@ -213,14 +174,7 @@ With check, print the resolved settings and the current sources of every
 repository instead of the summary line.
 .TP
 .BI \-\-repository " name"
-Repository for flush, verify, changes, baseline, report preview, outbox clear and
-restore.
-.TP
-.BI \-\-change " id"
-Recorded change to approve with baseline accept.
-.TP
-.BI \-\-input " file"
-Reviewed JSON stream for baseline import.
+Repository for flush, verify, report preview, outbox clear and restore.
 .TP
 .BR \-h , " \-\-help"
 Display help. Use after a command for its option help.
@@ -260,7 +214,7 @@ Default private repository root.
 Default local status snapshots.
 .SH EXIT STATUS
 0 on success or clean shutdown; 1 on an invalid command, configuration error
-or runtime failure. Doctor reports unavailable capabilities in JSON and may
+or runtime failure; 2 when verify recorded changes. Doctor reports unavailable capabilities in JSON and may
 succeed while individual capabilities are unavailable. Status likewise succeeds
 with stale or missing snapshots; an unreadable or undecodable snapshot is a
 failure.
@@ -278,9 +232,8 @@ fsledger status -c /etc/fsledger/fsledger.yaml
 
 .SH STORAGE
 Catalogs use Pebble with Protobuf and Snappy. They retain current observations,
-approved references, unresolved differences, deferred commit decisions and the
-durable notification outbox. Optional reports and inbound Git synchronization
-also retain pending journals and drafts until their work is complete.
-Git holds file history; the catalog has no permanent observation or approval
-history.
-Changing an observed difference invalidates its old approval ID.
+deferred commit decisions and the durable notification outbox. Optional reports
+and inbound Git synchronization also retain pending journals and drafts until
+their work is complete.
+Git holds file history; the catalog keeps only the latest observation of each
+path, with no permanent observation history.

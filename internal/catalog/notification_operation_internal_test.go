@@ -63,7 +63,7 @@ func TestCancelledNotificationOperationRecoversCommittedChangesOnce(t *testing.T
 
 	_, err := store.withNotificationOperation(ctx, identifier, func(operationID string) (Result, error) {
 		record.Mode = 0o700
-		_, _, applyErr := store.apply(ctx, []mutation{{
+		_, applyErr := store.apply(ctx, []mutation{{
 			record: record, previous: nil, deleted: false, excluded: false, refreshHash: false,
 		}}, 1, operationID, "test actor")
 

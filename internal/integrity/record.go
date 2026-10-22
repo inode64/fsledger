@@ -1,4 +1,4 @@
-// Package integrity captures filesystem metadata and compares approved observations.
+// Package integrity captures filesystem metadata and compares consecutive observations.
 package integrity
 
 import (
@@ -6,11 +6,9 @@ import (
 	"crypto/sha256"
 	"crypto/sha3"
 	"crypto/sha512"
-	"encoding/hex"
 	"fmt"
 	"hash"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/inode64/fsledger/internal/config"
@@ -52,10 +50,9 @@ type Record struct {
 	Mode             uint32      `json:"mode"`
 	NoAtime          bool        `json:"no_atime"`
 	HasBtime         bool        `json:"has_btime"`
-	TimesInSeconds   bool        `json:"times_in_seconds,omitempty"`
 }
 
-// Hasher selects an explicit algorithm; callers must not use noncrypto hashes for baselines.
+// Hasher selects an explicit algorithm.
 func Hasher(algorithm string) (hash.Hash, error) {
 	switch algorithm {
 	case config.HashSHA256:
@@ -77,97 +74,114 @@ func Hasher(algorithm string) (hash.Hash, error) {
 	}
 }
 
-// Differences returns selected fields that changed, in policy order.
-//
-//nolint:cyclop,gocyclo // Explicit field comparisons form a flat policy dispatch table.
-func Differences(previous, current Record, fields []string) []string {
+// Names of the compared fields, as Differences reports them.
+const (
+	FieldHash   = "hash"
+	FieldType   = "type"
+	FieldTarget = "target"
+	FieldMode   = "mode"
+	FieldUID    = "uid"
+	FieldGID    = "gid"
+	FieldXattrs = "xattrs"
+	FieldACL    = "acl"
+	FieldMtime  = "mtime"
+)
+
+// backdatedThreshold ignores clock granularity and short copy delays; real backdating spans far more.
+const backdatedThreshold = time.Hour
+
+// Differences returns the fields that changed between two observations of a path, in this order:
+// hash, type, target, mode, uid and gid, that is content, file type, link target, permissions and
+// ownership; xattrs and acl when the policy selects them; and mtime when it moved back before the
+// birth of the same file. Sizes, other times, links and inode numbers are recorded as evidence but
+// never make a change on their own.
+func Differences(previous, current Record, policy config.Integrity) []string {
 	var changed []string
 
-	for _, field := range fields {
-		different := false
+	if previous.Hash != current.Hash || previous.Algorithm != current.Algorithm {
+		changed = append(changed, FieldHash)
+	}
 
-		switch field {
-		case "hash":
-			different = previous.Hash != current.Hash || previous.Algorithm != current.Algorithm
-		case "type":
-			different = previous.Type != current.Type
-		case "mode":
-			different = previous.Mode != current.Mode
-		case "uid":
-			different = previous.UID != current.UID
-		case "gid":
-			different = previous.GID != current.GID
-		case "size":
-			different = previous.Size != current.Size
-		case "device":
-			different = previous.Device != current.Device
-		case "inode":
-			different = previous.Inode != current.Inode
-		case "nlink":
-			different = previous.Nlink != current.Nlink
-		case "atime":
-			// Zero is an access time the mount does not maintain; it is not evidence.
-			different = previous.Atime != 0 && current.Atime != 0 &&
-				differentTime(previous.Atime, current.Atime, previous.TimesInSeconds || current.TimesInSeconds)
-		case "mtime":
-			different = differentTime(previous.Mtime, current.Mtime, previous.TimesInSeconds || current.TimesInSeconds)
-		case "ctime":
-			different = differentTime(previous.Ctime, current.Ctime, previous.TimesInSeconds || current.TimesInSeconds)
-		case "btime":
-			// A birth time only one side's filesystem provides cannot be compared.
-			different = previous.HasBtime && current.HasBtime && previous.Btime != current.Btime
-		case "target":
-			different = !bytes.Equal(previous.Target, current.Target)
-		case "xattrs":
-			different = comparableAttributes(previous, current) && (!AttributesEqual(previous.Xattrs, current.Xattrs) ||
-				previous.AttributesStatus != current.AttributesStatus)
-		case "acl":
-			different = comparableAttributes(previous, current) && (!AttributesEqual(previous.ACL, current.ACL) ||
-				previous.AttributesStatus != current.AttributesStatus)
-		}
+	if previous.Type != current.Type {
+		changed = append(changed, FieldType)
+	}
 
-		if different {
-			changed = append(changed, field)
-		}
+	if !bytes.Equal(previous.Target, current.Target) {
+		changed = append(changed, FieldTarget)
+	}
+
+	if previous.Mode != current.Mode {
+		changed = append(changed, FieldMode)
+	}
+
+	if previous.UID != current.UID {
+		changed = append(changed, FieldUID)
+	}
+
+	if previous.GID != current.GID {
+		changed = append(changed, FieldGID)
+	}
+
+	if policy.Xattrs &&
+		attributesDiffer(previous.AttributesStatus, current.AttributesStatus, previous.Xattrs, current.Xattrs) {
+		changed = append(changed, FieldXattrs)
+	}
+
+	if policy.ACL && previous.AttributesStatus == AttributesAvailable &&
+		current.AttributesStatus == AttributesAvailable && !AttributesEqual(previous.ACL, current.ACL) {
+		changed = append(changed, FieldACL)
+	}
+
+	if retimed(previous, current) {
+		changed = append(changed, FieldMtime)
 	}
 
 	return changed
 }
 
-// comparableAttributes requires attribute support on both sides; otherwise nothing can be compared.
-func comparableAttributes(previous, current Record) bool {
-	return AttributesSupported(previous.AttributesStatus) && AttributesSupported(current.AttributesStatus)
-}
-
-func differentTime(first, second int64, seconds bool) bool {
-	if seconds {
-		return time.Unix(0, first).Unix() != time.Unix(0, second).Unix()
-	}
-
-	return first != second
+// attributesDiffer compares xattrs only when both observations could read them: a filesystem without
+// xattrs is no evidence that they were removed, but xattrs growing past the observation limit are a
+// change of their own. ACLs compare only where both lists were read, since losing the ability to read
+// them is no evidence that permissions changed.
+func attributesDiffer(beforeStatus, afterStatus string, before, after []Attribute) bool {
+	return AttributesSupported(beforeStatus) && AttributesSupported(afterStatus) &&
+		(beforeStatus != afterStatus || !AttributesEqual(before, after))
 }
 
 // AttributesEqual compares raw attribute names and values in their recorded order.
 func AttributesEqual(first, second []Attribute) bool {
-	return slices.EqualFunc(
-		first,
-		second,
-		func(a, b Attribute) bool { return bytes.Equal(a.Name, b.Name) && bytes.Equal(a.Value, b.Value) },
-	)
+	return slices.EqualFunc(first, second, func(a, b Attribute) bool {
+		return bytes.Equal(a.Name, b.Name) && bytes.Equal(a.Value, b.Value)
+	})
 }
 
-// PolicyID prevents approving observations made under an obsolete comparison policy. Leaving
-// directories out of the inventory is part of the policy; tracking them keeps the historical digest.
-func PolicyID(fields []string, algorithm string, directories bool) string {
-	ordered := slices.Clone(fields)
-	slices.Sort(ordered)
+// retimed reports a modification time moved back before the birth of the same file, as touch -d or
+// utimensat leave it. A recreated file has a new birth time, so copies that keep times (tar, rsync -a,
+// unzip) only count when their content differs too.
+func retimed(previous, current Record) bool {
+	return previous.HasBtime && previous.Btime == current.Btime && previous.Mtime != current.Mtime &&
+		current.Backdated() > 0
+}
 
-	policy := strings.Join(ordered, "\x00") + "\x01" + algorithm
-	if !directories {
-		policy += "\x02without-directories"
+// Backdated returns how much earlier the modification time of this version is than its birth time, or
+// zero below backdatedThreshold. Copies that keep times (tar, rsync -a, cp -p) produce it as well as a
+// backdated touch, so it is a hint rather than a verdict. Unknown times give zero.
+func (record Record) Backdated() time.Duration {
+	if !record.HasBtime || record.Mtime == 0 || record.Btime == 0 {
+		return 0
 	}
 
-	sum := sha256.Sum256([]byte(policy))
+	if gap := time.Duration(record.Btime - record.Mtime); gap > backdatedThreshold {
+		return gap
+	}
 
-	return hex.EncodeToString(sum[:])
+	return 0
+}
+
+// SameVersion reports whether stat metadata shows the same version of a file, so the digest recorded
+// with previous still describes current without reading its content again.
+func SameVersion(previous, current Record) bool {
+	return previous.Type == current.Type && previous.Size == current.Size &&
+		previous.Mtime == current.Mtime && previous.Ctime == current.Ctime &&
+		previous.Inode == current.Inode && previous.Device == current.Device
 }

@@ -859,6 +859,7 @@ func (s *Sync) writeTemporary(
 }
 
 func (s *Sync) rememberCopiedHash(path string, digest hash.Hash, copied signature) {
+	// Callers pass the digest of equal or copied contents; sameContents returns none from its early exits.
 	if digest == nil {
 		return
 	}
@@ -941,12 +942,7 @@ func (s *Sync) copyToTemporary(ctx context.Context, temp, source *os.File, sig s
 		return nil, err
 	}
 
-	var output io.Writer = temp
-	if digest != nil {
-		output = io.MultiWriter(temp, digest)
-	}
-
-	copyErr := s.copyContent(ctx, output, io.LimitReader(source, sig.size))
+	copyErr := s.copyContent(ctx, io.MultiWriter(temp, digest), io.LimitReader(source, sig.size))
 	if copyErr == nil {
 		info, statErr := temp.Stat()
 

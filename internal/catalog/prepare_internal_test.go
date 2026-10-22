@@ -11,7 +11,7 @@ func TestPreparedObservationsRespectEarlierBatchWrites(t *testing.T) {
 	t.Parallel()
 	store := testStore(t)
 	original := workloadRecord(0)
-	reference(t, store, original)
+	observeInitial(t, store, original)
 	metadata := original
 	metadata.Hash, metadata.Algorithm = "", ""
 
@@ -27,24 +27,26 @@ func TestPreparedObservationsRespectEarlierBatchWrites(t *testing.T) {
 		{refreshHash: false, excluded: false, record: prepared, previous: previous, deleted: false},
 	}
 
-	changed, _, err := store.apply(t.Context(), updates, 1, "repeated-path", "test")
+	changed, err := store.apply(t.Context(), updates, 1, "repeated-path", "test")
 	if err != nil || changed != 2 {
 		t.Fatalf("batch must observe modification and reversion: changed=%d err=%v", changed, err)
 	}
 
-	if ids := pendingIDs(t, store); len(ids) != 0 {
-		t.Fatalf("reversion left pending differences: %v", ids)
+	current, exists, err := store.Current(t.Context(), original.Path)
+	if err != nil || !exists || current.Hash != original.Hash {
+		t.Fatalf("reversion not kept as the current observation: %+v %v", current, err)
 	}
 }
 
-func TestDeferredHashCannotApproveChangedMetadata(t *testing.T) {
+// Without hashing on events, new metadata leaves the content unverified: the old digest is dropped,
+// the unknown content is no change, and the next verified digest is.
+func TestDeferredHashDropsDigestOfNewMetadata(t *testing.T) {
 	t.Parallel()
 	cfg := testStoreConfig(t)
 	cfg.Integrity.Hash.OnEvent = false
-	cfg.Integrity.Compare = append(cfg.Integrity.Compare, fieldSize)
 	store := openTestStore(t, t.TempDir(), cfg.Integrity, cfg.Notifications)
 	original := workloadRecord(0)
-	reference(t, store, original)
+	observeInitial(t, store, original)
 	metadata := original
 	metadata.Size++
 	metadata.Hash, metadata.Algorithm = "", ""
@@ -58,24 +60,25 @@ func TestDeferredHashCannotApproveChangedMetadata(t *testing.T) {
 		t.Fatal("new metadata retained an old digest")
 	}
 
-	observeRecords(t, store, "deferred-hash", prepared)
+	apply := func(identifier string, record integrity.Record) int {
+		t.Helper()
 
-	err = store.Accept(t.Context(), "deferred-hash")
-	if err == nil {
-		t.Fatal("approved content that has not been hashed")
+		update := mutation{record: record, previous: nil, excluded: false, deleted: false, refreshHash: false}
+
+		changed, applyErr := store.apply(t.Context(), []mutation{update}, 1, identifier, "test")
+		if applyErr != nil {
+			t.Fatal(applyErr)
+		}
+
+		return changed
+	}
+
+	if changed := apply("deferred-hash", prepared); changed != 0 {
+		t.Fatal("unverified content recorded as a change")
 	}
 
 	prepared.Hash, prepared.Algorithm = strings.Repeat("f", 64), original.Algorithm
-	observeRecords(t, store, "verified-hash", prepared)
-
-	err = store.Accept(t.Context(), "verified-hash")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	observeRecords(t, store, "repeated-verification", prepared)
-
-	if len(pendingIDs(t, store)) != 0 {
-		t.Fatal("verified approval raised another violation")
+	if changed := apply("verified-hash", prepared); changed != 1 {
+		t.Fatal("verified new content not recorded as a change")
 	}
 }

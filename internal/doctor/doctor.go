@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/integrity"
 
 	"golang.org/x/sys/unix"
 
@@ -72,8 +73,11 @@ func Inspect(cfg *config.Config) (Report, error) {
 			return Report{}, matcherErr
 		}
 
+		effective := cfg.ForRepository(name)
 		for _, root := range resolved[name].Roots {
-			report.Paths = append(report.Paths, inspectRoot(cfg.ForRepository(name), matcher, name, root, mounts)...)
+			paths := inspectRoot(effective, matcher, name, root, mounts)
+			report.Paths = append(report.Paths, paths...)
+			report.Warnings = append(report.Warnings, attributeWarnings(name, effective.Integrity, paths)...)
 		}
 
 		if len(resolved[name].Missing) > 0 {
@@ -88,6 +92,19 @@ func Inspect(cfg *config.Config) (Report, error) {
 	report.probePIDFDLifetime(cfg.Runtime)
 
 	return report, nil
+}
+
+// attributeWarnings are the advisories the daemon keeps in the repository status once it starts.
+func attributeWarnings(name string, policy config.Integrity, paths []Path) []string {
+	var warnings []string
+
+	for _, path := range paths {
+		for _, message := range integrity.AttributeAdvisories(policy, path.Path, path.Mount.Type) {
+			warnings = append(warnings, name+": "+message)
+		}
+	}
+
+	return warnings
 }
 
 // auditStatus follows the daemon, which subscribes only for repositories whose effective settings
@@ -144,6 +161,10 @@ func Print(writer io.Writer, cfg *config.Config) error {
 // inspectRoot skips excluded mount points as the daemon does, so they are neither listed nor probed.
 func inspectRoot(cfg *config.Config, matcher *exclude.Matcher, name, root string, mounts []mountinfo.Mount) []Path {
 	resolved := mountinfo.Resolve(root, mounts)
+	if len(resolved) == 0 {
+		// The daemon watches such a root as one boundary of unknown type; so does its diagnosis.
+		resolved = []mountinfo.Mount{{Point: root, Type: event.Unknown}}
+	}
 
 	result := make([]Path, 0, len(resolved))
 	for index, mount := range resolved {

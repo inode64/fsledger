@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/resource"
 )
 
@@ -46,15 +45,15 @@ func queueBatchFixture(t *testing.T, store *Store, count int) {
 
 	for index := range count {
 		detail := Detail{
-			ChangeID: "",
-			Path:     []byte(fmt.Sprintf("/path/%d", index)),
-			Kind:     "modified",
-			Actor:    fixtureActorUnknown,
-			Fields:   nil,
-			Baseline: nil,
-			Observed: time.Now().UnixNano(),
+			ChangeID:    "",
+			Path:        []byte(fmt.Sprintf("/path/%d", index)),
+			Kind:        "modified",
+			Actor:       fixtureActorUnknown,
+			Fields:      nil,
+			Observed:    time.Now().UnixNano(),
+			BackdatedBy: 0,
 		}
-		store.enqueue(transaction, config.NotificationChange, fmt.Sprintf("change-%d", index), []Detail{detail})
+		enqueueObserved(store, transaction, fmt.Sprintf("change-%d", index), detail)
 	}
 
 	err := transaction.commit()
@@ -102,9 +101,10 @@ func TestNotificationBatchByteLimitAppliesToEveryDestination(t *testing.T) {
 	for index := range 3 {
 		detail := Detail{
 			ChangeID: "", Path: []byte(fmt.Sprintf("/large/%d", index)), Kind: "modified",
-			Actor: strings.Repeat("x", notificationBatchBytes/2), Fields: nil, Baseline: nil, Observed: 1,
+			Actor: strings.Repeat("x", notificationBatchBytes/2), Fields: nil, Observed: 1,
+			BackdatedBy: 0,
 		}
-		store.enqueue(transaction, config.NotificationChange, fmt.Sprintf("large-%d", index), []Detail{detail})
+		enqueueObserved(store, transaction, fmt.Sprintf("large-%d", index), detail)
 	}
 
 	err := transaction.commit()

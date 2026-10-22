@@ -11,12 +11,11 @@ import (
 	"github.com/inode64/fsledger/internal/resource"
 )
 
-//nolint:cyclop,gocyclo,funlen // Ordered assertions cover filtering without losing integrity evidence.
-func TestIgnoreOnlySuppressesChangeNotIntegrityOrState(t *testing.T) {
+func TestIgnoreOnlySuppressesChangeNotState(t *testing.T) {
 	t.Parallel()
 	store := testStore(t)
 	record := workloadRecord(0)
-	reference(t, store, record)
+	observeInitial(t, store, record)
 
 	before, err := store.Due(t.Context())
 	if err != nil {
@@ -42,7 +41,7 @@ func TestIgnoreOnlySuppressesChangeNotIntegrityOrState(t *testing.T) {
 	})
 	record.Mode = 0o700
 
-	_, _, err = store.apply(
+	_, err = store.apply(
 		ctx,
 		[]mutation{{refreshHash: false, excluded: false, record: record, previous: nil, deleted: false}},
 		0,
@@ -54,26 +53,20 @@ func TestIgnoreOnlySuppressesChangeNotIntegrityOrState(t *testing.T) {
 	}
 
 	messages, err := store.Due(t.Context())
-	if err != nil || len(messages) != 2 {
-		t.Fatal("integrity alerts lost", len(messages), err)
-	}
-
-	for _, delivery := range messages {
-		if delivery.Message.Event != "integrity_violation" {
-			t.Fatal("ignored change enqueued")
-		}
+	if err != nil || len(messages) != 0 {
+		t.Fatal("ignored change enqueued", len(messages), err)
 	}
 
 	current, exists, err := store.Current(t.Context(), record.Path)
-	if err != nil || !exists || current.Mode != record.Mode || len(pendingIDs(t, store)) != 1 {
-		t.Fatal("filter suppressed inventory or baseline difference", err)
+	if err != nil || !exists || current.Mode != record.Mode {
+		t.Fatal("filter suppressed the inventory update", err)
 	}
 
 	record.Mode = 0o600
 	observeRecords(t, store, fixtureActorUnknown, record)
 
 	messages, err = store.Due(t.Context())
-	if err != nil || len(messages) != 4 {
+	if err != nil || len(messages) != 2 {
 		t.Fatal("unknown actor was suppressed", len(messages), err)
 	}
 }
@@ -154,7 +147,7 @@ func TestExcludedObservationRetiresTrackingWithoutDeletionAlert(t *testing.T) {
 	}
 
 	after, err := store.Due(t.Context())
-	if err != nil || len(after) != len(before) || len(pendingIDs(t, store)) != 0 {
+	if err != nil || len(after) != len(before) {
 		t.Fatal("exclusion reported source deletion", err)
 	}
 

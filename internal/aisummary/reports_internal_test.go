@@ -56,13 +56,15 @@ func TestReportMetadataSelectionAndFallbackRedaction(t *testing.T) {
 	items := []catalog.ReportItem{
 		{Detail: catalog.Detail{
 			Path: []byte("/etc/secret\nname/second-secret"), Kind: "modified", Actor: "private command",
-			Fields:   []catalog.FieldChange{{Field: "xattrs", Before: "private value", After: "another private value"}},
-			ChangeID: "", Baseline: nil, Observed: 0,
-		}, Head: "", Deferred: true, Violation: false},
+			Fields:   []catalog.FieldChange{{Field: "hash", Before: "private value", After: "another private value"}},
+			ChangeID: "", Observed: 0,
+			BackdatedBy: 0,
+		}, Head: "", Deferred: true},
 		{Detail: catalog.Detail{
 			Path: []byte("/excluded/private-path"), Kind: "added", Actor: "", Fields: nil,
-			ChangeID: "", Baseline: nil, Observed: 0,
-		}, Head: "", Deferred: false, Violation: false},
+			ChangeID: "", Observed: 0,
+			BackdatedBy: 0,
+		}, Head: "", Deferred: false},
 	}
 	for range 2 {
 		summary, status := session.SummarizeReport(t.Context(), items)

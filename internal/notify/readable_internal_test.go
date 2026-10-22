@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inode64/fsledger/internal/catalog"
 	"github.com/inode64/fsledger/internal/config"
@@ -29,7 +30,7 @@ const (
 func readableDetail(path, kind, actor string, fields ...catalog.FieldChange) catalog.Detail {
 	return catalog.Detail{
 		Path: []byte(path), Kind: kind, Actor: actor, ChangeID: "PBHEY4LZLTYDYX3O7OYWIBYK3H",
-		Observed: 1792138666102146517, Fields: fields, Baseline: nil,
+		Observed: 1792138666102146517, Fields: fields, BackdatedBy: 0,
 	}
 }
 
@@ -196,12 +197,18 @@ func TestLargeUpdateFitsTwoEmails(t *testing.T) {
 func TestBackdatedFilesAreFlagged(t *testing.T) {
 	t.Parallel()
 
+	const (
+		backdatedMtime = "1697622241202511342"
+		warning        = "AVISO: mtime es 1095 d anterior a btime"
+	)
+
 	backdated := readableDetail("/var/www/site/htdocs/wp-content/uploads/shell.php", "added", readableFTP,
-		catalog.FieldChange{Field: readableMtime, Before: "0", After: "1697622241202511342"},
+		catalog.FieldChange{Field: readableMtime, Before: "0", After: backdatedMtime},
 		catalog.FieldChange{Field: "btime", Before: "0 (known=false)", After: "1792230241202511342 (known=true)"})
+	backdated.BackdatedBy = 1095 * 24 * time.Hour
 
 	body := renderDefault(t, readableMessage(backdated))
-	if !strings.Contains(body, "AVISO: mtime es 1095 d anterior a btime") {
+	if !strings.Contains(body, warning) {
 		t.Fatal("backdated file not flagged\n" + body)
 	}
 
@@ -220,11 +227,23 @@ func TestBackdatedFilesAreFlagged(t *testing.T) {
 	message.Report = &catalog.ReportInfo{
 		Aggregate: nil, ID: "period", Summary: "", AIStatus: "disabled", From: 1, Until: 2, Part: 1,
 		More: false, CoverageGap: false,
-		Items: []catalog.ReportItem{{Detail: backdated, Head: "", Deferred: false, Violation: false}},
+		Items: []catalog.ReportItem{{Detail: backdated, Head: "", Deferred: false}},
 	}
 
 	_, report, err := ReportText(message)
-	if err != nil || !strings.Contains(report, "AVISO: mtime es 1095 d anterior a btime") {
+	if err != nil || !strings.Contains(report, warning) {
 		t.Fatal("report does not flag the backdated file", err, report)
+	}
+
+	// touch -d on an existing file keeps its birth time and moves mtime before it.
+	retimed := readableDetail("/var/www/site/htdocs/index.php", "modified", readableFTP,
+		catalog.FieldChange{Field: readableMtime, Before: "1792230241202511342", After: backdatedMtime})
+	retimed.BackdatedBy = backdated.BackdatedBy
+
+	body = renderDefault(t, readableMessage(retimed))
+	if !strings.Contains(body, warning) ||
+		!strings.Contains(body, "T      \"/var/www/site/htdocs/index.php\"") ||
+		!strings.Contains(body, "T = Fecha retrocedida") {
+		t.Fatal("backdated modification not flagged\n" + body)
 	}
 }

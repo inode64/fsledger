@@ -23,7 +23,6 @@ func options(t *testing.T) (config.Integrity, config.Notifications) {
 		t.Fatal(err)
 	}
 
-	cfg.Integrity.Compare = []string{"hash", "type", "mode", "uid", "gid", "xattrs", "acl"}
 	cfg.Notifications.Use = []string{"test"}
 	cfg.Notifications.BatchWindow = 0
 
@@ -31,7 +30,7 @@ func options(t *testing.T) (config.Integrity, config.Notifications) {
 }
 
 //nolint:cyclop,funlen,gocognit,gocyclo // Ordered integration fixture keeps setup, transitions and assertions together.
-func TestBaselinePendingAndOutbox(t *testing.T) {
+func TestChangesAndDurableOutbox(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 
@@ -81,24 +80,16 @@ func TestBaselinePendingAndOutbox(t *testing.T) {
 	}
 	scan()
 
-	err = store.InitBaseline(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	err = os.WriteFile(file, []byte("after!"), 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	change := scan()
-
-	stats, err := store.Stats(t.Context())
-	if err != nil || stats.Violations != 1 || change.Changed != 1 {
-		t.Fatalf("%+v %+v %v", stats, change, err)
+	if change := scan(); change.Changed != 1 {
+		t.Fatalf("content change: %+v", change)
 	}
 
-	if repeat := scan(); repeat.Changed != 0 || repeat.Violations != 0 {
+	if repeat := scan(); repeat.Changed != 0 {
 		t.Fatalf("duplicate change: %+v", repeat)
 	}
 
@@ -117,18 +108,6 @@ func TestBaselinePendingAndOutbox(t *testing.T) {
 		t.Fatalf("outbox not durable: %v", err)
 	}
 
-	err = store.Accept(t.Context(), change.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	scan()
-
-	stats, err = store.Stats(t.Context())
-	if err != nil || stats.Violations != 0 {
-		t.Fatalf("approval failed %+v %v", stats, err)
-	}
-
 	err = os.Remove(file)
 	if err != nil {
 		t.Fatal(err)
@@ -136,25 +115,12 @@ func TestBaselinePendingAndOutbox(t *testing.T) {
 
 	deleted := scan()
 
-	stats, err = store.Stats(t.Context())
-	if err != nil || stats.Entries != 1 || stats.Violations != 1 {
-		t.Fatalf("delete %+v %v", stats, err)
-	}
-
-	err = store.Accept(t.Context(), deleted.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	scan()
-
-	stats, err = store.Stats(t.Context())
-	if err != nil || stats.Violations != 0 {
-		t.Fatalf("delete approval %+v %v", stats, err)
+	stats, err := store.Stats(t.Context())
+	if err != nil || stats.Entries != 1 || deleted.Changed != 1 {
+		t.Fatalf("delete %+v %+v %v", stats, deleted, err)
 	}
 }
 
-//nolint:funlen // The partial-scan lifecycle keeps preservation and approval assertions together.
 func TestIncompleteScanNeverPrunes(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -211,11 +177,6 @@ func TestIncompleteScanNeverPrunes(t *testing.T) {
 	stats, err := store.Stats(t.Context())
 	if err != nil || stats.Entries != 2 {
 		t.Fatalf("partial scan pruned: %+v %v", stats, err)
-	}
-
-	err = store.InitBaseline(t.Context())
-	if err == nil {
-		t.Fatal("partial baseline approved")
 	}
 }
 

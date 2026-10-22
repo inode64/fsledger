@@ -16,7 +16,6 @@ type digestKey struct {
 	repository  string
 	host        string
 	hostname    string
-	event       string
 }
 
 // MergeMessages groups digestible events by routing identity while preserving evidence.
@@ -38,7 +37,6 @@ func MergeMessages(deliveries []Delivery) []Digest {
 			repository:  delivery.Message.Repository,
 			host:        delivery.Message.Host,
 			hostname:    delivery.Message.Hostname,
-			event:       delivery.Message.Event,
 		}
 
 		index, exists := grouped[key]
@@ -56,7 +54,7 @@ func MergeMessages(deliveries []Delivery) []Digest {
 }
 
 func digestible(event string) bool {
-	return event == config.NotificationChange || event == config.NotificationIntegrityViolation
+	return event == config.NotificationChange
 }
 
 func newDigest(delivery Delivery) Digest {

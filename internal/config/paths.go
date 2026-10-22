@@ -38,8 +38,8 @@ func (c *Config) CheckPaths() error {
 	return c.CheckStoragePaths()
 }
 
-// CheckStoragePaths validates state directories without requiring source paths to exist.
-// Importing an offline reference must not depend on the current source filesystem.
+// CheckStoragePaths validates state directories without requiring source paths to exist: commands that
+// only use the catalog, the Git repository or the runtime must not depend on the source filesystem.
 func (c *Config) CheckStoragePaths() error {
 	for _, path := range c.InternalPaths() {
 		// Validation keeps storage and runtime apart, so only the runtime path equals it.

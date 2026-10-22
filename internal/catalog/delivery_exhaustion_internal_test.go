@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"bytes"
 	"encoding/json"
 	"path/filepath"
 	"slices"
@@ -83,9 +82,6 @@ func TestRestartRetriesExhaustedDeliveriesOfUnchangedDestinations(t *testing.T) 
 	reopened.now = func() time.Time { return time.Now().Add(time.Hour) }
 	assertDue(t, reopened, healthy)
 
-	// An earlier version rewrites the catalog state without the counter; the start recounts it.
-	reopened.state.Stats.ExhaustedNotifications = 0
-
 	for _, step := range []struct {
 		notifier  config.Notifier
 		retried   int
@@ -105,12 +101,6 @@ func TestRestartRetriesExhaustedDeliveriesOfUnchangedDestinations(t *testing.T) 
 	due := assertDue(t, reopened, healthy, failing)
 	if due[1].Exhausted || due[1].Attempts != 0 || due[1].LastError != exhaustionReason {
 		t.Fatalf("retried delivery=%+v", due[1])
-	}
-
-	// Encoding keeps the format earlier versions read while nothing is exhausted.
-	encoded, err := json.Marshal(due[1])
-	if err != nil || bytes.Contains(encoded, []byte(`"exhausted"`)) {
-		t.Fatalf("encoded=%s error=%v", encoded, err)
 	}
 }
 

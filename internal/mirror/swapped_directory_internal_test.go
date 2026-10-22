@@ -29,7 +29,7 @@ func swappedDirectoryMirror(t *testing.T) (*Sync, string, string) {
 		t.Fatal(err)
 	}
 
-	syncer, err := Open(repository, []string{root}, matcher, "")
+	syncer, err := Open(repository, []string{root}, matcher, "sha256")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,8 +23,6 @@ type stagedChange struct {
 	After    *integrity.Record   `json:"after,omitempty"`
 	ID       string              `json:"id"`
 	Actor    string              `json:"actor"`
-	Baseline []FieldChange       `json:"baseline,omitempty"`
-	Compare  []string            `json:"compare"`
 	Routes   []notificationRoute `json:"routes"`
 	Path     []byte              `json:"path"`
 	Observed int64               `json:"observed"`
@@ -61,7 +59,7 @@ func (store *Store) enqueueObservedChange(
 ) error {
 	if !notification.stage {
 		if notification.deliver {
-			store.enqueue(transaction, config.NotificationChange, identifier, []Detail{detail})
+			store.enqueueRoutes(transaction, identifier, detail, store.notificationRoutes())
 		}
 
 		return nil
@@ -83,7 +81,6 @@ func (store *Store) enqueueObservedChange(
 	} else {
 		staged.Path = slices.Clone(record.Path)
 		staged.ID = identifier
-		staged.Compare = slices.Clone(store.policy.Compare)
 		staged.Routes = store.notificationRoutes()
 
 		if compared.oldData != nil {
@@ -92,14 +89,14 @@ func (store *Store) enqueueObservedChange(
 		}
 	}
 
-	staged.observe(record, compared, detail)
+	staged.observe(record, compared.currentData != nil, detail.Actor, detail.Observed)
 	staged.Notify = notification.deliver
 	transaction.put(lookup, staged)
 
 	return transaction.err
 }
 
-// Metadata or hash availability can change without a difference in selected
+// Metadata or hash availability can change without a difference in compared
 // fields. A pending notification must still describe the last observed version.
 func (store *Store) refreshStagedObservation(
 	transaction *transaction,
@@ -107,8 +104,7 @@ func (store *Store) refreshStagedObservation(
 	compared *comparison,
 	identifier string,
 ) error {
-	if store.notificationOperation != identifier || len(compared.fields) > 0 ||
-		bytes.Equal(compared.oldData, compared.currentData) {
+	if store.notificationOperation != identifier || bytes.Equal(compared.oldData, compared.currentData) {
 		return nil
 	}
 
@@ -124,26 +120,20 @@ func (store *Store) refreshStagedObservation(
 		return err
 	}
 
-	detail, err := describe(record, compared, staged.Actor)
-	if err != nil {
-		return err
-	}
-
-	staged.observe(record, compared, detail)
+	staged.observe(record, compared.currentData != nil, staged.Actor, observedAt(record))
 	transaction.put(lookup, staged)
 
 	return transaction.err
 }
 
-func (staged *stagedChange) observe(record integrity.Record, compared *comparison, detail Detail) {
+func (staged *stagedChange) observe(record integrity.Record, exists bool, actor string, observed int64) {
 	staged.After = nil
-	if compared.currentData != nil {
+	if exists {
 		staged.After = &record
 	}
 
-	staged.Baseline = detail.Baseline
-	staged.Actor = detail.Actor
-	staged.Observed = detail.Observed
+	staged.Actor = actor
+	staged.Observed = observed
 }
 
 func (store *Store) startNotificationOperation(ctx context.Context, identifier string) error {
@@ -229,13 +219,13 @@ func (store *Store) publishStagedChanges(entries []stagedChangeEntry) error {
 	defer resource.Close(transaction.batch)
 
 	for _, entry := range entries {
-		detail, err := entry.change.netChange()
+		detail, err := entry.change.netChange(store.policy)
 		if err != nil {
 			return fault.Wrap("finalize staged change", err)
 		}
 
 		if entry.change.Notify && detail.Kind != "" {
-			store.enqueueRoutes(transaction, config.NotificationChange, entry.change.ID, detail, entry.change.Routes)
+			store.enqueueRoutes(transaction, entry.change.ID, detail, entry.change.Routes)
 		}
 
 		transaction.remove(entry.lookup)
@@ -244,7 +234,7 @@ func (store *Store) publishStagedChanges(entries []stagedChangeEntry) error {
 	return transaction.commit()
 }
 
-func (staged *stagedChange) netChange() (Detail, error) {
+func (staged *stagedChange) netChange(policy config.Integrity) (Detail, error) {
 	previous := integrity.Record{Path: staged.Path}
 
 	current := integrity.Record{Path: staged.Path}
@@ -256,32 +246,22 @@ func (staged *stagedChange) netChange() (Detail, error) {
 		current = *staged.After
 	}
 
-	fields := differences(previous, current, staged.Before != nil, staged.After != nil, staged.Compare)
+	fields := differences(previous, current, staged.Before != nil, staged.After != nil, policy)
 	if previous.Type == integrity.TypeRegular && previous.Hash == "" {
 		// Computing a hash for the new version cannot verify the old content.
 		fields = slices.DeleteFunc(fields, func(field string) bool { return field == fieldHash })
 	}
 
-	if len(fields) == 0 && !staged.hasUnverifiedContent(previous, current) {
+	if len(fields) == 0 && !hasUnverifiedContent(previous, current) {
 		return Detail{}, nil
 	}
 
-	changes, err := describeFields(previous, current, fields)
-	if err != nil {
-		return Detail{}, err
-	}
-
-	return Detail{
-		ChangeID: "",
-		Path:     staged.Path, Kind: changeKind(fields), Actor: staged.Actor,
-		Observed: staged.Observed, Fields: changes, Baseline: staged.Baseline,
-	}, nil
+	return newDetail(previous, current, fields, staged.Actor, staged.Observed)
 }
 
-// Keep evidence when content comparison was requested but the observed versions
-// cannot be compared. Identical observations do not introduce new uncertainty.
-func (staged *stagedChange) hasUnverifiedContent(previous, current integrity.Record) bool {
+// Keep evidence when the observed versions' content cannot be compared. Identical observations do not
+// introduce new uncertainty.
+func hasUnverifiedContent(previous, current integrity.Record) bool {
 	return previous.Type == integrity.TypeRegular && current.Type == integrity.TypeRegular &&
-		(previous.Hash == "" || current.Hash == "") && slices.Contains(staged.Compare, fieldHash) &&
-		!sameObservation(previous, current)
+		(previous.Hash == "" || current.Hash == "") && !sameObservation(previous, current)
 }

@@ -15,13 +15,13 @@ func TestUnchangedObservationOnlyWritesScanMarker(t *testing.T) {
 	t.Parallel()
 	store := testStore(t)
 	record := workloadRecord(0)
-	reference(t, store, record)
+	observeInitial(t, store, record)
 	record.Observed++
 
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
 
-	changed, violation, err := store.applyOne(
+	changed, err := store.applyOne(
 		t.Context(),
 		transaction,
 		mutation{refreshHash: false, excluded: false, record: record, previous: nil, deleted: false},
@@ -29,7 +29,7 @@ func TestUnchangedObservationOnlyWritesScanMarker(t *testing.T) {
 		"unchanged",
 		"test",
 	)
-	if err != nil || changed || violation {
+	if err != nil || changed {
 		t.Fatal("unchanged observation differs", err)
 	}
 	// With no differences, the batch should contain just the scan generation marker.
@@ -47,7 +47,7 @@ func TestUnchangedObservationOnlyWritesScanMarker(t *testing.T) {
 	}
 }
 
-func TestPersistenceKeepsHashFreshnessAndUnselectedMetadata(t *testing.T) {
+func TestPersistenceKeepsHashFreshnessAndUncomparedMetadata(t *testing.T) {
 	t.Parallel()
 
 	for name, change := range map[string]func(*integrity.Record){
@@ -56,14 +56,20 @@ func TestPersistenceKeepsHashFreshnessAndUnselectedMetadata(t *testing.T) {
 		"xattrs": func(record *integrity.Record) {
 			record.Xattrs = []integrity.Attribute{{Name: []byte("user.test"), Value: []byte("value")}}
 		},
-		"mtime":     func(record *integrity.Record) { record.Mtime++ },
-		"precision": func(record *integrity.Record) { record.TimesInSeconds = true },
+		"mtime": func(record *integrity.Record) { record.Mtime++ },
+		"inode": func(record *integrity.Record) { record.Inode++ },
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			store := testStore(t)
 			record := workloadRecord(0)
-			reference(t, store, record)
+			observeInitial(t, store, record)
+
+			before, err := store.Due(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			change(&record)
 			record.Observed++
 			observeRecords(t, store, "metadata", record)
@@ -73,8 +79,9 @@ func TestPersistenceKeepsHashFreshnessAndUnselectedMetadata(t *testing.T) {
 				t.Fatalf("metadata lost: %+v %v", current, err)
 			}
 
-			if ids := pendingIDs(t, store); len(ids) != 0 {
-				t.Fatal("unselected metadata created a violation", ids)
+			after, err := store.Due(t.Context())
+			if err != nil || len(after) != len(before) {
+				t.Fatal("metadata outside the policy announced a change", len(before), len(after), err)
 			}
 		})
 	}

@@ -52,10 +52,6 @@ func TestCheckTemplatesRejectsRenderFailures(t *testing.T) {
 			config.NotificationChange, "", "nil pointer",
 		},
 		{
-			parsedTemplate(t, checkedSubject, "{{(index .Details 1).Path}}"),
-			config.NotificationIntegrityViolation, "", "index",
-		},
-		{
 			// Digests merged from several operations share no change ID.
 			parsedTemplate(t, checkedSubject, "{{if not .Detailed}}{{slice .ChangeID 0 8}}{{end}}"),
 			config.NotificationChange, " of more than 250 paths", "slice",
@@ -82,7 +78,7 @@ func TestCheckTemplatesFollowsRouting(t *testing.T) {
 
 	paths := parsedTemplate(t, checkedSubject, checkedFirst)
 
-	err := CheckTemplates(checkedConfig(paths, config.NotificationChange, config.NotificationIntegrityViolation))
+	err := CheckTemplates(checkedConfig(paths, config.NotificationChange))
 	if err != nil {
 		t.Fatal("template valid for its routed events rejected:", err)
 	}
@@ -107,10 +103,7 @@ func TestCheckTemplatesAcceptsShippedTemplates(t *testing.T) {
 
 	example := exampleTemplate(t)
 
-	events := []string{
-		config.NotificationChange, config.NotificationIntegrityViolation,
-		config.NotificationError, config.NotificationRecovery,
-	}
+	events := []string{config.NotificationChange, config.NotificationError, config.NotificationRecovery}
 	for _, definition := range []config.Template{
 		example,
 		parsedTemplate(t, defaultSubject, defaultBody),

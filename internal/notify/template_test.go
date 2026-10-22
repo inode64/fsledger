@@ -32,7 +32,8 @@ func TestTemplateSummaryVariables(t *testing.T) {
 	detail := func(kind string) catalog.Detail {
 		return catalog.Detail{
 			ChangeID: "", Path: []byte("/file"), Kind: kind, Actor: "actor",
-			Fields: nil, Baseline: nil, Observed: 1,
+			Fields: nil, Observed: 1,
+			BackdatedBy: 0,
 		}
 	}
 	message := catalog.Message{

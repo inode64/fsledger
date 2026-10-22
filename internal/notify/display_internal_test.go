@@ -9,12 +9,10 @@ import (
 )
 
 const (
-	displayModified  = "modified"
-	displayUnknown   = "unknown"
-	displayInode     = "inode"
-	displaySameOwner = "unchanged-owner"
-	displaySameGroup = "same-group"
-	displayExample   = "example"
+	displayModified = "modified"
+	displayUnknown  = "unknown"
+	displayInode    = "inode"
+	displayExample  = "example"
 )
 
 func displayMessage() catalog.Message {
@@ -24,18 +22,15 @@ func displayMessage() catalog.Message {
 			{
 				Path: []byte("/etc/one"), Kind: displayModified, Actor: displayUnknown, Observed: 1, ChangeID: "first",
 				Fields: []catalog.FieldChange{
-					{Field: "mode", Before: "600", After: "644"},
+					{Field: "mode", Before: "33152", After: "33188"},
 					{Field: displayInode, Before: "hidden-before", After: "hidden-after"},
-					{Field: "uid", Before: displaySameOwner, After: displaySameOwner},
-				}, Baseline: []catalog.FieldChange{
-					{Field: displayInode, Before: "hidden-reference", After: "hidden-now"},
-					{Field: "gid", Before: displaySameGroup, After: displaySameGroup},
-					{Field: "hash", Before: "approved-hash", After: "current-hash"},
 				},
+				BackdatedBy: 0,
 			},
 			{
 				Path: []byte("/etc/two\n\xff"), Kind: "added", Actor: displayUnknown, Observed: 2,
-				ChangeID: "second", Baseline: nil, Fields: nil,
+				ChangeID: "second", Fields: nil,
+				BackdatedBy: 0,
 			},
 		},
 	}
@@ -51,14 +46,14 @@ func assertChangeLayout(t *testing.T, body string) {
 	}
 
 	for _, hidden := range []string{
-		displayInode, "hidden-before", "hidden-reference", displaySameOwner, displaySameGroup,
+		displayInode, "hidden-before",
 	} {
 		if strings.Contains(body, hidden) {
 			t.Fatal("hidden or unchanged metadata displayed", hidden, body)
 		}
 	}
 
-	if !strings.Contains(body, "approved-hash") || !strings.Contains(body, "600") || !strings.Contains(body, "644") {
+	if !strings.Contains(body, "-rw-------") || !strings.Contains(body, "-rw-r--r--") {
 		t.Fatal("actual differences lost", body)
 	}
 }
@@ -89,7 +84,7 @@ func TestReportUsesSameChangeLayout(t *testing.T) {
 
 	items := make([]catalog.ReportItem, len(message.Details))
 	for index, detail := range message.Details {
-		items[index] = catalog.ReportItem{Detail: detail, Head: "", Deferred: false, Violation: false}
+		items[index] = catalog.ReportItem{Detail: detail, Head: "", Deferred: false}
 	}
 
 	message.Report = &catalog.ReportInfo{

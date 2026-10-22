@@ -1,4 +1,4 @@
-.TH FSLEDGERD 8 "2026-10-02" "fsledger" "System Administration"
+.TH FSLEDGERD 8 "2026-10-22" "fsledger" "System Administration"
 .SH NAME
 fsledgerd \- foreground filesystem history daemon
 .SH SYNOPSIS
@@ -28,7 +28,7 @@ committed. Pending paths appear in the status field unstable_paths and are
 retried
 by a reconciliation scheduled after one minute, even if periodic reconciliation
 is disabled. Polling with a scan cron waits for its next configured scan slot
-instead. An incomplete inventory cannot initialize an integrity baseline.
+instead.
 A full hash scan left incomplete only by unstable paths still counts as that
 full scan for scheduling: its retries and later ordinary scans hash only new or
 changed entries until the next full deadline, measured from that scan. It does

@@ -1,4 +1,4 @@
-.TH FSLEDGER.YAML 5 "2026-10-02" "fsledger" "File Formats"
+.TH FSLEDGER.YAML 5 "2026-10-22" "fsledger" "File Formats"
 .SH NAME
 fsledger.yaml \- fsledger configuration
 .SH DESCRIPTION
@@ -25,7 +25,7 @@ session are outside that group. Waiting for inherited pipes is bounded by a
 one-second WaitDelay; this does not guarantee termination of detached
 descendants.
 Git lock files left by a cancelled command are removed then, and whenever the
-daemon or an inventory command opens the repository; no other Git process may
+daemon, verify or outbox clear opens the repository; no other Git process may
 write to the mirror.
 Partial failures require unknown-actor reconciliation before further commits.
 .TP
@@ -80,8 +80,9 @@ produce one full scan. Jobs do not overlap; missed cron occurrences are skipped.
 .TP
 .B watch.reconcile.on_start, watch.reconcile.on_stop
 Both default to true. Only explicit polling permits false, deferring startup
-inventory or omitting shutdown reconciliation. An empty catalog is not verified
-until its first complete scan. Polling with any scan cron retries failed
+inventory or omitting shutdown reconciliation. An empty catalog records nothing,
+and so reports no change, until its first complete scan. Polling with any scan
+cron retries failed
 or unstable observations at the next configured slot instead of continuously
 rescanning outside its window. Explicit administrative operations remain
 possible.
@@ -169,9 +170,8 @@ survive a restart. An entry or pattern that cannot be read (permission denied,
 I/O error, stale handle, too many symlinks) is listed as skipped_sources but
 proves no deletion: the daemon keeps every source it watched and, after a
 restart, every tree its catalog recorded outside the selection, until the entry
-can be read again. verify, baseline init and baseline replace refuse to run
-meanwhile. Two repositories of one type may not select the same tree;
-a git and a db
+can be read again. verify refuses to run meanwhile. Two repositories of one type
+may not select the same tree; a git and a db
 repository may, since one keeps content and the other verifies it. Conflicting
 matches are assigned to the first repository in name order and skipped in the
 others. Inside one
@@ -187,19 +187,35 @@ false and empty lists override them. No Git/DB conversion is performed.
 .B Catalog storage
 The catalog uses Pebble, using Protobuf records and Snappy compression without
 CGO.
-Catalog directories require local storage. No permanent observation or approval
-history is kept. storage.history_days is no longer accepted.
+Catalog directories require local storage. No permanent observation history is
+kept.
 .TP
-.B integrity.reference, integrity.compare
-Reference is baseline (default) or previous. Fields: hash, type, mode, uid, gid,
-size, mtime, ctime, atime, btime, xattrs, acl, inode, device, nlink, target.
-Default comparison excludes atime, btime, inode, device, nlink and target.
-ctime is metadata change time. btime availability is stored explicitly.
+.B Integrity policy
+Each observation is compared with the previous observation of the same path.
+The compared fields are hash, type, target, mode, uid and gid, plus xattrs and
+acl when integrity.xattrs and integrity.acl select them. A difference in any of
+them is a change; other recorded attributes (size, ctime, atime, btime, inode,
+device, nlink, and xattrs and acl unless selected) are kept in the inventory but
+never produce a change on their own. ctime is metadata change time. btime
+availability is stored explicitly.
+mtime is a change only when it moves more than one hour before the btime of
+the same file, as touch \-d or utimensat leave it; such a change is coded T.
+A recreated file has a new btime, so a copy that replaces a file and keeps its
+time (tar, rsync \-a, unzip) is reported only when its content or another
+compared field differs. Restoring a time in place keeps the btime and is
+reported: cp \-p over an existing file, and tar or rsync \-a on directories
+that already exist (unless integrity.directories is false).
+Alerts and reports mark any change of a version whose mtime predates its btime
+(Detail.BackdatedBy).
+The first scan of an empty catalog records every entry as created and, when
+change alerts or reports are enabled, announces all of them. To build it
+silently, run verify with the daemon stopped while the repository has
+notifications.use: [] and reports.enabled: false, then restore them.
 Attributes the filesystem does not provide are not recorded: atime only where
 the mount keeps access times current (not noatime or relatime, and not
 nodiratime for directories), btime only where statx returns it, and xattrs and
 ACLs only where they are supported. Such attributes are neither stored nor
-shown, and a value only one side provides is never a difference.
+shown.
 xattrs and ACLs too large to observe (over 1 MiB of names and values, or more
 than 64 KiB of names) are recorded as attributes_status too_large without their
 values and shown as a failed read; the rest of the scan is unaffected.
@@ -207,28 +223,40 @@ values and shown as a failed read; the rest of the scan is unaffected.
 .B integrity.directories
 true (default) records directory entries like any other path. false keeps
 them out of the inventory: files, links and other entries inside are still
-observed, but creating, removing or changing a directory produces no change,
-report or reference difference, and directory entries stored earlier are
-retired silently. A file replaced by a directory is still reported as deleted.
-Useful for web trees, where directories carry no evidence of tampering. The
-setting is part of the baseline policy: changing it requires baseline replace.
+observed, but creating, removing or changing a directory produces no change
+or report, and directory entries stored earlier are retired silently. A file
+replaced by a directory is still reported as deleted. Useful for web trees,
+where directories carry no evidence of tampering.
+.TP
+.B integrity.xattrs, integrity.acl
+false (default). true adds extended attributes, including file capabilities
+(security.capability) and security labels, or POSIX ACLs to the compared
+fields; they are recorded either way, so selecting them needs no new
+inventory. A change is coded P. They are compared only where both observations
+could read them. doctor, and the daemon at start, check each source and nested
+mount: a selected comparison that the filesystem does not support is reported
+in their warnings, and the daemon logs it and keeps it in the status without
+raising an error alert.
 .TP
 .B integrity.hash
 algorithm is sha256 (default), sha512, sha512_256, sha3_256, sha3_512,
-blake3 or xxhash64. xxhash64 requires previous,
-not baseline. on_event defaults true; full_scan_interval defaults 24h and
+blake3 or xxhash64. on_event defaults true; full_scan_interval defaults 24h and
 continues even if ordinary watch reconciliation is disabled.
 full_scan_schedule and full_scan_timezone (UTC by default) provide a cron
 alternative to full_scan_interval with the same inheritance and exclusivity
-rules as watch.reconcile. The first inventory scan still requires full hashing
-when hash comparison is enabled. Ordinary scans retain the existing metadata
-and on_event policy; no second scanner or inventory is created.
+rules as watch.reconcile. The first inventory scan still requires full
+hashing. Ordinary scans retain the existing metadata
+and on_event policy; no second scanner or inventory is created. With on_event
+false, a content edit that changes no other compared field is reported when
+the next full scan hashes the file. Changing algorithm reports every regular
+file as a content change when it is next hashed. xxhash64 is not
+cryptographic: a deliberate collision can hide a content change.
 .TP
 .B notifications
-use selects named notifiers; [] disables them. events selects change,
-integrity_violation, error and recovery. batch_window defaults 30s;
-max_batch_window defaults 15m and must be at least batch_window. Change and
-integrity notices for each repository and destination share a delivery window.
+use selects named notifiers; [] disables them. events selects change, error
+and recovery. batch_window defaults 30s;
+max_batch_window defaults 15m and must be at least batch_window. Change
+notices for each repository and destination share a delivery window.
 While gaps between notices do not exceed max_batch_window, completed windows
 double up to that maximum;
 setting both windows equal disables growth. Error and recovery notices keep the
@@ -266,16 +294,18 @@ Both may select a template by name. Templates have Host (server.name), Hostname
 (kernel hostname when the message was queued), Repository, Event, ChangeID,
 Paths,
 Count, the per-kind counts Added, Modified and Deleted, Details (path, kind,
-actor, observed time, field values and approved-reference differences) and
+actor, observed time and field values) and
 Reason
 (error and recovery events only: the repository warnings behind the error, or
-what the recovery recovered from). Message.DisplayReason returns Reason with
+what the recovery recovered from). Message.Detailed reports whether every path
+is listed with its fields, which holds up to Message.DetailLimit (250) paths.
+Message.DisplayReason returns Reason with
 control characters escaped, as the default templates print it: a reason can
 quote mount points, source globs or path errors. The time
 function formats Unix nanoseconds as UTC in RFC 3339; localtime formats them as
 YYYY-MM-DD HH:MM:SS ZONE in the server time zone, which the default templates
-and reports use; duration renders a time span in days, hours or minutes. Subject and body share a 16 MiB output
-limit. Email uses each field directly;
+and reports use; duration renders a time span in days, hours or minutes.
+Subject and body share a 16 MiB output limit. Email uses each field directly;
 Slack sends the subject followed by the body and splits long output into parts.
 Parts are posted one second apart and keep the webhook reserved until the last
 one, so no other message the daemon sends to that webhook lands in between,
@@ -283,7 +313,7 @@ even from another repository.
 The queue records each accepted part: when a later part fails, the retry, even
 after a restart, resumes after the accepted parts while the message renders
 identically.
-Due change and integrity notices are summarized by repository, destination and
+Due change notices are summarized by repository, destination and
 event. Each detail retains its change ID. One summary contains at most 2000
 paths,
 512 KiB of rendered email, or four Slack parts; excess complete deliveries
@@ -294,30 +324,34 @@ is never truncated.
 .PP
 The default and example change templates list Code and Path before detailed
 differences. Detail.Code is C (created), D (deleted), M (content/type/link
-target),
-P (permissions only) or MP (content and permissions). Permissions include mode,
-UID, GID and ACL; accompanying timestamps do not imply content changes.
-An em dash indicates other metadata or insufficient evidence. Historical
-approved-reference differences do not change the classification of an
-observation.
-Detail.VisibleFields and Detail.VisibleBaseline omit inode and equal
-before/after
-values. Detail.DisplayFields and Detail.DisplayBaseline render those values for
+target), P (permissions or attributes only), MP (content and permissions) or T
+(an mtime moved back before btime, with no other verified change). Permissions
+are mode, UID and GID, and xattrs and acl when selected. An em dash indicates
+insufficient evidence: a modification whose content could not be verified.
+Detail.VisibleFields omits inode. A modification carries only the compared
+fields that changed; a creation or deletion lists every recorded attribute of
+the version that exists, leaving out target and hash when it has none.
+Detail.DisplayFields renders those values for
 people: timestamps with localtime, size in IEC units, mode as ls-style
 permissions followed by the raw st_mode in hexadecimal (as stat -c %f prints
 it), symlink targets as text, xattrs and ACLs as getfattr does (name="text", or
 name=0x followed by hexadecimal for binary values such as ACLs) with their
 readability status, and the absent side of a creation or deletion as an em
 dash; control characters and invalid UTF-8 are escaped. They leave out
-has_btime, device in creations and deletions, nlink unless a regular file has
-more than one hard link, and attributes_status unless reading xattrs and ACLs
-failed. Detail.BackdatedBy returns how much earlier mtime is than btime for the
-current version (over one hour), a sign of times preserved by a copy or of a
-backdated file; the default templates and reports print it as a warning. Detail.ActorLines returns the actor evidence as lines
+has_btime, device, nlink unless a regular file has more than one hard link,
+and attributes_status unless reading xattrs and ACLs failed. Size, times and
+attributes therefore appear only in creations and deletions, except a backdated
+mtime and selected xattrs and acl.
+Detail.BackdatedBy is how much earlier mtime is than btime for the version that
+exists, the deleted one for a deletion (over one hour), a sign of times
+preserved by a copy or of a backdated file. Creations, deletions and
+modifications carry it alike; the default templates and reports print it as a
+warning.
+Detail.ActorLines returns the actor evidence as lines
 without the detection method or the Git change trailer, with control
 characters escaped; Detail.Detection returns the detection method and
 Message.CommonDetection the method shared by every detail, or nothing when
-they differ. Raw Fields, Baseline and Actor remain available to custom
+they differ. Raw Fields and Actor remain available to custom
 templates; stored evidence is unchanged. Existing custom templates must opt
 into these methods. The default template states a shared detection method once;
 above 250 paths it lists every path grouped by actor and change ID without
@@ -351,9 +385,9 @@ notifications:
 Contents of services/web.yaml:
 .nf
 type: db
-paths: [/etc/nginx]
+paths: [/srv/www]
 integrity:
-  compare: [hash, type, uid, gid, mode, xattrs, acl]
+  directories: false
 .fi
 .PP
 Contents of templates/change.yaml:
@@ -438,8 +472,7 @@ copied. New entries belong to the
 daemon
 user; new files use 0600 (0700 when executable) and directories use 0700. Git
 does
-not supply ownership or extended attributes. Incoming changes do not approve the
-integrity baseline.
+not supply ownership or extended attributes.
 .PP
 A durable Pebble journal holds object IDs and progress, not file contents. It is
 recovered before ordinary local commits. Replacements use same-directory
@@ -480,8 +513,8 @@ arguments while retaining the observed user, PID and executable. Git failures
 preserve exit status and cancellation without exposing command arguments or
 hook output in status, logs or notifications.
 .PP
-notifications.ignore suppresses only change notifications. Inventory, approved
-baselines, integrity violations, errors and recovery are unaffected.
+notifications.ignore suppresses only change notifications. Inventory, errors
+and recovery are unaffected.
 commit.defer waits without a deadline until a non-deferred Git change or an
 explicit
 fsledger flush request. The initial snapshot is always committed. Only the
@@ -550,7 +583,7 @@ local times can run twice at different UTC instants. Restart to apply changes.
 Reports use a durable observation journal independent of immediate alerts.
 Neither notifications.events nor notifications.ignore filters reports.
 notifications.ignore suppresses only immediate change alerts, never report
-observations or integrity violations. Only metadata observed while enabled
+observations. Only metadata observed while enabled
 is
 recorded; no historical reconstruction or source content storage occurs.
 Periods include source observations, not necessarily successful Git commits.
@@ -576,8 +609,8 @@ Optional AI summarizes the sample only; factual totals cover the complete
 period.
 An active scan at period close marks the report incomplete. The report schedule
 is independent of scan schedules and does not wait for a scan to finish.
-Set notifications.events to [error, recovery] to deliver changes and baseline
-violations only through reports; this deliberately delays violation alerts.
+Set notifications.events to [error, recovery] to deliver changes only through
+reports; this deliberately delays change alerts.
 .PP
 After downtime one accumulated period is prepared, not a separate message for
 every missed schedule. Restart or incomplete observation sets a coverage
@@ -605,7 +638,7 @@ reports.ai.enabled defaults to false. When true, profiles and include must both
 be nonempty. profiles references ordered alternatives from ai/. include uses
 absolute doublestar patterns. input currently accepts only metadata (default).
 Selection is independent of ia_commit and applies to Git and DB repositories.
-Only selected paths, change kinds, field names and deferred/violation flags are
+Only selected paths, change kinds, field names and deferred flags are
 sent, never source contents, attribute values or actor commands. The union of
 profile redactions masks complete names before encoding and bounding the input.
 At most 32 observations per part and the smallest selected max_diff_bytes limit

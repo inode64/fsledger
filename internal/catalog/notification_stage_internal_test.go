@@ -124,7 +124,6 @@ func TestStagedChangeSurvivesRestartBeforeNotification(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg.Integrity.Compare = []string{fieldHash, fixtureType, fixtureMode}
 	cfg.Notifications.Use = nil
 	cfg.Notifications.BatchWindow = time.Nanosecond
 	path := filepath.Join(t.TempDir(), config.CatalogDirectory)

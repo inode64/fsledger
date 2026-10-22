@@ -1,4 +1,4 @@
-// Package catalog persists current observations, approved references and pending deliveries.
+// Package catalog persists current observations and pending deliveries.
 package catalog
 
 import (
@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"time"
 
@@ -28,9 +27,6 @@ const (
 	catalogFormat           = "fsledger-pebble-protobuf-snappy-1"
 	currentPrefix           = "e/"
 	seenPrefix              = "s/"
-	pendingPrefix           = "p/"
-	tokenPrefix             = "t/"
-	approvalPrefix          = "a/"
 	hashPrefix              = "h/"
 	intentPrefix            = "i/"
 	outboxPrefix            = "o/"
@@ -96,8 +92,8 @@ func (shared *sharedCache) release() {
 	}
 }
 
-// Store serializes writes per repository; scans and approvals share a separate operation lock.
-// Its integrity policy is fixed at Open; a policy change requires closing and reopening the store.
+// Store serializes writes per repository; scans share a separate operation lock.
+// Its integrity settings are fixed at Open; a change requires closing and reopening the store.
 type Store struct {
 	reportCalendar        *reportclock.Schedule
 	now                   func() time.Time
@@ -106,7 +102,6 @@ type Store struct {
 	database              *pebble.DB
 	versions              map[string]string
 	windows               map[string]notificationWindow
-	policyDigest          string
 	reportHead            string
 	notificationOperation string
 	Repository            string
@@ -118,31 +113,25 @@ type Store struct {
 	mutex                 sync.Mutex
 	operation             sync.Mutex
 	scanActive            bool
-	replacingBaseline     bool
 }
 
 // Stats describes live state, never cumulative change history. ExhaustedNotifications counts the pending
-// notifications that stopped retrying; catalogs written before it existed have none.
+// notifications that stopped retrying.
 type Stats struct {
 	DeferredPaths          int64 `json:"deferred_paths"`
 	DeferredSince          int64 `json:"deferred_since"`
 	Entries                int64 `json:"entries"`
-	Violations             int64 `json:"violations"`
 	NotificationOverflow   int64 `json:"notification_overflow"`
 	PendingNotifications   int64 `json:"pending_notifications"`
 	ExhaustedNotifications int64 `json:"exhausted_notifications,omitzero"`
-	BaselineReady          bool  `json:"baseline_ready"`
 	LastFullScan           int64 `json:"last_full_scan"`
 }
 
 type diskState struct {
-	Policy                 string      `json:"policy"`
 	Reports                reportState `json:"reports"`
 	Stats                  Stats       `json:"stats"`
-	Baseline               int         `json:"baseline"`
 	Generation             uint64      `json:"generation"`
 	NextDelivery           int64       `json:"next_delivery"`
-	Complete               bool        `json:"complete"`
 	InitialSnapshotPending bool        `json:"initial_snapshot_pending,omitempty"`
 }
 
@@ -186,8 +175,6 @@ func Open(
 		return nil, fault.Wrap("open Pebble catalog", err)
 	}
 
-	policy.Compare = slices.Clone(policy.Compare)
-
 	store := &Store{
 		now:           time.Now,
 		ignore:        ignore,
@@ -196,7 +183,6 @@ func Open(
 		Repository:    repository,
 		Host:          host,
 		policy:        policy,
-		policyDigest:  integrity.PolicyID(policy.Compare, policy.Hash.Algorithm, policy.Directories),
 		Notifications: notifications,
 	}
 
@@ -229,7 +215,7 @@ func inspectDirectory(path string) error {
 		}
 
 		if err == nil && !info.IsDir() {
-			return fault.New("catalog and its parents must be directories, not symlinks or legacy files")
+			return fault.New("catalog and its parents must be directories, not symlinks or files")
 		}
 
 		if filepath.Dir(part) == part {
@@ -278,7 +264,7 @@ func (store *Store) initialize() error {
 	}
 
 	err = store.loadState(format)
-	if err != nil {
+	if err != nil || format != nil {
 		return err
 	}
 
@@ -286,20 +272,11 @@ func (store *Store) initialize() error {
 	defer resource.Close(transaction.batch)
 
 	transaction.set([]byte(formatKey), []byte(catalogFormat))
-	// A crash before publication may leave an unfinished reference in the inactive slot.
-	transaction.clear(baselinePrefix(1 - store.state.Baseline))
 
 	return transaction.commit()
 }
 
-func changeID() string { return rand.Text() }
-func baselinePrefix(slot int) string {
-	if slot == 0 {
-		return "b/0/"
-	}
-
-	return "b/1/"
-}
+func changeID() string                      { return rand.Text() }
 func key(prefix string, path []byte) []byte { return append([]byte(prefix), path...) }
 func upper(prefix string) []byte {
 	result := append([]byte(nil), prefix...)
@@ -353,7 +330,7 @@ func readRecord(source reader, prefix string, path []byte) (integrity.Record, []
 }
 
 type transaction struct {
-	notifications map[notificationBatchKey]notificationBatch
+	notifications map[notificationRoute]notificationBatch
 	err           error
 	store         *Store
 	batch         *pebble.Batch
@@ -463,15 +440,8 @@ func (store *Store) loadState(format []byte) error {
 	}
 
 	err = json.Unmarshal(data, &store.state)
-	if err != nil {
-		return fault.Wrap("decode catalog state", err)
-	}
 
-	if store.state.Baseline < 0 || store.state.Baseline > 1 {
-		return fault.New("invalid active reference slot")
-	}
-
-	return nil
+	return fault.Wrap("decode catalog state", err)
 }
 
 func (store *Store) checkEmpty() error {

@@ -27,19 +27,14 @@ func TestCheckRejectsTemplateThatCannotRender(t *testing.T) {
 		}
 	}
 
-	for name, text := range map[string]string{
+	writeFiles(t, root, map[string]string{
 		fixtureMainYaml: "runtime: " + root + "/run\nstorage: {path: " + root + "/state}\n" +
 			"paths: {repositories: [system.yaml], notifiers: [notifiers], templates: templates}\n",
 		fixtureSystemYaml:    "paths: ['" + root + "/present']\nnotifications: {use: [ops], events: [error]}\n",
 		"notifiers/ops.yaml": "type: slack\nurl: https://hooks.example.org/services/x\ntemplate: first\n",
 		// Error events carry no paths; parsing alone accepts the index.
 		"templates/first.yaml": "subject: 'fsledger {{.Host}}'\nbody: '{{index .Paths 0}}'\n",
-	} {
-		err = os.WriteFile(filepath.Join(root, name), []byte(text), 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
+	})
 
 	var output, stderr bytes.Buffer
 

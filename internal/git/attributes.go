@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/resource"
@@ -30,18 +29,17 @@ func (r *Repository) preserveContent() error {
 		return fault.Wrap("create Git info directory", mkdirErr)
 	}
 
-	previous, err := metadata.ReadFile("info/attributes")
+	current, err := metadata.ReadFile("info/attributes")
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fault.Wrap("read Git attributes", err)
 	}
 
-	// A block written by an earlier release stays: the current one is appended after it,
-	// and later lines take precedence.
-	if strings.HasSuffix(string(previous), literalAttributes) {
+	// fsledger owns the mirror's info/attributes: any other content is replaced.
+	if string(current) == literalAttributes {
 		return nil
 	}
 
-	writeErr := metadata.WriteFile("info/attributes", append(previous, literalAttributes...), 0o600)
+	writeErr := metadata.WriteFile("info/attributes", []byte(literalAttributes), 0o600)
 
 	return fault.Wrap("preserve literal Git content", writeErr)
 }

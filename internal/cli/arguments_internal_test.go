@@ -8,9 +8,10 @@ import (
 )
 
 const (
-	repo       = "repo"
-	file       = "file"
-	initAction = "init"
+	repo          = "repo"
+	file          = "file"
+	previewAction = "preview"
+	clearAction   = "clear"
 )
 
 func TestSplitArgumentsKeepsFlagValuesAwayFromOperands(t *testing.T) {
@@ -25,12 +26,17 @@ func TestSplitArgumentsKeepsFlagValuesAwayFromOperands(t *testing.T) {
 		{"value between operands", []string{"db", "-c", file, repo}, []string{"-c", file}, []string{"db", repo}},
 		{
 			"a flag value is not an action",
-			[]string{"--repository", initAction, "accept"},
-			[]string{"--repository", initAction},
-			[]string{"accept"},
+			[]string{"--repository", previewAction, clearAction},
+			[]string{"--repository", previewAction},
+			[]string{clearAction},
 		},
-		{"inline value", []string{"--repository=init", "replace"}, []string{"--repository=init"}, []string{"replace"}},
-		{"boolean flag takes nothing", []string{"--debug", initAction}, []string{"--debug"}, []string{initAction}},
+		{
+			"inline value",
+			[]string{"--repository=preview", clearAction},
+			[]string{"--repository=preview"},
+			[]string{clearAction},
+		},
+		{"boolean flag takes nothing", []string{"--debug", previewAction}, []string{"--debug"}, []string{previewAction}},
 		{
 			"separator keeps dashed names",
 			[]string{"-c", file, "--", "-db", repo},
@@ -43,7 +49,12 @@ func TestSplitArgumentsKeepsFlagValuesAwayFromOperands(t *testing.T) {
 			[]string{"-c", file},
 			[]string{"-"},
 		},
-		{"unknown flag is left to the parser", []string{"--bogus", initAction}, []string{"--bogus"}, []string{initAction}},
+		{
+			"unknown flag is left to the parser",
+			[]string{"--bogus", previewAction},
+			[]string{"--bogus"},
+			[]string{previewAction},
+		},
 		{"missing value is left to the parser", []string{"db", repo, "-c"}, []string{"-c"}, []string{"db", repo}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

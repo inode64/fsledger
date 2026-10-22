@@ -11,15 +11,15 @@ import (
 
 const (
 	// usageSummary fits the single log line in which the entry points report errors.
-	usageSummary = "usage: fsledger check|doctor|status|run|flush|verify|changes|baseline|report|outbox|restore|" +
-		"migrate_aide|version [-c configuration]"
-	usageText = "Usage: fsledger check|doctor|status|run|flush|verify|changes|baseline [-c configuration] [--debug]\n" +
+	usageSummary = "usage: fsledger check|doctor|status|run|flush|verify|report|outbox|restore|version [-c configuration]"
+	usageText    = "Usage: fsledger check [--effective] [-c configuration]\n" +
+		"       fsledger doctor|status [-c configuration]\n" +
+		"       fsledger run [-c configuration] [--debug]\n" +
+		"       fsledger flush|verify --repository NAME [-c configuration]\n" +
 		"       fsledger report preview --repository NAME [-c configuration]\n" +
 		"       fsledger outbox clear --repository NAME [-c configuration]\n" +
 		"       " + restoreUsage + "\n" +
-		"       " + migrationUsage + "\n" +
 		"       fsledger --version"
-	migrationUsage = "fsledger migrate_aide <db_old> <repository> [-c configuration]"
 )
 
 // splitArguments lets options and operands appear in any order without mistaking a flag value for

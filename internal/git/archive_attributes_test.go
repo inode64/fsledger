@@ -11,10 +11,8 @@ import (
 	gitrepo "github.com/inode64/fsledger/internal/git"
 )
 
-// legacyAttributes is the info/attributes block of releases that left the export rules set.
-const legacyAttributes = `
-# fsledger: retain source bytes; override content conversions from monitored attributes.
-* -text -crlf -filter -ident -working-tree-encoding
+// foreignAttributes would let git archive apply the monitored export rules.
+const foreignAttributes = `* -text
 `
 
 // archivedFiles returns the regular files in the archive of path at commit, keyed by name.
@@ -64,8 +62,8 @@ func TestArchiveIgnoresMonitoredExportAttributes(t *testing.T) {
 
 	repository := newRepository(t)
 
-	// A mirror created by an earlier release must be upgraded when it is opened again.
-	writeRepositoryFile(t, repository, filepath.Join(".git", "info", "attributes"), legacyAttributes)
+	// fsledger owns info/attributes: other rules there are replaced when the mirror is opened.
+	writeRepositoryFile(t, repository, filepath.Join(".git", "info", "attributes"), foreignAttributes)
 
 	_, err := repository.Init(t.Context())
 	if err != nil {

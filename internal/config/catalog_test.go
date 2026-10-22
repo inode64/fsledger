@@ -126,7 +126,7 @@ func TestTemplateDocumentsAreStrict(t *testing.T) {
 	for _, testCase := range []struct {
 		name, document string
 	}{
-		{"plain text", "legacy {{.Repository}}"},
+		{"plain text", "plain {{.Repository}}"},
 		{"missing subject", "body: '{{.Repository}}'"},
 		{"missing body", "subject: '{{.Repository}}'"},
 		{"unknown field", "subject: ok\nbody: ok\nhtml: no"},

@@ -6,7 +6,7 @@
 
 fsledger combines file integrity monitoring (FIM), automatic Git history, and alerts.
 It helps you answer which files changed, when the changes were observed, and how they
-differ from a trusted baseline. When Linux provides the evidence, it also records the
+differ from the previous observation. When Linux provides the evidence, it also records the
 observed user and process.
 
 Preserve contents in Git for investigation and recovery, keep hashes and metadata
@@ -34,8 +34,8 @@ suspected malware, unauthorized changes, and deployment mistakes.
   files, or changes to startup configuration in the paths you monitor.
 - **Understand configuration changes.** Keep versions of `/etc` and your applications'
   configuration to compare their previous and current states.
-- **Monitor websites and services.** Detect changes to contents, permissions, ownership,
-  and other attributes, and compare them against an approved baseline.
+- **Monitor websites and services.** Detect changes to contents, file types, symlink
+  targets, permissions, and ownership, compared with the previous observation.
 - **Review activity without following every event.** Receive grouped alerts or scheduled
   reports with the affected paths and observed changes.
 - **Handle each service's needs separately.** Store the configuration you want to version
@@ -48,8 +48,8 @@ suspected malware, unauthorized changes, and deployment mistakes.
 - **Automatic Git history.** Each repository keeps an independent copy of its sources,
   with grouped commits and recognizable paths. It does not add `.git` to application
   directories.
-- **Integrity with explicit approval.** Compare hashes and attributes against an approved
-  baseline or the previous observation. SHA256 is the default algorithm.
+- **Integrity monitoring.** Compare each observation with the previous one: content hash,
+  file type, symlink target, permissions, and ownership. SHA256 is the default algorithm.
 - **Context for investigations.** Use information available from fanotify, `/proc`,
   and Linux Audit to enrich changes with user and process details. If the actor cannot
   be identified, the change is still recorded with an unknown actor.
@@ -64,27 +64,26 @@ suspected malware, unauthorized changes, and deployment mistakes.
 - **Optional AI.** Add summaries to commits or reports, with path selection and redaction
   rules applied before information is sent to the provider.
 - **CLI administration.** Validate configuration, check status, diagnose capabilities,
-  review differences, and approve changes. Includes OpenRC and systemd integration.
+  run full scans, and restore recorded versions. Includes OpenRC and systemd integration.
 
 ## Malware detection and incident response
 
 An unexpected write can be the first visible sign of a compromised website or service.
 fsledger makes those writes easier to notice and investigate: alerts identify affected
-paths, integrity checks compare them with an approved state, and Git history lets you
+paths, integrity checks compare them with the previous observation, and Git history lets you
 inspect the recorded contents before and after a change.
 Hash and attribute comparisons can reveal an unexpected change without knowing the
 malware family or the vulnerability involved in advance.
 
 | Observed change | How fsledger helps |
 | --- | --- |
-| A script appears in a monitored web directory | Records the addition and can alert on a baseline violation. |
+| A script appears in a monitored web directory | Records the addition and can send a change alert. |
 | PHP or JavaScript code is modified | Records hash differences; Git profiles also preserve contents for review. |
-| Cron jobs, service settings, or SSH keys change | Records selected attributes and available user/process evidence. |
+| Cron jobs, service settings, or SSH keys change | Records content and permission changes and user/process evidence. |
 
 These signals need investigation: a legitimate deployment can produce the same kinds
-of changes. A Git commit or a delivered alert does not approve a change. The integrity
-baseline changes only through explicit administration, and Git history can contain
-malicious versions as well as legitimate ones.
+of changes. A Git commit or a delivered alert does not mean that a change is legitimate,
+and Git history can contain malicious versions as well as legitimate ones.
 
 ### Example: PHP2Shell
 
@@ -96,17 +95,17 @@ security updates; installing fsledger does not close those vulnerabilities.
 As an illustrative scenario, suppose an attacker gains code execution and then writes
 a web shell into a monitored `/srv/www` tree or modifies an existing PHP file.
 If fsledger observes that write, it can record the change, notify your team, and retain
-the contents in a Git profile. Comparing against a baseline established before the
-incident helps identify deviations, even when the filename itself looks ordinary.
+the contents in a Git profile. The recorded differences show what changed in the file,
+even when the filename itself looks ordinary.
 This illustrates filesystem monitoring, not a detector specific to those CVEs or a
 claim about how they have been exploited.
 
 ### Make monitoring useful before an incident
 
-1. **Establish trust first.** Review a clean deployment and
-   [initialize its baseline](#integrity-and-change-approval) with the daemon stopped.
-   Starting monitoring on an already infected server does not establish a clean reference.
-   Approve expected deployment changes only after review.
+1. **Establish trust first.** Review a clean deployment before you start monitoring it:
+   the [first inventory](#integrity) is the state later changes are compared with.
+   Starting monitoring on an already infected server records the infected state as normal.
+   Review the changes that each deployment produces.
 2. **Select paths for the evidence you need.** Include application code and relevant
    configuration, scheduled jobs, and access keys. Consider upload directories too:
    excluding an entire writable tree can hide unexpected scripts. Use a DB profile
@@ -115,7 +114,7 @@ claim about how they have been exploited.
 3. **Enable timely alerts and verify delivery.** Use `watch.backend: auto`, keep
    reconciliation and full hash scans enabled, and keep `integrity.hash.on_event: true`.
    Select a configured destination in `notifications.use` and include `change`,
-   `integrity_violation`, `error`, and `recovery` in `notifications.events`.
+   `error`, and `recovery` in `notifications.events`.
    Check `fsledger doctor` and `fsledger status`, then confirm
    that a controlled change produces an alert. The nightly `web-polling` example reports
    file changes on its report schedule; it is not configured for prompt change alerts.
@@ -124,8 +123,9 @@ claim about how they have been exploited.
    remote are not tamper-proof: an attacker with sufficient privileges can alter evidence
    or stop monitoring. Publication copies Git history, not the complete integrity catalog.
 5. **Investigate before restoring.** Preserve evidence and contain the affected service.
-   With the daemon stopped, use `verify` and `changes` to inspect baseline differences;
-   avoid approving a suspect state. For Git profiles, review the history and
+   Review the alerts and reports for the affected paths; with the daemon stopped, `verify`
+   rescans every source and records in the catalog the changes not observed yet.
+   For Git profiles, review the history and
    [restore a verified version to a separate directory](#everyday-use). Fix the entry
    point before returning the service to production. Restoring recorded files neither
    removes every extra malicious file nor proves the host is clean; DB profiles retain
@@ -158,8 +158,8 @@ with package updates. It also records metadata that Git does not preserve on its
 such as permissions.
 
 **AIDE** is a good fit if your goal is to compare files and attributes against an integrity
-baseline. fsledger can import an existing AIDE database to establish that baseline
-without automatically approving the current state.
+baseline. It checks the system against a database that you initialize and update explicitly,
+while fsledger compares each observation with the previous one and records every change it observes.
 
 **fsledger** is a good fit when you need to manage multiple paths and services with their
 own policies, choose between content in Git and metadata inventories, and combine that
@@ -198,8 +198,8 @@ while different repositories can work concurrently. A shared budget limits scann
 Report preparation and alert delivery run outside the copy and commit work.
 
 The `fsledgerd` service handles monitoring, and the `fsledger` CLI provides administration.
-Git preserves history, while a local Pebble catalog stores the inventory, approved
-baselines, and pending work. No additional database server is required.
+Git preserves history, while a local Pebble catalog stores the inventory and pending work.
+No additional database server is required.
 
 ## Requirements
 
@@ -316,7 +316,8 @@ sudo fsledger run -c /etc/fsledger/fsledger.yaml
 ```
 
 Stop that run before starting the OpenRC or systemd service. The daemon prepares
-repositories automatically and performs an initial scan by default. A polling profile
+repositories automatically and performs an initial scan by default; on an empty catalog
+it records every entry as created (see [Integrity](#integrity)). A polling profile
 with `on_start: false` waits for its schedule.
 
 With the service running, you can check its status and the history of `system`:
@@ -366,8 +367,7 @@ to the main YAML file; sources use absolute paths or patterns over them.
 Missing entries are skipped without error and included when they appear in a subsequent
 reconciliation. An entry or pattern that cannot be read (permission denied, I/O error, stale
 handle, symlink loop) is skipped too, but never taken as deleted: the daemon keeps what it
-recorded there, and `verify`, `baseline init` and `baseline replace` refuse to run until it
-can be read again.
+recorded there, and `verify` refuses to run until it can be read again.
 Selection supports `*`, `?`, and `[...]` within each path component;
 recursive `**` patterns are reserved for exclusions and other filters that support them.
 
@@ -403,39 +403,53 @@ that exists when it runs, so it does not capture changes that appear and disappe
 between scans. The [complete nightly profile](examples/services/web-polling.yaml)
 adds email alerts and reports.
 
-### Integrity and change approval
+### Integrity
 
-Git and DB repositories maintain an inventory of hashes and attributes. Choose
-`integrity.reference: baseline` to compare against an approved baseline, or `previous`
-to track changes relative to the previous observation. In web trees,
+Git and DB repositories maintain an inventory of hashes and attributes. Each observation
+is compared with the previous one: a difference in content hash, file type, symlink target,
+permissions, or ownership (`hash`, `type`, `target`, `mode`, `uid`, `gid`) is recorded as a
+change. Other attributes (size, timestamps, inode) are kept in the inventory but never
+produce a change on their own. In web trees,
 `integrity.directories: false` leaves directory entries out of the inventory while
 the files inside are still monitored.
 
-With the daemon stopped, explicitly establish an initial baseline from a state
-you have reviewed and consider trustworthy:
+Extended attributes and ACLs are always recorded and compared only when a repository
+selects them with `integrity.xattrs: true` (this includes file capabilities set with
+`setcap` and security labels) and `integrity.acl: true`. If a source's filesystem does
+not support a selected comparison, `doctor` warns about it, and the daemon logs it at
+start and keeps a warning in the repository status.
+
+A modification time moved more than one hour before the file's birth time (`btime`), as
+`touch -d` leaves it, is a change even when the content is the same. A copy that replaces
+a file and keeps its time (`tar`, `rsync -a`, `unzip`) creates a new file with a new
+`btime`, so it is only reported when something else differs. Restoring a time in place
+keeps the `btime` and is reported: `cp -p` over an existing file, and `tar` or `rsync -a`
+on directories that already exist (unless `integrity.directories` is false). Alerts and
+reports flag any change of a file whose `mtime` predates its `btime`.
+
+`integrity.hash.algorithm` selects the hash, SHA256 by default. With `on_event: true`
+files are hashed as their events arrive, and `full_scan_interval` or `full_scan_schedule`
+rehash every file periodically. Changing the algorithm reports every regular file as a
+content change when it is next hashed. `xxhash64` is not cryptographic: a deliberate
+collision can hide a content change.
+
+The first inventory of a repository is the starting point for later comparisons, so review
+the sources before you start monitoring them. The first scan of an empty catalog records
+every entry as created and, when change alerts or reports are enabled, announces all of
+them. To build it silently, stop the daemon, set `notifications.use: []` and
+`reports.enabled: false` for that repository, run `verify`, and then restore its alerts
+and reports.
+
+With the daemon stopped, `verify` rescans every source, records the differences in the
+catalog and queues their notifications, which the daemon sends when it runs again. It
+does not commit to the Git mirror; the daemon's next reconciliation does. It exits with
+status 0 when nothing changed, 2 when it recorded changes (also on a first inventory),
+and 1 when it fails. A Go runtime crash also exits with 2, so scripts should also check
+that it printed its JSON result:
 
 ```sh
-sudo fsledger baseline init --repository system
 sudo fsledger verify --repository system
-sudo fsledger changes --repository system
 ```
-
-To approve a specific difference:
-
-```sh
-sudo fsledger baseline accept --repository system --change ID
-```
-
-The baseline is not updated automatically when changes arrive. If you already use AIDE,
-you can import its text or gzip database into an empty catalog:
-
-```sh
-sudo fsledger migrate_aide /var/lib/aide/aide.db system
-```
-
-Import preserves the original baseline and applies the profile's paths and exclusions;
-it does not approve the files as they currently exist. Inventory, approval, and import
-commands require exclusive access with the daemon stopped.
 
 ### Alerts and reports
 
@@ -443,7 +457,7 @@ Immediate alerts support email and Slack, templates, and change grouping.
 Every email, alert or report, ends with a signature naming the fsledger version and
 the project URL; Slack messages carry none.
 `notifications.ignore` filters change alerts by user, command, or path; it does not alter
-the inventory, integrity violations, or reports. `commit.defer` lets you defer commits
+the inventory or reports. `commit.defer` lets you defer commits
 for specific paths or actors until another non-deferred change or a `flush`.
 There is no maximum delay, and the latest observed pending version survives restarts.
 
@@ -582,7 +596,7 @@ and [fsledgerd(8)](packaging/man/fsledgerd.8) in the repository.
   in its history even if you exclude it later. AI redaction rules protect the provider's
   input; they do not change or encrypt archived bytes.
 - **Separate contents and metadata.** Git stores contents, symlinks, and the executable
-  bit; the catalog records selected attributes such as ownership, permissions, ACLs,
+  bit; the catalog records attributes such as ownership, permissions, ACLs,
   or xattrs. Git does not preserve empty directories or all those metadata fields in its tree.
   Names Git refuses even on Linux, such as `git~1`, `.git.` or a symlink named `.gitmodules`,
   stay in the catalog but are not copied to the mirror.

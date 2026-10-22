@@ -20,9 +20,10 @@ func TestReportItemsHonorRangeBounds(t *testing.T) {
 		transaction.put(numberKey(reportJournalPrefix, sequence), ReportItem{
 			Detail: Detail{
 				ChangeID: strconv.FormatInt(sequence, 10), Kind: "", Actor: "", Path: nil,
-				Fields: nil, Baseline: nil, Observed: 0,
+				Fields: nil, Observed: 0,
+				BackdatedBy: 0,
 			},
-			Head: "", Deferred: false, Violation: false,
+			Head: "", Deferred: false,
 		})
 	}
 

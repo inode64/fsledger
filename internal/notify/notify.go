@@ -59,15 +59,14 @@ Repositorio: {{.Repository}}
 {{end}}{{else}}Observaciones: {{.Count}} (+{{.Added}} ~{{.Modified}} -{{.Deleted}})
 {{if .ChangeID}}Cambio: {{.ChangeID}}
 {{end}}{{with $common}}Detección: {{.}}
-{{end}}{{if .Reason}}Motivo: {{.DisplayReason}}
-{{end}}{{if or .Details .Paths}}{{if .Detailed}}
+{{end}}{{if .Details}}{{if .Detailed}}
 Elementos cambiados
 Clave  Ruta
 {{range .Details}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}
-{{else}}{{range .Paths}}—      {{printf "%q" .}}
-{{end}}{{end}}
-C = Creado; D = Borrado; M = Contenido; P = Solo permisos; MP = Contenido y permisos.
-— = Otros metadatos o sin evidencia suficiente para clasificar.
+{{end}}
+C = Creado; D = Borrado; M = Contenido; P = Solo permisos o atributos; MP = Contenido y permisos.
+T = Fecha retrocedida (mtime anterior a btime) sin otro cambio comprobado.
+— = Sin evidencia suficiente para clasificar.
 
 Detalle de cambios
 {{range .Details}}
@@ -81,13 +80,12 @@ Ruta: {{printf "%q" .Path}} / {{.Code}}
 fecha conservada al copiar (tar, rsync -a, cp -p) o falseada.
 {{end}}{{range .DisplayFields}}{{.Field}}: {{.Before}} -> {{.After}}
 {{else}}Sin diferencias de campos visibles.
-{{end}}{{with .DisplayBaseline}}Comparación con referencia aprobada:
-{{range .}}{{.Field}}: {{.Before}} -> {{.After}}
-{{end}}{{end}}{{end}}{{else}}
+{{end}}{{end}}{{else}}
 Elementos cambiados, agrupados por actor
 Más de {{.DetailLimit}} rutas: se omite el detalle de campos por ruta; el catálogo conserva la evidencia completa.
-C = Creado; D = Borrado; M = Contenido; P = Solo permisos; MP = Contenido y permisos.
-— = Otros metadatos o sin evidencia suficiente para clasificar.
+C = Creado; D = Borrado; M = Contenido; P = Solo permisos o atributos; MP = Contenido y permisos.
+T = Fecha retrocedida (mtime anterior a btime) sin otro cambio comprobado.
+— = Sin evidencia suficiente para clasificar.
 {{$actor := "\x00"}}{{$change := "\x00"}}{{range .Details}}
 {{- if or (ne .Actor $actor) (ne .ChangeID $change)}}{{$actor = .Actor}}{{$change = .ChangeID}}
 {{if .ChangeID}}ID de cambio: {{.ChangeID}}
@@ -96,8 +94,7 @@ C = Creado; D = Borrado; M = Contenido; P = Solo permisos; MP = Contenido y perm
     {{.}}{{end}}{{else}} sin evidencia{{end}}
 Clave  Ruta
 {{end}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}{{if .BackdatedBy}}  [mtime anterior a btime]{{end}}
-{{else}}{{range .Paths}}—      {{printf "%q" .}}
-{{end}}{{end}}{{end}}{{end}}{{end}}`
+{{end}}{{end}}{{end}}{{end}}`
 )
 
 var errLocalRateLimit = errors.New("slack delivery rate limited")
@@ -487,7 +484,7 @@ func (sender *Sender) deliverDigest(
 
 	var sendErr error
 
-	if ok && (digest.Version == "" || digest.Version == target.version) {
+	if ok && digest.Version == target.version {
 		var rendered *renderedNotification
 
 		digest, rendered = sender.digestChunk(target.notifier, digest)

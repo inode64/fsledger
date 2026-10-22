@@ -89,12 +89,11 @@ func (session *Session) reportRecord(item catalog.ReportItem) ([]byte, error) {
 	}
 
 	value := struct {
-		Path      string   `json:"path"`
-		Kind      string   `json:"kind"`
-		Fields    []string `json:"fields"`
-		Deferred  bool     `json:"deferred"`
-		Violation bool     `json:"violation"`
-	}{path, item.Detail.Kind, fields, item.Deferred, item.Violation}
+		Path     string   `json:"path"`
+		Kind     string   `json:"kind"`
+		Fields   []string `json:"fields"`
+		Deferred bool     `json:"deferred"`
+	}{path, item.Detail.Kind, fields, item.Deferred}
 
 	data, err := json.Marshal(value)
 

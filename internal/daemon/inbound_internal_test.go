@@ -91,10 +91,7 @@ func TestIncomingRoundTrip(t *testing.T) {
 	t.Parallel()
 	runner, remote, editor := incomingWorker(t)
 
-	err := runner.catalog.InitBaseline(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := runner.status.LastChange
 
 	target := incomingEdit(t, runner, editor, "a", "remote bytes")
 	runner.syncRemote(t.Context(), time.Now())
@@ -105,9 +102,8 @@ func TestIncomingRoundTrip(t *testing.T) {
 
 	assertIncomingFile(t, filepath.Join(runner.roots[0], "a"), "remote bytes")
 
-	stats, err := runner.catalog.Stats(t.Context())
-	if err != nil || stats.Violations == 0 {
-		t.Fatal("incoming change silently approved integrity baseline", stats, err)
+	if runner.status.LastChange == "" || runner.status.LastChange == before {
+		t.Fatalf("incoming change not recorded: last change %q, before %q", runner.status.LastChange, before)
 	}
 
 	if got := strings.TrimSpace(gitOutput(t, runner, "rev-parse", "HEAD")); got != target {
@@ -116,7 +112,7 @@ func TestIncomingRoundTrip(t *testing.T) {
 
 	writeSource(t, runner, "b", "local after remote")
 
-	err = runner.reconcile(t.Context(), "Local after import")
+	err := runner.reconcile(t.Context(), "Local after import")
 	if err != nil {
 		t.Fatal(err)
 	}

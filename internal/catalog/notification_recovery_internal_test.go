@@ -13,26 +13,17 @@ import (
 
 func TestStagedChangeUsesLastObservationWithoutHash(t *testing.T) {
 	t.Parallel()
-	store := testStore(t)
-	store.Notifications.Use = nil
-	original := workloadRecord(0)
-	observeRecords(t, store, "initial", original)
-	store.Notifications.Use = []string{fixtureDestinationFirst}
 
-	err := store.startNotificationOperation(t.Context(), "update")
-	if err != nil {
-		t.Fatal(err)
-	}
+	original := workloadRecord(0)
 
 	changed := original
 	changed.Mode = 0o700
 	changed.Hash = workloadRecord(1).Hash
-	observeRecords(t, store, "update", changed)
-	changed.Hash, changed.Algorithm = "", ""
-	changed.Ctime++
-	observeRecords(t, store, "update", changed)
+	unhashed := changed
+	unhashed.Hash, unhashed.Algorithm = "", ""
+	unhashed.Ctime++
 
-	detail := finishStagedDetail(t, store)
+	detail := observeStagedChange(t, testStore(t), original, changed, unhashed)
 
 	if detail.Code() != "P" {
 		t.Fatalf("last observation has no verified content change: %+v", detail)
@@ -41,24 +32,13 @@ func TestStagedChangeUsesLastObservationWithoutHash(t *testing.T) {
 
 func TestRecreatedFileWithUnknownPreviousHashDoesNotProveContentChange(t *testing.T) {
 	t.Parallel()
-	store := testStore(t)
-	store.Notifications.Use = nil
+
 	original := workloadRecord(0)
 	before := original
 	before.Hash, before.Algorithm = "", ""
-	observeRecords(t, store, "initial", before)
-	store.Notifications.Use = []string{fixtureDestinationFirst}
-
-	err := store.startNotificationOperation(t.Context(), "update")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	observeRecords(t, store, "update", integrity.Record{Path: original.Path})
 	original.Mode = 0o700
-	observeRecords(t, store, "update", original)
 
-	detail := finishStagedDetail(t, store)
+	detail := observeStagedChange(t, testStore(t), before, integrity.Record{Path: original.Path}, original)
 
 	if detail.Code() != "P" {
 		t.Fatalf("unknown previous content was classified as changed: %+v", detail)
@@ -79,9 +59,6 @@ func TestRecreatedFileWithUnverifiedContentKeepsNotification(t *testing.T) {
 func checkUnverifiedReplacement(t *testing.T, missingBefore bool) {
 	t.Helper()
 
-	store := testStore(t)
-	store.Notifications.Use = nil
-
 	before, after := workloadRecord(0), workloadRecord(0)
 	if missingBefore {
 		before.Hash, before.Algorithm = "", ""
@@ -89,18 +66,7 @@ func checkUnverifiedReplacement(t *testing.T, missingBefore bool) {
 		after.Hash, after.Algorithm = "", ""
 	}
 
-	observeRecords(t, store, "initial", before)
-	store.Notifications.Use = []string{fixtureDestinationFirst}
-
-	err := store.startNotificationOperation(t.Context(), "update")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	observeRecords(t, store, "update", integrity.Record{Path: before.Path})
-	observeRecords(t, store, "update", after)
-
-	detail := finishStagedDetail(t, store)
+	detail := observeStagedChange(t, testStore(t), before, integrity.Record{Path: before.Path}, after)
 
 	if detail.Code() != "—" {
 		t.Fatalf("unverified content was classified: %+v", detail)
@@ -172,6 +138,27 @@ func checkStagedRoutingRestart(t *testing.T, scenario string) {
 		delivery.Version != originalVersion {
 		t.Fatalf("pending delivery was rerouted: %+v", delivery)
 	}
+}
+
+// observeStagedChange records original silently, then each of changes in one notification operation,
+// and returns the detail that operation delivers.
+func observeStagedChange(t *testing.T, store *Store, original integrity.Record, changes ...integrity.Record) Detail {
+	t.Helper()
+
+	store.Notifications.Use = nil
+	observeRecords(t, store, "initial", original)
+	store.Notifications.Use = []string{fixtureDestinationFirst}
+
+	err := store.startNotificationOperation(t.Context(), "update")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, changed := range changes {
+		observeRecords(t, store, "update", changed)
+	}
+
+	return finishStagedDetail(t, store)
 }
 
 func finishStagedDetail(t *testing.T, store *Store) Detail {

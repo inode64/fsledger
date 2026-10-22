@@ -7,7 +7,7 @@ import (
 )
 
 // UnstablePathsError identifies observations deferred after bounded stability retries.
-// It is still an error for callers requiring a complete inventory (for example baseline creation).
+// Callers that require every path to be observed still treat it as an error.
 type UnstablePathsError []string
 
 func (paths UnstablePathsError) Error() string {

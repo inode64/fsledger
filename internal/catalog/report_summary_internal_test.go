@@ -154,7 +154,7 @@ func TestSummaryAggregationResumesAfterRestartAndFreezesPeriod(t *testing.T) {
 	assertReportJournal(t, reopened, count+1)
 }
 
-func TestSummaryCountsViolationsAndMarksActiveScan(t *testing.T) {
+func TestSummaryMarksActiveScan(t *testing.T) {
 	t.Parallel()
 	store := testStore(t)
 	_ = summaryFixture(t, store, 1)
@@ -164,7 +164,7 @@ func TestSummaryCountsViolationsAndMarksActiveScan(t *testing.T) {
 	detail := Detail{}
 	detail.Path, detail.Kind = []byte("/changed"), changeModified
 
-	err := store.recordReport(transaction, detail, true)
+	err := store.recordReport(transaction, detail)
 	if err == nil {
 		err = transaction.commit()
 	}
@@ -176,8 +176,8 @@ func TestSummaryCountsViolationsAndMarksActiveScan(t *testing.T) {
 	}
 
 	draft := nextReport(t, store)
-	if !draft.Message.Report.CoverageGap || draft.Message.Report.Counts().Violations != 1 {
-		t.Fatal("summary hid incomplete scan or baseline violation", draft)
+	if !draft.Message.Report.CoverageGap || draft.Message.Report.Counts().Modified != 1 {
+		t.Fatal("summary hid incomplete scan or the recorded change", draft)
 	}
 }
 
@@ -241,4 +241,22 @@ func TestDiscardPendingReleasesSummaryEvidence(t *testing.T) {
 	}
 
 	assertReportJournal(t, store, 0)
+}
+
+// A summary sample drops field values and commands but keeps the field names that classify a change.
+func TestSummarySampleKeepsClassification(t *testing.T) {
+	t.Parallel()
+
+	var aggregate ReportAggregate
+
+	aggregate.add(ReportItem{Head: "", Deferred: false, Detail: Detail{
+		ChangeID: "", Kind: changeModified, Actor: "vim", Path: []byte("/etc/passwd"), Observed: 0,
+		Fields:      []FieldChange{{Field: fieldMode, Before: "33188", After: "33261"}},
+		BackdatedBy: 0,
+	}})
+
+	sample := aggregate.Sample[0].Detail
+	if sample.Code() != "P" || sample.Actor != "" || sample.Fields[0].Before != "" || sample.Fields[0].After != "" {
+		t.Fatalf("summary sample = %+v, code %q", sample, sample.Code())
+	}
 }

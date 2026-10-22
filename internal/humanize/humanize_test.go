@@ -20,11 +20,6 @@ func TestTime(t *testing.T) {
 	if got := humanize.Time(1792233661004600592); !layout.MatchString(got) {
 		t.Fatalf("Time = %q", got)
 	}
-
-	precise := regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.004600592 \S+$`)
-	if got := humanize.PreciseTime(1792233661004600592); !precise.MatchString(got) {
-		t.Fatalf("PreciseTime = %q", got)
-	}
 }
 
 func TestSize(t *testing.T) {

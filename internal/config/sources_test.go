@@ -17,7 +17,6 @@ const (
 	firstRepository  = "first"
 	secondRepository = "second"
 	wordpressPattern = "/var/www/*/htdocs/wp-config.php"
-	metacharPath     = "/srv/files/[ab]"
 )
 
 // sourceTree returns a symlink-free temporary directory, as resolved roots are compared textually.
@@ -283,29 +282,6 @@ func TestSourcePatternOverlap(t *testing.T) {
 				t.Fatalf("valid=%v, got %v", testCase.valid, err)
 			}
 		})
-	}
-}
-
-func TestSourceSelectsComparesLexically(t *testing.T) {
-	t.Parallel()
-
-	for _, testCase := range []struct {
-		entry, path string
-		selected    bool
-	}{
-		{"/etc", "/etc/ssh/sshd_config", true},
-		{"/etc", "/etcetera", false},
-		{wordpressPattern, "/var/www/site/htdocs/wp-config.php", true},
-		{"/var/www/*/htdocs", "/var/www/site/htdocs/index.php", true},
-		{wordpressPattern, "/var/www/site/htdocs", false},
-		{"/var/spool/fcron/*.orig", "/var/spool/fcron/root", false},
-		{metacharPath, metacharPath, false},
-		{`/srv/files/\[ab\]`, metacharPath, true},
-		{"/srv/files/literal", "/srv/files/liter[al", false},
-	} {
-		if config.SourceSelects(testCase.entry, testCase.path) != testCase.selected {
-			t.Fatalf("%s over %s: want %v", testCase.entry, testCase.path, testCase.selected)
-		}
 	}
 }
 

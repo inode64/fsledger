@@ -23,16 +23,11 @@ func TestCheckAcceptsAbsentSources(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for name, text := range map[string]string{
+	writeFiles(t, root, map[string]string{
 		fixtureMainYaml: "runtime: " + root + "/run\nstorage: {path: " + root + "/state}\n" +
 			"paths: {repositories: [system.yaml]}\n",
 		fixtureSystemYaml: "paths: ['" + root + "/present', '" + root + "/absent', '" + root + "/keys/*.keyfile']\n",
-	} {
-		err = os.WriteFile(filepath.Join(root, name), []byte(text), 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
+	})
 
 	var output, effective, stderr bytes.Buffer
 
@@ -65,27 +60,13 @@ func TestVerifyAndDoctorTolerateAbsentSources(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for name, text := range map[string]string{
-		fixtureMainYaml: "runtime: " + root + "/run\nstorage: {path: " + root + "/state}\n" +
-			"paths: {repositories: [inventory.yaml]}\nintegrity: {reference: previous}\n",
-		"inventory.yaml": "type: db\npaths: ['" + root + "/present', '" + root + "/absent/*.conf']\n",
-	} {
-		err = os.WriteFile(filepath.Join(root, name), []byte(text), 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
+	run := inventoryRepository(t, root, "type: db\npaths: ['"+root+"/present', '"+root+"/absent/*.conf']\n")
+
+	if changed := verifiedChanges(t, run); changed != 1 {
+		t.Fatalf("verify recorded %d changes for the present source, want 1", changed)
 	}
 
-	var verified, diagnosed, stderr bytes.Buffer
-
-	err = cli.Run(
-		[]string{verifyCommand, "-c", filepath.Join(root, fixtureMainYaml), fixtureRepoFlag, fixtureRepository},
-		&verified,
-		&stderr,
-	)
-	if err != nil {
-		t.Fatalf("verify rejected an absent source: %v %s", err, verified.String())
-	}
+	var diagnosed, stderr bytes.Buffer
 
 	err = cli.Run([]string{"doctor", "-c", filepath.Join(root, fixtureMainYaml)}, &diagnosed, &stderr)
 	if err != nil || !strings.Contains(diagnosed.String(), root+"/absent/*.conf") ||
@@ -114,25 +95,10 @@ func TestVerifyRejectsIncompleteSourceSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for name, text := range map[string]string{
-		fixtureMainYaml: "runtime: " + root + "/run\nstorage: {path: " + root + "/state}\n" +
-			"paths: {repositories: [inventory.yaml]}\n",
-		"inventory.yaml": "type: db\npaths: ['" + present + "', '" + root + "/loop/*']\n",
-	} {
-		err = os.WriteFile(filepath.Join(root, name), []byte(text), 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
+	run := inventoryRepository(t, root, "type: db\npaths: ['"+present+"', '"+root+"/loop/*']\n")
 
-	var output, stderr bytes.Buffer
-
-	err = cli.Run(
-		[]string{verifyCommand, "-c", filepath.Join(root, fixtureMainYaml), fixtureRepoFlag, fixtureRepository},
-		&output,
-		&stderr,
-	)
+	output, err := run(verifyCommand)
 	if err == nil || !strings.Contains(err.Error(), "incomplete source selection") {
-		t.Fatalf("incomplete expansion was reconciled: %v %s", err, output.String())
+		t.Fatalf("incomplete expansion was reconciled: %v %s", err, output)
 	}
 }

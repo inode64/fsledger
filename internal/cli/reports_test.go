@@ -2,7 +2,7 @@ package cli_test
 
 import (
 	"bytes"
-	"os"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,36 +10,25 @@ import (
 	"github.com/inode64/fsledger/internal/cli"
 )
 
-const verifyCommand = "verify"
-
 func TestReportPreviewUsesCatalogWithoutDelivery(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	for name, body := range map[string]string{
-		"source": "private source contents",
-		"mail.yaml": `type: email
-dsn: smtps://unreachable.invalid
-from: sender@example.org
-to: [reader@example.org]
-`,
+	writeFiles(t, root, map[string]string{
+		"source":    "private source contents",
+		"mail.yaml": fixtureMailNotifier,
 		"repo.yaml": "type: db\npaths: ['" + root + "/source']\n",
 		fixtureMainYaml: "runtime: '" + root + "/run'\nstorage: {path: '" + root + "/state'}\n" +
-			"paths: {repositories: [repo.yaml], notifiers: [mail.yaml]}\nintegrity: {reference: previous}\n" +
+			"paths: {repositories: [repo.yaml], notifiers: [mail.yaml]}\n" +
 			"reports: {enabled: true, use: [mail]}\n",
-	} {
-		err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
+	})
 
 	var output, stderr bytes.Buffer
 
 	arguments := []string{"-c", filepath.Join(root, fixtureMainYaml), "--repository", "repo"}
 
 	err := cli.Run(append([]string{verifyCommand}, arguments...), &output, &stderr)
-	if err != nil {
+	if !errors.Is(err, cli.ErrChanges) {
 		t.Fatal(output.String(), err)
 	}
 
