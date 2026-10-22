@@ -91,7 +91,6 @@ runtime: %s
 paths: {repositories: [%s]}
 watch: {backend: inotify, reconcile: {interval: 100ms}}
 commit: {debounce: 40ms, max_delay: 200ms}
-integrity: {reference: previous}
 `, fixture.storage, fixture.runtime, strings.Join(names, ", "))
 
 	err := os.WriteFile(filepath.Join(fixture.root, mainYAML), []byte(main), 0o600)

@@ -19,15 +19,16 @@ type FieldChange struct {
 	After  string `json:"after"`
 }
 
-// Detail is self-contained evidence for one path, independent of local approval state.
+// Detail is self-contained evidence for one path. BackdatedBy is integrity.Record.Backdated of the
+// version that exists, the deleted one for a deletion, so templates flag any change of a backdated file.
 type Detail struct {
-	ChangeID string        `json:"change_id,omitempty"`
-	Kind     string        `json:"kind"`
-	Actor    string        `json:"actor"`
-	Path     []byte        `json:"path"`
-	Fields   []FieldChange `json:"fields"`
-	Baseline []FieldChange `json:"baseline,omitempty"`
-	Observed int64         `json:"observed"`
+	ChangeID    string        `json:"change_id,omitempty"`
+	Kind        string        `json:"kind"`
+	Actor       string        `json:"actor"`
+	Path        []byte        `json:"path"`
+	Fields      []FieldChange `json:"fields"`
+	Observed    int64         `json:"observed"`
+	BackdatedBy time.Duration `json:"backdated_by,omitempty"`
 }
 
 // Message never contains source file contents or transport credentials.
@@ -44,7 +45,7 @@ type Message struct {
 	Count      int         `json:"count"`
 }
 
-// Added counts added paths. Counts derive from Details, so already queued messages need no migration.
+// Added counts added paths, derived from Details.
 func (message Message) Added() int { return message.countKind(changeAdded) }
 
 // Modified counts modified paths.
@@ -73,7 +74,6 @@ type Progress struct {
 }
 
 // Delivery tracks one destination independently; acknowledgements remove it permanently.
-// Deliveries queued before Progress existed decode without it and start from the first part.
 // Exhausted marks a delivery that stopped retrying; it stays queued, outside the due index.
 type Delivery struct {
 	Destination string   `json:"destination"`
@@ -113,21 +113,11 @@ func deliveryDue(delivery Delivery) []byte {
 	return binary.BigEndian.AppendUint64(numberKey(duePrefix, delivery.NextAttempt), uint64(delivery.ID))
 }
 
-// enqueueNow persists a delivery; enqueue has already dropped events that are not enabled.
-func (store *Store) enqueueNow(transaction *transaction, event, identifier, reason string, details []Detail) {
-	message := store.notificationMessage(event, identifier, reason, details)
-	for _, route := range store.notificationRoutes() {
-		transaction.enqueueDelivery(message, route.Destination, route.Version,
-			store.notificationDue(route.Destination, event, store.now()))
-	}
-}
-
-func (store *Store) enqueueNowTo(
-	transaction *transaction, event, identifier string, details []Detail, route notificationRoute,
-) {
-	message := store.notificationMessage(event, identifier, "", details)
+// enqueueTo persists message for one destination; its callers have already dropped events that are not
+// enabled.
+func (store *Store) enqueueTo(transaction *transaction, message Message, route notificationRoute) {
 	transaction.enqueueDelivery(message, route.Destination, route.Version,
-		store.notificationDue(route.Destination, event, store.now()))
+		store.notificationDue(route.Destination, message.Event))
 }
 
 func (store *Store) notificationMessage(event, identifier, reason string, details []Detail) Message {
@@ -179,8 +169,8 @@ func (transaction *transaction) enqueueDelivery(message Message, destination, ve
 	transaction.state.Stats.PendingNotifications++
 }
 
-func (store *Store) notificationDue(destination, event string, now time.Time) time.Time {
-	base := store.Notifications.BatchWindow
+func (store *Store) notificationDue(destination, event string) time.Time {
+	now, base := store.now(), store.Notifications.BatchWindow
 	if base <= 0 {
 		return now
 	}
@@ -227,7 +217,10 @@ func (store *Store) Announce(ctx context.Context, event, reason string) error {
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
 
-	store.enqueueNow(transaction, event, changeID(), reason, nil)
+	message := store.notificationMessage(event, changeID(), reason, nil)
+	for _, route := range store.notificationRoutes() {
+		store.enqueueTo(transaction, message, route)
+	}
 
 	return transaction.commit()
 }
@@ -295,8 +288,7 @@ func (store *Store) DeferMany(ctx context.Context, identifiers []int64, delay ti
 // RetryExhausted gives every delivery that stopped retrying a new retry cycle, due now, while its frozen
 // destination is still configured unchanged. The daemon calls it at start, so a restart after repairing a
 // relay, credentials or a template sends them. Deliveries frozen for a removed or changed destination stay
-// exhausted: they are never redirected. The scan also recounts them, since an earlier version rewrites the
-// catalog state without that counter.
+// exhausted: they are never redirected.
 func (store *Store) RetryExhausted(ctx context.Context) (int, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
@@ -318,7 +310,7 @@ func (store *Store) RetryExhausted(ctx context.Context) (int, error) {
 		}
 
 		version, configured := store.versions[delivery.Destination]
-		if configured && (delivery.Version == "" || delivery.Version == version) {
+		if configured && delivery.Version == version {
 			deliveries = append(deliveries, delivery)
 		} else {
 			kept++
@@ -330,7 +322,7 @@ func (store *Store) RetryExhausted(ctx context.Context) (int, error) {
 		return 0, err
 	}
 
-	if len(deliveries) == 0 && kept == store.state.Stats.ExhaustedNotifications {
+	if len(deliveries) == 0 {
 		return 0, nil
 	}
 
@@ -492,7 +484,7 @@ func (transaction *transaction) reschedule(delivery Delivery, due time.Time, rea
 
 // DiscardPending drops every queued delivery, due, delayed or exhausted, in one durable transaction. Summary
 // evidence held for a discarded report is released as if it had been sent, but no report is recorded
-// as delivered. Recorded changes, baselines and violations are untouched.
+// as delivered. Recorded changes are untouched.
 func (store *Store) DiscardPending(ctx context.Context) (int, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()

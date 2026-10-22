@@ -30,10 +30,8 @@ func TestExhaustedDeliveryIsLoggedOnceAndRetriedAfterRestart(t *testing.T) {
 	}))
 	defer server.Close()
 
-	notifiers := map[string]config.Notifier{
-		schedulingSink: {Type: schedulingSlack, URL: server.URL, DSN: "", From: "", Template: "", To: nil},
-	}
-	store := exhaustedOutbox(t)
+	notifiers := map[string]config.Notifier{schedulingSink: sinkNotifier(server.URL, "")}
+	store := exhaustedOutbox(t, notifiers[schedulingSink])
 
 	var logs bytes.Buffer
 
@@ -81,10 +79,10 @@ func TestExhaustedDeliveryIsLoggedOnceAndRetriedAfterRestart(t *testing.T) {
 }
 
 // exhaustedOutbox queues one error whose next failure is its last attempt, already due.
-func exhaustedOutbox(t *testing.T) *catalog.Store {
+func exhaustedOutbox(t *testing.T, notifier config.Notifier) *catalog.Store {
 	t.Helper()
 
-	store := partsOutbox(t, "")
+	store := partsOutbox(t, "", notifier)
 
 	due, err := store.Due(t.Context())
 	if err != nil || len(due) != 1 {

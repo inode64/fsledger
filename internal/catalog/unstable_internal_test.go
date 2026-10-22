@@ -38,6 +38,11 @@ func TestUnstableInventoryPreservesRecordsAndProcessesStablePaths(t *testing.T) 
 				t.Fatal(err)
 			}
 
+			stableBefore, _, err := store.Current(t.Context(), []byte(stable))
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			lastFull := store.state.Stats.LastFullScan
 
 			for _, path := range []string{hot, stable} {
@@ -105,16 +110,21 @@ func TestUnstableInventoryPreservesRecordsAndProcessesStablePaths(t *testing.T) 
 				t.Fatal("stable deletion blocked", err)
 			}
 
-			if pendingIDs(t, store)[stable] == "" || store.state.Complete ||
-				store.state.Stats.LastFullScan != lastFull {
-				t.Fatal("stable update lost or partial inventory certified")
+			updated, _, err := store.Current(t.Context(), []byte(stable))
+			if err != nil || updated.Hash == stableBefore.Hash || store.state.Stats.LastFullScan != lastFull {
+				t.Fatal("stable update lost or partial inventory recorded as a full scan", err)
 			}
 
 			store.BindCopiedHashes(nil)
 
 			_, err = store.Reconcile(t.Context(), scanner, []string{root}, matcher, true, "retry", "")
-			if err != nil || !store.state.Complete || pendingIDs(t, store)[hot] == "" {
+			if err != nil || store.state.Stats.LastFullScan == lastFull {
 				t.Fatal("stable retry not recovered", err)
+			}
+
+			current, _, err = store.Current(t.Context(), []byte(hot))
+			if err != nil || current.Hash == previous.Hash {
+				t.Fatal("stable retry did not record the hot path", err)
 			}
 		})
 	}

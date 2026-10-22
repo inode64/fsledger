@@ -20,10 +20,11 @@ func TestReportRenderingPreservesEvidenceAndIdentity(t *testing.T) {
 				{
 					Detail: catalog.Detail{
 						Path: []byte("/etc/invalid-\xff\nname"), Kind: displayModified, Actor: displayUnknown,
-						ChangeID: "observed", Observed: 1, Baseline: nil,
-						Fields: []catalog.FieldChange{{Field: "mode", Before: "600", After: "644"}},
+						ChangeID: "observed", Observed: 1,
+						Fields:      []catalog.FieldChange{{Field: "mode", Before: "33152", After: "33188"}},
+						BackdatedBy: 0,
 					},
-					Head: "last-head", Deferred: true, Violation: true,
+					Head: "last-head", Deferred: true,
 				},
 			},
 		},
@@ -42,7 +43,7 @@ func TestReportRenderingPreservesEvidenceAndIdentity(t *testing.T) {
 
 	for _, required := range []string{
 		"cobertura incompleta", "continúa", "Un resumen opcional", `invalid-\xff\nname`,
-		"last-head", "observed", "mode: 600 -> 644",
+		"last-head", "observed", "mode: -rw------- (0x8180) -> -rw-r--r-- (0x81a4)",
 	} {
 		if !strings.Contains(first.body, required) {
 			t.Fatal("missing evidence", required, first.body)
@@ -72,7 +73,6 @@ func TestSummaryReportRendersCompleteTotalsAndBoundedSample(t *testing.T) {
 	message.Report.Aggregate = &catalog.ReportAggregate{}
 	message.Report.Aggregate.Observations = 2000000
 	message.Report.Aggregate.Counts.Added = 1999999
-	message.Report.Aggregate.Counts.Violations = 1
 	message.Report.CoverageGap = true
 
 	subject, body, err := ReportText(message)
@@ -80,7 +80,7 @@ func TestSummaryReportRendersCompleteTotalsAndBoundedSample(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, text := range []string{"2000000", "1999999", "violaciones: 1", "Muestra limitada", "cobertura incompleta"} {
+	for _, text := range []string{"2000000", "1999999", "Muestra limitada", "cobertura incompleta"} {
 		if !strings.Contains(body, text) {
 			t.Fatal("summary lost period totals", text, body)
 		}

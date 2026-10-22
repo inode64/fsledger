@@ -40,7 +40,6 @@ func packRecord(record integrity.Record) ([]byte, error) {
 		Mode:             record.Mode,
 		NoAtime:          record.NoAtime,
 		HasBtime:         record.HasBtime,
-		TimesInSeconds:   record.TimesInSeconds,
 	}
 	data, err := proto.Marshal(message)
 
@@ -48,7 +47,7 @@ func packRecord(record integrity.Record) ([]byte, error) {
 }
 
 // Observation time alone does not change evidence. Hash freshness and every filesystem
-// field still participate, including fields not selected by the current comparison policy.
+// field still participate, including fields integrity.Differences does not compare.
 func packObservation(record, previous integrity.Record, oldData []byte) ([]byte, error) {
 	if oldData != nil && sameObservation(record, previous) {
 		return oldData, nil
@@ -74,7 +73,7 @@ func sameIdentity(first, second integrity.Record) bool {
 func sameTimes(first, second integrity.Record) bool {
 	return first.Mtime == second.Mtime && first.Ctime == second.Ctime && first.Btime == second.Btime &&
 		first.Atime == second.Atime && first.HashedAt == second.HashedAt && first.NoAtime == second.NoAtime &&
-		first.HasBtime == second.HasBtime && first.TimesInSeconds == second.TimesInSeconds
+		first.HasBtime == second.HasBtime
 }
 
 func packAttrs(attributes []integrity.Attribute) []*recordpb.Attribute {
@@ -118,7 +117,6 @@ func unpack(data, path []byte) (integrity.Record, error) {
 		Mode:             message.GetMode(),
 		NoAtime:          message.GetNoAtime(),
 		HasBtime:         message.GetHasBtime(),
-		TimesInSeconds:   message.GetTimesInSeconds(),
 	}
 
 	return record, nil

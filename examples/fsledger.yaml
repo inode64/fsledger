@@ -56,8 +56,11 @@ commit:
     by_user: true
     prefer_login_uid: true
 integrity:
-  reference: baseline
-  compare: [hash, type, mode, uid, gid, size, mtime, ctime, xattrs, acl]
+  # Each observation is compared with the previous one on hash, type, target, mode, uid and gid,
+  # and on an mtime moved back before the file's birth time.
+  # true also compares extended attributes (file capabilities, security labels) and POSIX ACLs.
+  xattrs: false
+  acl: false
   hash:
     algorithm: sha256
     on_event: true
@@ -66,9 +69,9 @@ integrity:
 notifications:
   # No immediate alerts globally; repositories may select email-ops or slack-ops.
   use: []
-  # Filters suppress change alerts only, not integrity violations or operational alerts.
+  # Filters suppress change alerts only, not operational alerts.
   ignore: []
-  events: [change, integrity_violation, error, recovery]
+  events: [change, error, recovery]
   batch_window: 30s
   max_batch_window: 15m
   max_pending: 10000

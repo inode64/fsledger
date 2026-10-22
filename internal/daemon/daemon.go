@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -361,20 +360,12 @@ func openBackend(
 		return nil, nil, false, err
 	}
 
-	syncer, err := mirror.Open(root, roots, matcher, mirrorAlgorithm(cfg))
+	syncer, err := mirror.Open(root, roots, matcher, cfg.Integrity.Hash.Algorithm)
 	if err != nil {
 		return nil, nil, false, err
 	}
 
 	return repo, syncer, initial, nil
-}
-
-func mirrorAlgorithm(cfg *config.Config) string {
-	if !slices.Contains(cfg.Integrity.Compare, "hash") {
-		return ""
-	}
-
-	return cfg.Integrity.Hash.Algorithm
 }
 
 func repositoryMatchers(cfg *config.Config) (map[string]*exclude.Matcher, error) {

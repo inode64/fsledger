@@ -10,11 +10,9 @@ import (
 
 // RepositoryGit and RepositoryDB select independent persistence adapters.
 const (
-	CatalogDirectory  = "catalog.pebble"
-	ReferenceBaseline = "baseline"
-	ReferencePrevious = "previous"
-	RepositoryGit     = "git"
-	RepositoryDB      = "db"
+	CatalogDirectory = "catalog.pebble"
+	RepositoryGit    = "git"
+	RepositoryDB     = "db"
 )
 
 // Paths discovers named configuration objects.
@@ -56,22 +54,16 @@ type GitStorage struct {
 	Bidirectional bool          `yaml:"bidirectional"`
 }
 
-// IntegrityFields are the names accepted in integrity.compare; the integrity package compares each of them.
-//
-//nolint:gochecknoglobals // Immutable vocabulary shared with the comparison tests.
-var IntegrityFields = []string{
-	"hash", "type", "mode", "uid", "gid", "size", "mtime", "ctime", "atime", "btime",
-	"xattrs", "acl", "inode", "device", "nlink", "target",
-}
-
-// Integrity selects the approved reference and metadata comparison policy.
-// Directories false keeps directory entries themselves out of the inventory: files inside are still
-// observed, but creating, removing or changing a directory produces no change, report or violation.
+// Integrity configures content hashing; every observation is compared with the previous one on the fixed
+// fields of integrity.Differences. Directories false keeps directory entries themselves out of the
+// inventory: files inside are still observed, but creating, removing or changing a directory produces no
+// change or report. Xattrs and ACL add extended attributes (file capabilities and security labels among
+// them) and POSIX ACLs to the comparison; both are recorded either way.
 type Integrity struct {
-	Reference   string   `yaml:"reference"`
-	Compare     []string `yaml:"compare"`
-	Hash        Hash     `yaml:"hash"`
-	Directories bool     `yaml:"directories"`
+	Hash        Hash `yaml:"hash"`
+	Directories bool `yaml:"directories"`
+	Xattrs      bool `yaml:"xattrs"`
+	ACL         bool `yaml:"acl"`
 }
 
 // Hash algorithm names are shared by policy validation and digest selection.
@@ -96,11 +88,15 @@ type Hash struct {
 
 // Notification event names are persisted in the outbox and exposed in configuration.
 const (
-	NotificationChange             = "change"
-	NotificationIntegrityViolation = "integrity_violation"
-	NotificationError              = "error"
-	NotificationRecovery           = "recovery"
+	NotificationChange   = "change"
+	NotificationError    = "error"
+	NotificationRecovery = "recovery"
 )
+
+// notificationEvents lists every event a repository can subscribe to; the default subscribes to all.
+func notificationEvents() []string {
+	return []string{NotificationChange, NotificationError, NotificationRecovery}
+}
 
 // Notifications selects named destinations and durable delivery policy.
 type Notifications struct {

@@ -28,13 +28,13 @@ func TestUnchangedEventPreservesScanMarker(t *testing.T) {
 	t.Parallel()
 	store := testStore(t)
 	record := workloadRecord(0)
-	reference(t, store, record)
+	observeInitial(t, store, record)
 	record.Observed++
 
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
 
-	changed, violation, err := store.applyOne(
+	changed, err := store.applyOne(
 		t.Context(),
 		transaction,
 		mutation{refreshHash: false, excluded: false, record: record, previous: nil, deleted: false},
@@ -42,8 +42,8 @@ func TestUnchangedEventPreservesScanMarker(t *testing.T) {
 		"same",
 		"actor",
 	)
-	if err != nil || changed || violation {
-		t.Fatal(changed, violation, err)
+	if err != nil || changed {
+		t.Fatal(changed, err)
 	}
 
 	if transaction.batch.Count() != 0 {

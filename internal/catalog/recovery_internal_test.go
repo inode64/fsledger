@@ -26,7 +26,6 @@ func TestCrashHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg.Integrity.Compare = []string{fixtureType, fixtureMode}
 	cfg.Notifications.Use = []string{"test"}
 	cfg.Notifications.BatchWindow = 0
 
@@ -44,7 +43,7 @@ func TestCrashHelper(t *testing.T) {
 	defer resource.Close(store)
 
 	original := integrity.Record{Path: []byte("/file"), Type: fixtureRegular, Mode: 0o600}
-	reference(t, store, original)
+	observeInitial(t, store, original)
 	changed := original
 	changed.Mode = 0o700
 	observeRecords(t, store, "changed", changed)
@@ -56,12 +55,6 @@ func TestCrashHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Simulate termination after a durable shadow reference copy, before pointer publication.
-	err = store.copyBaseline(t.Context(), 1-store.state.Baseline)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	//nolint:gosec // Parent-provided private temporary fixture directory.
 	err = os.WriteFile(filepath.Join(root, "ready"), []byte("durable"), 0o600)
 	if err != nil {
@@ -73,7 +66,7 @@ func TestCrashHelper(t *testing.T) {
 }
 
 //nolint:cyclop,funlen,gocognit,gocyclo // Ordered subprocess lifecycle verifies durable state across an actual SIGKILL.
-func TestSIGKILLRecoversReferenceAndPendingDelivery(t *testing.T) {
+func TestSIGKILLRecoversObservationAndPendingDelivery(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 
@@ -129,8 +122,6 @@ func TestSIGKILLRecoversReferenceAndPendingDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg.Integrity.Compare = []string{fixtureType, fixtureMode}
-
 	store, err := Open(
 		t.Context(),
 		filepath.Join(root, config.CatalogDirectory),
@@ -149,11 +140,6 @@ func TestSIGKILLRecoversReferenceAndPendingDelivery(t *testing.T) {
 		t.Fatal("acknowledged deferred path lost", err)
 	}
 
-	original, _, err := readRecord(store.database, baselinePrefix(store.state.Baseline), []byte("/file"))
-	if err != nil || original.Mode != 0o600 {
-		t.Fatal("unpublished reference became approved", err)
-	}
-
 	current, exists, err := store.Current(t.Context(), []byte("/file"))
 	if err != nil || !exists || current.Mode != 0o700 {
 		t.Fatal("acknowledged observation lost", err)
@@ -162,10 +148,5 @@ func TestSIGKILLRecoversReferenceAndPendingDelivery(t *testing.T) {
 	due, err := store.Due(t.Context())
 	if err != nil || len(due) == 0 {
 		t.Fatal("acknowledged notification lost", err)
-	}
-
-	err = store.Accept(t.Context(), "changed")
-	if err != nil {
-		t.Fatal(err)
 	}
 }

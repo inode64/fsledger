@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/inode64/fsledger/internal/fault"
 
@@ -32,10 +33,6 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		return printVersion(stdout)
 	}
 
-	if command == "migrate_aide" {
-		return runAIDEMigration(args[1:], stdout, stderr)
-	}
-
 	if command == commandRestore {
 		return runRestore(args[1:], stdout, stderr)
 	}
@@ -53,16 +50,21 @@ func runConfigured(command string, arguments []string, stdout, stderr io.Writer)
 	debug := flags.Bool("debug", false, "debug logging")
 
 	effective := flags.Bool("effective", false, "show resolved configuration without credentials")
-	repository := flags.String("repository", "", "repository name for flush and inventory commands")
-	input := flags.String("input", "", "reviewed baseline JSON stream for baseline import")
-	change := flags.String("change", "", "recorded change ID to approve")
+	repository := flags.String("repository", "", "repository name for flush, verify, report preview and outbox clear")
 
 	operands, done, err := parseCommand(flags, arguments, stdout)
 	if done {
 		return err
 	}
 
-	if (command == commandBaseline || command == commandReport || command == commandOutbox) && len(operands) > 0 {
+	// An unknown command is reported as such, whatever operands follow it.
+	if !slices.Contains(
+		[]string{"check", "doctor", "status", "flush", "run", commandReport, commandOutbox, commandVerify}, command,
+	) {
+		return fault.New(fmt.Sprintf("unknown command %q", command))
+	}
+
+	if (command == commandReport || command == commandOutbox) && len(operands) > 0 {
 		action, operands = operands[0], operands[1:]
 	}
 
@@ -75,36 +77,13 @@ func runConfigured(command string, arguments []string, stdout, stderr io.Writer)
 		return err
 	}
 
-	err = checkArgumentFlags(command, action, *change, *input)
-	if err != nil {
-		return err
-	}
-
-	return dispatch(stdout, stderr, cfg, command, action, *repository, *change, *input, *debug, *effective)
-}
-
-// checkArgumentFlags keeps --change and --input to the baseline action each selects: any other command
-// would ignore them silently.
-func checkArgumentFlags(command, action, change, input string) error {
-	if command == commandBaseline && action == actionImport && change != "" {
-		return fault.New("baseline import requires --input; --change is not accepted")
-	}
-
-	if change != "" && (command != commandBaseline || action != actionAccept) {
-		return fault.New("--change requires baseline accept")
-	}
-
-	if input != "" && (command != commandBaseline || action != actionImport) {
-		return fault.New("--input requires baseline import")
-	}
-
-	return nil
+	return dispatch(stdout, stderr, cfg, command, action, *repository, *debug, *effective)
 }
 
 func dispatch(
 	stdout, stderr io.Writer,
 	cfg *config.Config,
-	command, action, repository, change, input string,
+	command, action, repository string,
 	debug, effective bool,
 ) error {
 	var err error
@@ -148,8 +127,8 @@ func dispatch(
 		}
 
 		return clearOutbox(context.Background(), stdout, cfg, repository)
-	case commandBaseline, commandVerify, commandChanges:
-		return inventoryCommand(context.Background(), stdout, cfg, command, action, repository, change, input)
+	case commandVerify:
+		return verifyCommand(context.Background(), stdout, cfg, repository)
 	default:
 		return fault.New(fmt.Sprintf("unknown command %q", command))
 	}
@@ -167,11 +146,8 @@ func checkConfiguration(cfg *config.Config) error {
 }
 
 const (
-	commandReport   = "report"
-	commandRestore  = "restore"
-	commandOutbox   = "outbox"
-	commandBaseline = "baseline"
-	actionImport    = "import"
-	commandVerify   = "verify"
-	commandChanges  = "changes"
+	commandReport  = "report"
+	commandRestore = "restore"
+	commandOutbox  = "outbox"
+	commandVerify  = "verify"
 )

@@ -31,7 +31,6 @@ runtime: %s
 paths: {repositories: [%s]}
 watch: {backend: inotify, reconcile: {interval: 100ms}}
 commit: {debounce: 40ms, max_delay: 200ms}
-integrity: {reference: previous}
 `, fixture.storage, fixture.runtime, systemYAML)
 
 	for name, text := range map[string]string{mainYAML: main, systemYAML: "paths: [" + strings.Join(paths, ", ") + "]"} {

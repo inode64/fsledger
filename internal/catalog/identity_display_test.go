@@ -7,11 +7,10 @@ import (
 
 	"github.com/inode64/fsledger/internal/catalog"
 	"github.com/inode64/fsledger/internal/humanize"
+	"github.com/inode64/fsledger/internal/integrity"
 )
 
 const (
-	identityUID     = "uid"
-	identityGID     = "gid"
 	identityAdded   = "added"
 	identityDeleted = "deleted"
 )
@@ -30,23 +29,18 @@ func TestDisplayOwnershipNamesPreserveIDsAndEvidence(t *testing.T) {
 	}
 
 	for _, fixture := range []struct{ field, id, name string }{
-		{identityUID, account.Uid, account.Username},
-		{identityGID, group.Gid, group.Name},
+		{integrity.FieldUID, account.Uid, account.Username},
+		{integrity.FieldGID, group.Gid, group.Name},
 	} {
 		raw := displayField(fixture.field, "4294967295", fixture.id)
 		want := displayField(fixture.field, raw.Before, fixture.id+" ("+humanize.Printable(fixture.name)+")")
 		detail := displayDetail("modified", raw)
-		detail.Baseline = []catalog.FieldChange{raw}
 
 		if got := detail.DisplayFields(); !slices.Equal(got, []catalog.FieldChange{want}) {
 			t.Fatalf("ownership display = %v, want %v", got, want)
 		}
 
-		if got := detail.DisplayBaseline(); !slices.Equal(got, []catalog.FieldChange{want}) {
-			t.Fatalf("baseline display = %v, want %v", got, want)
-		}
-
-		if detail.Fields[0] != raw || detail.Baseline[0] != raw || detail.Code() != "P" {
+		if detail.Fields[0] != raw || detail.Code() != "P" {
 			t.Fatal("display changed the evidence or classification", detail)
 		}
 	}
@@ -55,7 +49,7 @@ func TestDisplayOwnershipNamesPreserveIDsAndEvidence(t *testing.T) {
 func TestDisplayOwnershipMissingAndAbsentValues(t *testing.T) {
 	t.Parallel()
 
-	for _, field := range []string{identityUID, identityGID} {
+	for _, field := range []string{integrity.FieldUID, integrity.FieldGID} {
 		for _, kind := range []string{identityAdded, "modified", identityDeleted} {
 			raw := displayField(field, "4294967295", "invalid")
 			want := raw
@@ -74,34 +68,34 @@ func TestDisplayOwnershipMissingAndAbsentValues(t *testing.T) {
 	}
 }
 
-func TestDisplayBaselineMarksSnapshotSide(t *testing.T) {
+func TestDisplaySnapshotMarksAbsentSide(t *testing.T) {
 	t.Parallel()
 
 	created := []catalog.FieldChange{
-		displayField(fieldNameType, `""`, `"regular"`),
-		displayField(identityUID, "0", "4294967295"),
-		displayField(fieldNameMode, "0", "33212"),
+		displayField(integrity.FieldType, `""`, `"regular"`),
+		displayField(integrity.FieldHash, ":", "sha256:ea5c"),
+		displayField(fieldNameSize, "0", "182422"),
+		displayField(integrity.FieldUID, "0", "4294967295"),
+		displayField(integrity.FieldMode, "0", "33212"),
 		displayField(fieldNameDevice, "0", "64514"),
 	}
 	shown := []catalog.FieldChange{
-		displayField(fieldNameType, humanize.Absent, "regular"),
-		displayField(identityUID, humanize.Absent, "4294967295"),
-		displayField(fieldNameMode, humanize.Absent, "-rw-rwxr-- (0x81bc)"),
+		displayField(integrity.FieldType, humanize.Absent, "regular"),
+		displayField(integrity.FieldHash, humanize.Absent, "sha256:ea5c"),
+		displayField(fieldNameSize, humanize.Absent, "178.1 KiB"),
+		displayField(integrity.FieldUID, humanize.Absent, "4294967295"),
+		displayField(integrity.FieldMode, humanize.Absent, "-rw-rwxr-- (0x81bc)"),
 	}
 
-	// The observed change is a modification: only the reference lacks, or has lost, the entry.
 	for _, fixture := range []struct {
 		kind           string
-		baseline, want []catalog.FieldChange
+		snapshot, want []catalog.FieldChange
 	}{
 		{identityAdded, created, shown},
 		{identityDeleted, swapSides(created), swapSides(shown)},
 	} {
-		detail := displayDetail("modified", displayField(fieldNameSize, "1", "2"))
-		detail.Baseline = fixture.baseline
-
-		if got := detail.DisplayBaseline(); !slices.Equal(got, fixture.want) {
-			t.Errorf("%s reference display = %v, want %v", fixture.kind, got, fixture.want)
+		if got := displayDetail(fixture.kind, fixture.snapshot...).DisplayFields(); !slices.Equal(got, fixture.want) {
+			t.Errorf("%s snapshot display = %v, want %v", fixture.kind, got, fixture.want)
 		}
 	}
 }

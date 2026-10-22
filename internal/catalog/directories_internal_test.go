@@ -1,17 +1,11 @@
 package catalog
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"maps"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/integrity"
 )
@@ -44,7 +38,6 @@ func untrackedFixture(t *testing.T) (*Store, *integrity.Scanner, *exclude.Matche
 	t.Helper()
 
 	cfg := testStoreConfig(t)
-	cfg.Integrity.Reference = config.ReferencePrevious
 	directory := t.TempDir()
 	store := openTestStore(t, directory, cfg.Integrity, cfg.Notifications)
 	root := t.TempDir()
@@ -210,83 +203,5 @@ func TestUntrackedDirectoriesStillTrackFiles(t *testing.T) {
 
 	if got, want := observe(index), map[string]string{index: changeDeleted}; !maps.Equal(got, want) {
 		t.Fatalf("file replaced by a directory announced %v, want %v", got, want)
-	}
-}
-
-// Tracking directories keeps the historical digest, so existing baselines stay valid.
-func TestDirectoriesPolicyDigest(t *testing.T) {
-	t.Parallel()
-
-	historical := sha256.Sum256([]byte(fieldHash + "\x00" + fieldMode + "\x01sha256"))
-	tracked := integrity.PolicyID([]string{fieldMode, fieldHash}, "sha256", true)
-
-	if tracked != hex.EncodeToString(historical[:]) {
-		t.Fatal("tracking directories changed the historical policy digest")
-	}
-
-	if integrity.PolicyID([]string{fieldMode, fieldHash}, "sha256", false) == tracked {
-		t.Fatal("leaving directories out must change the policy digest")
-	}
-}
-
-// A reference imported into a repository that does not track directories keeps only the files.
-func TestImportSkipsUntrackedDirectories(t *testing.T) {
-	t.Parallel()
-
-	cfg := testStoreConfig(t)
-	cfg.Notifications.Use = nil
-	cfg.Integrity.Directories = false
-	store := openTestStore(t, t.TempDir(), cfg.Integrity, cfg.Notifications)
-
-	var input bytes.Buffer
-
-	encoder := json.NewEncoder(&input)
-	for _, record := range []integrity.Record{
-		{Path: []byte("/srv/www"), Type: integrity.TypeDirectory},
-		{Path: []byte("/srv/www/index.php"), Type: fixtureRegular, Algorithm: fixtureSHA256, Hash: strings.Repeat("a", 64)},
-	} {
-		err := encoder.Encode(record)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	err := store.ImportBaseline(t.Context(), &input)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if got := entries(t, store); got != 1 {
-		t.Fatalf("imported %d entries, want only the file", got)
-	}
-
-	_, exists, err := store.Current(t.Context(), []byte("/srv/www"))
-	if err != nil || exists {
-		t.Fatal("directory imported into the reference", err)
-	}
-}
-
-// A reference that only holds untracked directories imports nothing and must not become a baseline.
-func TestImportOfOnlyUntrackedDirectoriesIsEmpty(t *testing.T) {
-	t.Parallel()
-
-	cfg := testStoreConfig(t)
-	cfg.Notifications.Use = nil
-	cfg.Integrity.Directories = false
-	store := openTestStore(t, t.TempDir(), cfg.Integrity, cfg.Notifications)
-
-	data, err := json.Marshal(integrity.Record{Path: []byte("/srv/www"), Type: integrity.TypeDirectory})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = store.ImportBaseline(t.Context(), bytes.NewReader(data))
-	if err == nil {
-		t.Fatal("reference without trackable records accepted")
-	}
-
-	stats, err := store.Stats(t.Context())
-	if err != nil || stats.BaselineReady || stats.Entries != 0 {
-		t.Fatalf("empty import changed the catalog: %+v %v", stats, err)
 	}
 }

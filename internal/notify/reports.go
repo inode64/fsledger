@@ -23,15 +23,16 @@ Elementos cambiados
 Clave  Ruta
 {{range .Report.Items}}{{printf "%-5s" .Detail.Code}}  {{printf "%q" .Detail.Path}}
 {{end}}
-C = Creado; D = Borrado; M = Contenido; P = Solo permisos; MP = Contenido y permisos.
-— = Otros metadatos o sin evidencia suficiente para clasificar.
+C = Creado; D = Borrado; M = Contenido; P = Solo permisos o atributos; MP = Contenido y permisos.
+T = Fecha retrocedida (mtime anterior a btime) sin otro cambio comprobado.
+— = Sin evidencia suficiente para clasificar.
 
 {{if .Report.Summary}}{{.Report.Summary}}
 {{else}}Resumen automático: {{len .Report.Items}} observaciones en esta parte.
 {{if not .Report.Items}}No hay cambios registrados.{{end}}
 {{end}}Estado IA: {{.Report.AIStatus}}
 {{with .Report.Counts}}Totales de esta parte: +{{.Added}} ~{{.Modified}} -{{.Deleted}};
-diferidas: {{.Deferred}}; violaciones: {{.Violations}}.
+diferidas: {{.Deferred}}.
 {{end}}
 El detalle siguiente es evidencia independiente del resumen. Son observaciones, no necesariamente commits.
 Detalle de cambios
@@ -43,13 +44,11 @@ Observado: {{localtime .Detail.Observed}} / cambio: {{.Detail.ChangeID}}
     {{.}}{{end}}{{else}} sin evidencia{{end}}
 {{with .Detail.BackdatedBy}}AVISO: mtime es {{duration .}} anterior a btime, la creación de esta versión del fichero:
 fecha conservada al copiar (tar, rsync -a, cp -p) o falseada.
-{{end}}Diferido al observar: {{.Deferred}} / violación de referencia: {{.Violation}}
+{{end}}Diferido al observar: {{.Deferred}}
 {{if .Head}}Último HEAD conocido al observar (no prueba de commit de esta versión): {{.Head}}
 {{end}}{{range .Detail.DisplayFields}}{{.Field}}: {{.Before}} -> {{.After}}
 {{else}}Sin diferencias de campos visibles.
-{{end}}{{with .Detail.DisplayBaseline}}Comparación con referencia aprobada:
-{{range .}}{{.Field}}: {{.Before}} -> {{.After}}
-{{end}}{{end}}{{end}}`
+{{end}}{{end}}`
 
 const summaryReportBody = `Resumen de cambios observados
 Servidor: {{printf "%q" .Host}} / repositorio: {{printf "%q" .Repository}}
@@ -60,7 +59,7 @@ la ausencia de registros no demuestra ausencia de cambios.
 {{end}}
 Observaciones: {{.Report.Aggregate.Observations}} (no necesariamente ficheros distintos).
 {{with .Report.Counts}}Totales del periodo: +{{.Added}} ~{{.Modified}} -{{.Deleted}};
-diferidas: {{.Deferred}}; violaciones: {{.Violations}}.
+diferidas: {{.Deferred}}.
 {{end}}
 Muestra limitada de rutas ({{len .Report.Items}} observaciones):
 {{range .Report.Items}}{{printf "%-5s" .Detail.Code}} {{printf "%q" .Detail.Path}}

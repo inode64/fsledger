@@ -30,7 +30,7 @@ func LockDirectory(path string) (*DirectoryLock, error) {
 	if err != nil {
 		Close(file)
 
-		return nil, fault.New("repository is in use; stop its daemon before inventory commands")
+		return nil, fault.New("repository is in use by another fsledger process: the daemon, verify or outbox clear")
 	}
 
 	return &DirectoryLock{file: file}, nil

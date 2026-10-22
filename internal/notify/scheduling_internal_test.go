@@ -35,24 +35,10 @@ func TestDueChangesAreDeliveredAsOneDigest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg, err := config.Load(testConfiguration(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cfg.Notifications.Use = []string{schedulingSink}
-	cfg.Notifications.BatchWindow = 0
-
-	store, err := catalog.Open(
-		t.Context(), filepath.Join(t.TempDir(), "catalog"), "repo", "host", cfg.Integrity, cfg.Notifications,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resource.Close(store)
+	store := sinkOutbox(t, sinkNotifier(server.URL, ""))
 
 	for range 300 {
-		err = store.Announce(t.Context(), config.NotificationChange, "")
+		err := store.Announce(t.Context(), config.NotificationChange, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -65,11 +51,9 @@ func TestDueChangesAreDeliveredAsOneDigest(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 
-	err = sender.deliverPending(t.Context(), store, destinations(map[string]config.Notifier{
-		schedulingSink: {
-			Type: schedulingSlack, URL: server.URL, DSN: "", From: "", Template: "", To: nil,
-		},
-	}), logger)
+	routing := destinations(map[string]config.Notifier{schedulingSink: sinkNotifier(server.URL, "")})
+
+	err := sender.deliverPending(t.Context(), store, routing, logger)
 	if err != nil || requests.Load() != 1 {
 		t.Fatalf("requests=%d error=%v", requests.Load(), err)
 	}
@@ -134,13 +118,13 @@ func TestDigestChunkUsesRenderedSizeAndPreservesOversizedEvidence(t *testing.T) 
 				ChangeID: schedulingChangeID, Paths: []string{schedulingPath}, Count: 1,
 				Details: []catalog.Detail{
 					{
-						ChangeID: schedulingChangeID,
-						Kind:     displayModified,
-						Actor:    displayUnknown,
-						Path:     []byte(schedulingPath),
-						Fields:   []catalog.FieldChange{{Field: "hash", Before: large, After: "new"}},
-						Baseline: nil,
-						Observed: 0,
+						ChangeID:    schedulingChangeID,
+						Kind:        displayModified,
+						Actor:       displayUnknown,
+						Path:        []byte(schedulingPath),
+						Fields:      []catalog.FieldChange{{Field: "hash", Before: large, After: "new"}},
+						Observed:    0,
+						BackdatedBy: 0,
 					},
 				},
 			},
@@ -175,24 +159,10 @@ func TestFailedDigestRetriesEveryDelivery(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg, err := config.Load(testConfiguration(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cfg.Notifications.Use = []string{schedulingSink}
-	cfg.Notifications.BatchWindow = 0
-
-	store, err := catalog.Open(
-		t.Context(), filepath.Join(t.TempDir(), "catalog"), "repo", "host", cfg.Integrity, cfg.Notifications,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resource.Close(store)
+	store := sinkOutbox(t, sinkNotifier(server.URL, ""))
 
 	for range 300 {
-		err = store.Announce(t.Context(), config.NotificationChange, "")
+		err := store.Announce(t.Context(), config.NotificationChange, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -201,11 +171,9 @@ func TestFailedDigestRetriesEveryDelivery(t *testing.T) {
 	sender := New(nil)
 	sender.HTTP = server.Client()
 
-	err = sender.deliverPending(t.Context(), store, destinations(map[string]config.Notifier{
-		schedulingSink: {
-			Type: schedulingSlack, URL: server.URL, DSN: "", From: "", Template: "", To: nil,
-		},
-	}), slog.New(slog.DiscardHandler))
+	routing := destinations(map[string]config.Notifier{schedulingSink: sinkNotifier(server.URL, "")})
+
+	err := sender.deliverPending(t.Context(), store, routing, slog.New(slog.DiscardHandler))
 	if err != nil || requests.Load() != 1 {
 		t.Fatalf("requests=%d error=%v", requests.Load(), err)
 	}
@@ -216,7 +184,6 @@ func TestFailedDigestRetriesEveryDelivery(t *testing.T) {
 	}
 }
 
-//nolint:funlen // Ordered integration fixture verifies persisted scheduling across a real HTTPS delivery.
 func TestLocalRateLimitDoesNotIncreaseAttempts(t *testing.T) {
 	t.Parallel()
 
@@ -232,43 +199,20 @@ func TestLocalRateLimitDoesNotIncreaseAttempts(t *testing.T) {
 	sender := New(nil)
 	sender.HTTP = server.Client()
 
-	cfg, err := config.Load(testConfiguration(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cfg.Notifications.Use = []string{schedulingSink}
-	cfg.Notifications.BatchWindow = 0
-
-	store, err := catalog.Open(
-		t.Context(),
-		filepath.Join(t.TempDir(), "catalog"),
-		"repo",
-		"host",
-		cfg.Integrity,
-		cfg.Notifications,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resource.Close(store)
+	store := sinkOutbox(t, sinkNotifier(server.URL, ""))
 
 	for range 64 {
-		err = store.Announce(t.Context(), "error", "")
+		err := store.Announce(t.Context(), "error", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	err = sender.deliverPending(
+	err := sender.deliverPending(
 		t.Context(),
 		store,
 		destinations(
-			map[string]config.Notifier{
-				schedulingSink: {
-					Type: schedulingSlack, URL: server.URL, DSN: "", From: "", Template: "", To: nil,
-				},
-			},
+			map[string]config.Notifier{schedulingSink: sinkNotifier(server.URL, "")},
 		),
 		slog.New(slog.DiscardHandler),
 	)
@@ -313,4 +257,35 @@ func TestMailDSNDefaultAndExplicitPorts(t *testing.T) {
 			t.Fatal("wrong mail endpoint", dsn, client, err)
 		}
 	}
+}
+
+// sinkNotifier is the Slack destination schedulingSink behind url.
+func sinkNotifier(url, template string) config.Notifier {
+	return config.Notifier{Type: schedulingSlack, URL: url, DSN: "", From: "", Template: template, To: nil}
+}
+
+// sinkOutbox opens a catalog that routes its events to schedulingSink and binds that destination, as
+// OpenRepository does for a configured repository.
+func sinkOutbox(t *testing.T, notifier config.Notifier) *catalog.Store {
+	t.Helper()
+
+	cfg, err := config.Load(testConfiguration(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.Notifications.Use = []string{schedulingSink}
+	cfg.Notifications.BatchWindow = 0
+
+	store, err := catalog.Open(
+		t.Context(), filepath.Join(t.TempDir(), "catalog"), "repo", "host", cfg.Integrity, cfg.Notifications,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { resource.Close(store) })
+	store.BindDestinations(map[string]config.Notifier{schedulingSink: notifier})
+
+	return store
 }

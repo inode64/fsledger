@@ -9,7 +9,6 @@ import (
 	"github.com/inode64/fsledger/internal/integrity"
 )
 
-//nolint:funlen // Ordered integration fixture keeps deletion, approval and generation assertions together.
 func TestDeletionPreservesOperationAndDoesNotScanRoots(t *testing.T) {
 	t.Parallel()
 	store := testStore(t)
@@ -36,11 +35,6 @@ func TestDeletionPreservesOperationAndDoesNotScanRoots(t *testing.T) {
 	}
 
 	_, err = store.Reconcile(t.Context(), scanner, []string{root}, matcher, true, "initial", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = store.InitBaseline(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,12 +66,8 @@ func TestDeletionPreservesOperationAndDoesNotScanRoots(t *testing.T) {
 		t.Fatal("deletion rescanned or changed ID", result, err)
 	}
 
-	err = store.Accept(t.Context(), result.ID)
-	if err != nil {
-		t.Fatal("Git operation cannot be approved", err)
-	}
-
-	if ids := pendingIDs(t, store); len(ids) != 0 {
-		t.Fatal("subtree deletion not approved", ids)
+	// The modified file, the removed directory and the file it held.
+	if result.Changed != 3 {
+		t.Fatalf("subtree deletion recorded %d changes, want 3", result.Changed)
 	}
 }

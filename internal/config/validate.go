@@ -203,10 +203,6 @@ func (c *Config) validateWatching() error {
 }
 
 func (c *Config) validateIntegrity() error {
-	if c.Integrity.Reference != ReferenceBaseline && c.Integrity.Reference != ReferencePrevious {
-		return fault.New("integrity.reference must be baseline or previous")
-	}
-
 	if !slices.Contains(
 		[]string{HashSHA256, HashSHA512, HashSHA512256, HashSHA3256, HashSHA3512, HashBLAKE3, HashXXHash64},
 		c.Integrity.Hash.Algorithm,
@@ -214,23 +210,10 @@ func (c *Config) validateIntegrity() error {
 		return fault.New("unsupported hash algorithm")
 	}
 
-	if c.Integrity.Hash.Algorithm == HashXXHash64 && c.Integrity.Reference == ReferenceBaseline {
-		return fault.New("baseline integrity requires a cryptographic hash")
-	}
-
 	err := validateScanSchedule(c.Integrity.Hash.FullScanInterval,
 		c.Integrity.Hash.FullScanSchedule, c.Integrity.Hash.FullScanTimezone)
-	if err != nil {
-		return fault.Wrap("hash full scan schedule", err)
-	}
 
-	for _, field := range c.Integrity.Compare {
-		if !slices.Contains(IntegrityFields, field) {
-			return fault.New("unknown integrity field: " + field)
-		}
-	}
-
-	return nil
+	return fault.Wrap("hash full scan schedule", err)
 }
 
 func (c *Config) validateNotifications() error {
@@ -253,10 +236,7 @@ func (c *Config) validateNotifications() error {
 	}
 
 	for _, name := range c.Notifications.Events {
-		if !slices.Contains(
-			[]string{NotificationChange, NotificationIntegrityViolation, NotificationError, NotificationRecovery},
-			name,
-		) {
+		if !slices.Contains(notificationEvents(), name) {
 			return fault.New("unknown notification event: " + name)
 		}
 	}
@@ -329,25 +309,6 @@ func sourcesMayOverlap(first, second string) bool {
 
 	for index := range min(len(left), len(right)) {
 		if !componentsMayMatch(left[index], right[index]) {
-			return false
-		}
-	}
-
-	return true
-}
-
-// SourceSelects reports lexically, without reading disk, whether a configured entry covers a path.
-func SourceSelects(entry, path string) bool {
-	left := strings.Split(entry, "/")
-	right := strings.Split(path, "/")
-
-	if len(left) > len(right) {
-		return false
-	}
-
-	for index, pattern := range left {
-		matched, err := doublestar.Match(pattern, right[index])
-		if err != nil || !matched {
 			return false
 		}
 	}

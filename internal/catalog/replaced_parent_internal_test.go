@@ -38,11 +38,6 @@ func TestReplacedParentDirectoryObservesChildrenAsDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = store.InitBaseline(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	err = os.RemoveAll(replaced)
 	if err != nil {
 		t.Fatal(err)
@@ -58,10 +53,6 @@ func TestReplacedParentDirectoryObservesChildrenAsDeleted(t *testing.T) {
 	)
 	if err != nil || result.Changed == 0 {
 		t.Fatal("replaced parent failed the group", result, err)
-	}
-
-	if pendingIDs(t, store)[child] == "" {
-		t.Fatal("missing child has no baseline violation")
 	}
 
 	_, exists, err := store.Current(t.Context(), []byte(child))

@@ -26,20 +26,23 @@ func TestMessageSummarizesKindsAndHostname(t *testing.T) {
 
 	for index, kind := range kinds {
 		details = append(details, Detail{
-			ChangeID: "",
-			Path:     []byte(fmt.Sprintf("/path/%d", index)),
-			Kind:     kind,
-			Actor:    fixtureActorUnknown,
-			Fields:   nil,
-			Baseline: nil,
-			Observed: time.Now().UnixNano(),
+			ChangeID:    "",
+			Path:        []byte(fmt.Sprintf("/path/%d", index)),
+			Kind:        kind,
+			Actor:       fixtureActorUnknown,
+			Fields:      nil,
+			Observed:    time.Now().UnixNano(),
+			BackdatedBy: 0,
 		})
 	}
 
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
 
-	store.enqueue(transaction, config.NotificationChange, "change", details)
+	// One message carries every kind, as a batch of the same operation does.
+	for _, route := range store.notificationRoutes() {
+		store.enqueueChange(transaction, "change", details, route)
+	}
 
 	err = transaction.commit()
 	if err != nil {
@@ -71,7 +74,6 @@ func TestMessageSummarizesKindsAndHostname(t *testing.T) {
 	}
 }
 
-//nolint:funlen // Ordered timeline fixture makes window transitions explicit.
 func TestNotificationWindowsAlignGrowAndReset(t *testing.T) {
 	t.Parallel()
 
@@ -92,12 +94,7 @@ func TestNotificationWindowsAlignGrowAndReset(t *testing.T) {
 
 		defer resource.Close(transaction.batch)
 
-		store.enqueue(
-			transaction,
-			config.NotificationChange,
-			offset.String(),
-			[]Detail{notificationTestDetail("/path/" + offset.String())},
-		)
+		enqueueObserved(store, transaction, offset.String(), notificationTestDetail("/path/"+offset.String()))
 
 		err := transaction.commit()
 		if err != nil {
@@ -154,12 +151,7 @@ func TestNotificationWindowGrowthCanBeDisabled(t *testing.T) {
 		transaction := store.begin()
 
 		identifier := strconv.Itoa(index)
-		store.enqueue(
-			transaction,
-			config.NotificationChange,
-			identifier,
-			[]Detail{notificationTestDetail("/path/" + identifier)},
-		)
+		enqueueObserved(store, transaction, identifier, notificationTestDetail("/path/"+identifier))
 
 		err := transaction.commit()
 		if err != nil {
@@ -205,7 +197,8 @@ func TestDueReturnsUpToDigestReadLimit(t *testing.T) {
 func notificationTestDetail(path string) Detail {
 	return Detail{
 		ChangeID: "", Kind: changeModified, Actor: fixtureActorUnknown, Path: []byte(path),
-		Fields: nil, Baseline: nil, Observed: 0,
+		Fields: nil, Observed: 0,
+		BackdatedBy: 0,
 	}
 }
 
@@ -287,4 +280,10 @@ func TestDiscardPendingDropsDueAndDelayedDeliveries(t *testing.T) {
 	if err != nil || len(deliveries) != 1 {
 		t.Fatalf("queue unusable after discard: deliveries=%d error=%v", len(deliveries), err)
 	}
+}
+
+// enqueueObserved queues detail as an observed change for every configured destination, as an inventory
+// update does for each changed path.
+func enqueueObserved(store *Store, transaction *transaction, identifier string, detail Detail) {
+	store.enqueueRoutes(transaction, identifier, detail, store.notificationRoutes())
 }

@@ -82,8 +82,17 @@ func (aggregate *ReportAggregate) add(item ReportItem) {
 	aggregate.Counts.add(item)
 
 	if len(aggregate.Sample) < reportSampleSize {
-		// Summary samples contain paths and classification, not unbounded xattrs or commands.
-		item.Detail.Fields, item.Detail.Baseline = nil, nil
+		// Summary samples contain paths and classification, not unbounded values or commands: the field
+		// names alone still classify a modification, and a creation or deletion needs none.
+		var names []FieldChange
+		if item.Detail.Kind == changeModified {
+			names = make([]FieldChange, len(item.Detail.Fields))
+			for index, field := range item.Detail.Fields {
+				names[index] = FieldChange{Field: field.Field, Before: "", After: ""}
+			}
+		}
+
+		item.Detail.Fields = names
 		item.Detail.Actor = ""
 		aggregate.Sample = append(aggregate.Sample, item)
 	}

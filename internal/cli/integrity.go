@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +18,10 @@ import (
 	"github.com/inode64/fsledger/internal/notify"
 	"github.com/inode64/fsledger/internal/resource"
 )
+
+// ErrChanges reports a manual verification that recorded changes. Its output is complete, so the
+// command exits with status 2 rather than as a failure.
+var ErrChanges = errors.New("verify recorded changes")
 
 // printCheck reports absent sources without failing: a shared list names paths of other hosts.
 func printCheck(writer io.Writer, cfg *config.Config) error {
@@ -71,41 +76,32 @@ func printEffective(writer io.Writer, cfg *config.Config) error {
 	return fault.Wrap("write effective configuration", yaml.NewEncoder(writer).Encode(report))
 }
 
-func inventoryCommand(
+// verifyCommand runs a manual full scan with the repository lock, so the daemon must be stopped.
+func verifyCommand(ctx context.Context, writer io.Writer, cfg *config.Config, name string) error {
+	_, err := selectRepository(cfg, name)
+	if err != nil {
+		return err
+	}
+
+	err = cfg.CheckPaths()
+	if err != nil {
+		return err
+	}
+
+	return withRepositoryStore(ctx, cfg, name,
+		func() error { return initializeInventoryGit(ctx, cfg, name) },
+		func(store *catalog.Store) error { return verifyInventory(ctx, writer, cfg, store, name) })
+}
+
+// withRepositoryStore opens a repository's catalog under the repository lock, so the daemon must be
+// stopped. prepare runs once the lock is held and the storage checked, before the catalog opens.
+func withRepositoryStore(
 	ctx context.Context,
-	writer io.Writer,
 	cfg *config.Config,
-	command, action, name, change, input string,
+	name string,
+	prepare func() error,
+	use func(*catalog.Store) error,
 ) error {
-	// A usage error must not leave a repository directory, Git metadata or a catalog behind.
-	err := checkInventoryUsage(command, action, change, input)
-	if err != nil {
-		return err
-	}
-
-	repo, err := selectRepository(cfg, name)
-	if err != nil {
-		return err
-	}
-
-	if command == commandBaseline && action == actionImport {
-		err = cfg.CheckStoragePaths()
-	} else {
-		err = cfg.CheckPaths()
-	}
-
-	if err != nil {
-		return err
-	}
-
-	// Listing differences only reads them, so it never creates the catalog or the Git metadata holding it.
-	if command == commandChanges {
-		err = requireCatalog(cfg, name)
-		if err != nil {
-			return err
-		}
-	}
-
 	root := cfg.RepositoryPath(name)
 
 	lock, err := resource.LockDirectory(root)
@@ -114,12 +110,12 @@ func inventoryCommand(
 	}
 	defer resource.Close(lock)
 
-	err = config.CheckRepositoryStorage(root, repo.Type)
+	err = config.CheckRepositoryStorage(root, cfg.Repositories[name].Type)
 	if err != nil {
 		return err
 	}
 
-	err = initializeInventoryGit(ctx, cfg, name)
+	err = prepare()
 	if err != nil {
 		return err
 	}
@@ -130,31 +126,7 @@ func inventoryCommand(
 	}
 	defer resource.Close(store)
 
-	return executeInventory(ctx, writer, cfg, store, command, action, name, change, input)
-}
-
-// checkInventoryUsage rejects an unknown baseline action or a missing argument before any state exists.
-func checkInventoryUsage(command, action, change, input string) error {
-	if command != commandBaseline {
-		return nil
-	}
-
-	switch action {
-	case "init", actionReplace:
-		return nil
-	case actionAccept:
-		if change == "" {
-			return fault.New("baseline accept requires --change")
-		}
-	case actionImport:
-		if input == "" {
-			return fault.New("baseline import requires --input FILE")
-		}
-	default:
-		return fault.New("usage: baseline init|accept|import|replace --repository NAME")
-	}
-
-	return nil
+	return use(store)
 }
 
 // requireCatalog refuses to read a repository that has no catalog yet instead of creating an empty one.
@@ -206,7 +178,7 @@ func previewReport(ctx context.Context, writer io.Writer, cfg *config.Config, na
 // clearOutbox discards the notifications queued by one repository. It takes the repository lock, so the
 // daemon must be stopped, and never creates a catalog: a repository without one has nothing queued.
 func clearOutbox(ctx context.Context, writer io.Writer, cfg *config.Config, name string) error {
-	repo, err := selectRepository(cfg, name)
+	_, err := selectRepository(cfg, name)
 	if err != nil {
 		return err
 	}
@@ -216,75 +188,18 @@ func clearOutbox(ctx context.Context, writer io.Writer, cfg *config.Config, name
 		return err
 	}
 
-	root := cfg.RepositoryPath(name)
-
-	lock, err := resource.LockDirectory(root)
-	if err != nil {
-		return err
-	}
-	defer resource.Close(lock)
-
-	err = config.CheckRepositoryStorage(root, repo.Type)
-	if err != nil {
-		return err
-	}
-
-	err = requireCatalog(cfg, name)
-	if err != nil {
-		return err
-	}
-
-	store, err := catalog.OpenRepository(ctx, cfg, name)
-	if err != nil {
-		return err
-	}
-	defer resource.Close(store)
-
-	discarded, err := store.DiscardPending(ctx)
-	if err != nil {
-		return err
-	}
-
-	_, err = fmt.Fprintf(writer, "Discarded %d pending notifications from %s\n", discarded, name)
-
-	return fault.Wrap("write outbox result", err)
-}
-
-func executeInventory(
-	ctx context.Context,
-	writer io.Writer,
-	cfg *config.Config,
-	store *catalog.Store,
-	command, action, name, change, input string,
-) error {
-	var err error
-
-	switch command {
-	case commandChanges:
-		return store.Changes(ctx, changesDisplayLimit, func(id string, path []byte, kind string, fields []byte) error {
-			_, writeErr := fmt.Fprintf(writer, "%s %s %q %s\n", id, kind, path, fields)
-
-			return fault.Wrap("write change", writeErr)
-		})
-	case commandBaseline:
-		if action == actionImport {
-			return importReference(ctx, writer, store, input)
-		}
-
-		if action == actionAccept {
-			err = store.Accept(ctx, change)
-			if err != nil {
-				return err
+	return withRepositoryStore(ctx, cfg, name,
+		func() error { return requireCatalog(cfg, name) },
+		func(store *catalog.Store) error {
+			discarded, discardErr := store.DiscardPending(ctx)
+			if discardErr != nil {
+				return discardErr
 			}
 
-			_, err = fmt.Fprintln(writer, "Recorded change accepted:", change)
+			_, writeErr := fmt.Fprintf(writer, "Discarded %d pending notifications from %s\n", discarded, name)
 
-			return fault.Wrap("write approval", err)
-		}
-	}
-
-	// Only verify, baseline init and baseline replace remain: checkInventoryUsage refused other actions.
-	return verifyInventory(ctx, writer, cfg, store, command, action, name)
+			return fault.Wrap("write outbox result", writeErr)
+		})
 }
 
 func verifyInventory(
@@ -292,10 +207,8 @@ func verifyInventory(
 	writer io.Writer,
 	cfg *config.Config,
 	store *catalog.Store,
-	command, action, name string,
+	name string,
 ) error {
-	repo := cfg.Repositories[name]
-
 	sources := cfg.ResolveRepository(name)
 	if sources.Incomplete {
 		// The skipped sources say which one must become readable again.
@@ -309,25 +222,10 @@ func verifyInventory(
 	}
 
 	scanner := integrity.NewScanner(cfg.Scan.Workers, cfg.Scan.MaxConcurrent)
-	replace := command == commandBaseline && action == actionReplace
 
-	var result catalog.Result
-
-	if replace {
-		result, err = store.ScanAndReplaceBaseline(ctx, scanner, sources.Roots, matcher)
-	} else {
-		result, err = store.Reconcile(ctx, scanner, sources.Roots, matcher, true, "manual verification", "")
-	}
-
+	result, err := store.Reconcile(ctx, scanner, sources.Roots, matcher, true, "manual verification", "")
 	if err != nil {
 		return err
-	}
-
-	if command == commandBaseline && !replace {
-		err = store.InitBaseline(ctx)
-		if err != nil {
-			return err
-		}
 	}
 
 	err = store.ClearOperation(ctx)
@@ -335,22 +233,6 @@ func verifyInventory(
 		return err
 	}
 
-	return reportVerification(
-		ctx,
-		writer,
-		store,
-		result,
-		command == commandVerify && repo.Integrity.Reference == config.ReferenceBaseline,
-	)
-}
-
-func reportVerification(
-	ctx context.Context,
-	writer io.Writer,
-	store *catalog.Store,
-	result catalog.Result,
-	requireBaseline bool,
-) error {
 	stats, err := store.Stats(ctx)
 	if err != nil {
 		return err
@@ -364,41 +246,9 @@ func reportVerification(
 		return fault.Wrap("write verification", err)
 	}
 
-	if requireBaseline && !stats.BaselineReady {
-		return fault.New("no approved baseline; use baseline init after reviewing the sources")
-	}
-
-	if stats.Violations > 0 {
-		return fault.New("integrity violations detected")
+	if result.Changed > 0 {
+		return ErrChanges
 	}
 
 	return nil
-}
-
-const changesDisplayLimit = 100
-
-const (
-	actionReplace = "replace"
-	actionAccept  = "accept"
-)
-
-func importReference(ctx context.Context, writer io.Writer, store *catalog.Store, path string) error {
-	//nolint:gosec // --input explicitly selects the reviewed reference file to import.
-	input, err := os.Open(path)
-	if err != nil {
-		return fault.Wrap("open reviewed reference", err)
-	}
-	defer resource.Close(input)
-
-	err = store.ImportBaseline(ctx, input)
-	if err != nil {
-		return err
-	}
-
-	stats, err := store.Stats(ctx)
-	if err != nil {
-		return err
-	}
-
-	return fault.Wrap("report reference import", json.NewEncoder(writer).Encode(stats))
 }

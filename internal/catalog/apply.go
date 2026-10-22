@@ -20,26 +20,20 @@ func (store *Store) apply(
 	updates []mutation,
 	generation uint64,
 	identifier, actor string,
-) (int, int, error) {
+) (int, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
 
-	if !store.replacingBaseline && store.policy.Reference == config.ReferenceBaseline &&
-		transaction.state.Stats.BaselineReady &&
-		transaction.state.Policy != store.policyDigest {
-		return 0, 0, fault.New("baseline policy differs from configuration")
-	}
-
-	changed, violations := 0, 0
+	changed := 0
 	seen := make(map[string]bool, len(updates))
 
 	for _, update := range updates {
 		operationErr1 := ctx.Err()
 		if operationErr1 != nil {
-			return 0, 0, fault.Wrap("apply inventory", operationErr1)
+			return 0, fault.Wrap("apply inventory", operationErr1)
 		}
 
 		// Repeated paths must see preceding writes in this indexed batch.
@@ -50,24 +44,24 @@ func (store *Store) apply(
 
 		seen[path] = true
 
-		didChange, violation, err := store.applyOne(ctx, transaction, update, generation, identifier, actor)
+		didChange, err := store.applyOne(ctx, transaction, update, generation, identifier, actor)
 		if err != nil {
-			return 0, 0, err
+			return 0, err
 		}
 
 		if didChange {
 			changed++
 		}
-
-		if violation {
-			violations++
-		}
 	}
 
-	return changed, violations, transaction.commit()
+	return changed, transaction.commit()
 }
 
-func differences(previous, current integrity.Record, previousExists, currentExists bool, selected []string) []string {
+func differences(
+	previous, current integrity.Record,
+	previousExists, currentExists bool,
+	policy config.Integrity,
+) []string {
 	if !previousExists && !currentExists {
 		return nil
 	}
@@ -80,7 +74,7 @@ func differences(previous, current integrity.Record, previousExists, currentExis
 		return []string{changeDeleted}
 	}
 
-	fields := integrity.Differences(previous, current, selected)
+	fields := integrity.Differences(previous, current, policy)
 	if current.Type == integrity.TypeRegular && current.Hash == "" {
 		// A deferred hash is unknown, not a content difference.
 		fields = slices.DeleteFunc(fields, func(field string) bool { return field == fieldHash })
@@ -102,18 +96,13 @@ func changeKind(fields []string) string {
 }
 
 type comparison struct {
-	old            pending
-	oldData        []byte
-	currentData    []byte
-	baselineData   []byte
-	fields         []string
-	baselineFields []string
-	previous       integrity.Record
-	baseline       integrity.Record
-	pendingExists  bool
+	oldData     []byte
+	currentData []byte
+	fields      []string
+	previous    integrity.Record
 }
 
-func (store *Store) compare(transaction *transaction, update mutation) (comparison, error) {
+func compare(transaction *transaction, update mutation, policy config.Integrity) (comparison, error) {
 	var (
 		result comparison
 		err    error
@@ -136,51 +125,9 @@ func (store *Store) compare(transaction *transaction, update mutation) (comparis
 		}
 	}
 
-	result.fields = differences(
-		result.previous,
-		record,
-		result.oldData != nil,
-		result.currentData != nil,
-		store.policy.Compare,
-	)
-
-	result.old, result.pendingExists, err = readPending(transaction.batch, record.Path)
-	if err != nil {
-		return result, err
-	}
-
-	if transaction.state.Stats.BaselineReady &&
-		(store.policy.Reference == config.ReferenceBaseline || store.replacingBaseline) {
-		result.baseline, result.baselineData, err = readRecord(
-			transaction.batch,
-			baselinePrefix(transaction.state.Baseline),
-			record.Path,
-		)
-		if err != nil {
-			return result, err
-		}
-
-		result.baselineFields = store.baselineDifferences(&result, record)
-	}
+	result.fields = differences(result.previous, record, result.oldData != nil, result.currentData != nil, policy)
 
 	return result, nil
-}
-
-// baselineDifferences compares an observation with its reference. A deferred hash leaves the content
-// unknown: it raises no content difference, but neither resolves one already pending for that path.
-func (store *Store) baselineDifferences(compared *comparison, record integrity.Record) []string {
-	if compared.baselineData != nil && compared.currentData != nil &&
-		compared.pendingExists && slices.Contains(compared.old.Fields, fieldHash) {
-		return integrity.Differences(compared.baseline, record, store.policy.Compare)
-	}
-
-	return differences(
-		compared.baseline,
-		record,
-		compared.baselineData != nil,
-		compared.currentData != nil,
-		store.policy.Compare,
-	)
 }
 
 func (store *Store) applyOne(
@@ -189,48 +136,30 @@ func (store *Store) applyOne(
 	update mutation,
 	generation uint64,
 	identifier, actor string,
-) (bool, bool, error) {
+) (bool, error) {
 	update = store.withoutDirectory(update)
 	record := update.record
 
-	compared, err := store.compare(transaction, update)
+	compared, err := compare(transaction, update, store.policy)
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
 
 	if update.excluded || store.untrackedDirectory(update, &compared) {
-		retireEntry(transaction, record.Path, &compared, generation)
+		persistEntry(transaction, record.Path, nil, compared.oldData, generation)
 
-		return false, false, nil
+		return false, nil
 	}
 
 	changed := len(compared.fields) > 0
-	violation := len(compared.baselineFields) > 0 &&
-		(!compared.pendingExists || changed || !slices.Equal(compared.old.Fields, compared.baselineFields))
-
-	token := store.setPending(
-		transaction, record.Path, compared.old, compared.pendingExists, identifier,
-		changeKind(compared.baselineFields), compared.baselineFields, violation,
-	)
-
-	err = store.announceChange(
-		ctx,
-		transaction,
-		record,
-		&compared,
-		identifier,
-		token,
-		actor,
-		changed,
-		violation,
-	)
-	if err != nil {
-		return false, false, err
+	if changed {
+		err = store.announceChange(ctx, transaction, record, &compared, identifier, actor)
+	} else {
+		err = store.refreshStagedObservation(transaction, record, &compared, identifier)
 	}
 
-	err = store.refreshStagedObservation(transaction, record, &compared, identifier)
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
 
 	// A hash difference implies both versions exist: additions and deletions carry no field names.
@@ -240,21 +169,12 @@ func (store *Store) applyOne(
 
 	persistEntry(transaction, record.Path, compared.currentData, compared.oldData, generation)
 
-	return changed, violation, nil
+	return changed, nil
 }
 
 // ignored is asked only about changes, so unchanged entries of a full scan never reach the rules.
 func (store *Store) ignored(ctx context.Context, path []byte) bool {
 	return store.ignore.Match(string(path), filter.Actor(ctx, string(path)))
-}
-
-// retireEntry stops tracking a path without announcing anything: exclusions and untracked directories.
-func retireEntry(transaction *transaction, path []byte, compared *comparison, generation uint64) {
-	if compared.pendingExists {
-		removePending(transaction, path, compared.old, true)
-	}
-
-	persistEntry(transaction, path, nil, compared.oldData, generation)
 }
 
 // withoutDirectory turns a directory observation into the disappearance of whatever this repository
@@ -265,27 +185,17 @@ func (store *Store) withoutDirectory(update mutation) mutation {
 		return update
 	}
 
-	return mutation{
-		record:      integrity.Record{Path: update.record.Path},
-		previous:    nil,
-		deleted:     true,
-		excluded:    update.excluded,
-		refreshHash: false,
-	}
+	return deletion(update.record.Path, update.excluded)
 }
 
 // untrackedDirectory reports a stored directory entry, kept from before directories stopped being
-// tracked or from the approved reference, that must leave the inventory without any announcement.
+// tracked, that must leave the inventory without any announcement.
 func (store *Store) untrackedDirectory(update mutation, compared *comparison) bool {
 	if store.policy.Directories || !update.deleted {
 		return false
 	}
 
-	if compared.oldData != nil {
-		return compared.previous.Type == integrity.TypeDirectory
-	}
-
-	return compared.baseline.Type == integrity.TypeDirectory
+	return compared.oldData != nil && compared.previous.Type == integrity.TypeDirectory
 }
 
 func persistEntry(transaction *transaction, path, data, oldData []byte, generation uint64) {
@@ -315,31 +225,37 @@ func persistEntry(transaction *transaction, path, data, oldData []byte, generati
 	}
 }
 
-func describe(record integrity.Record, compared *comparison, actor string) (Detail, error) {
-	fields, err := describeFields(compared.previous, record, compared.fields)
+// newDetail describes how fields changed from previous to current, the version at the path; for a
+// deletion current is the empty record of that path.
+func newDetail(previous, current integrity.Record, fields []string, actor string, observed int64) (Detail, error) {
+	changes, err := describeFields(previous, current, fields)
 	if err != nil {
 		return Detail{}, err
 	}
 
-	baseline, err := describeFields(compared.baseline, record, compared.baselineFields)
-	if err != nil {
-		return Detail{}, err
-	}
-
-	observed := record.Observed
-	if observed == 0 {
-		observed = time.Now().UnixNano()
+	kind, existing := changeKind(fields), current
+	if kind == changeDeleted {
+		existing = previous
 	}
 
 	return Detail{
-		ChangeID: "",
-		Path:     record.Path,
-		Kind:     changeKind(compared.fields),
-		Actor:    actor,
-		Observed: observed,
-		Fields:   fields,
-		Baseline: baseline,
+		ChangeID:    "",
+		Path:        current.Path,
+		Kind:        kind,
+		Actor:       actor,
+		Observed:    observed,
+		Fields:      changes,
+		BackdatedBy: existing.Backdated(),
 	}, nil
+}
+
+// observedAt is when an observation was made; one without a time is taken as made now.
+func observedAt(record integrity.Record) int64 {
+	if record.Observed == 0 {
+		return time.Now().UnixNano()
+	}
+
+	return record.Observed
 }
 
 func describeFields(previous, current integrity.Record, fields []string) ([]FieldChange, error) {
@@ -373,12 +289,18 @@ func describeFields(previous, current integrity.Record, fields []string) ([]Fiel
 }
 
 // snapshotFields lists what a created or deleted entry records about the version that exists, leaving
-// out attributes its filesystem does not provide: they would only show and store empty placeholders.
+// out values it does not have and attributes its filesystem does not provide: they would only show and
+// store empty placeholders.
 func snapshotFields(existing integrity.Record) []string {
-	fields := []string{
-		fieldType, fieldHash, fieldSize, fieldInode, fieldDevice, fieldMode, fieldUID, fieldGID, fieldNlink,
-		fieldMtime, fieldCtime,
+	fields := []string{fieldType}
+
+	if existing.Hash != "" {
+		fields = append(fields, fieldHash)
 	}
+
+	fields = append(fields,
+		fieldSize, fieldInode, fieldDevice, fieldMode, fieldUID, fieldGID, fieldNlink, fieldMtime, fieldCtime,
+	)
 
 	if existing.Atime != 0 {
 		fields = append(fields, fieldAtime)
@@ -388,7 +310,9 @@ func snapshotFields(existing integrity.Record) []string {
 		fields = append(fields, fieldBtime, fieldHasBtime)
 	}
 
-	fields = append(fields, fieldTarget)
+	if len(existing.Target) != 0 {
+		fields = append(fields, fieldTarget)
+	}
 
 	if integrity.AttributesSupported(existing.AttributesStatus) {
 		fields = append(fields, fieldXattrs, fieldACL, fieldAttributesStatus)
@@ -431,12 +355,10 @@ func (store *Store) announceChange(
 	transaction *transaction,
 	record integrity.Record,
 	compared *comparison,
-	identifier, token, actor string,
-	changed, violation bool,
+	identifier, actor string,
 ) error {
-	report := store.reports.Enabled && (changed || violation)
-	reportViolation := violation
-	notifyChange := changed && store.notifies(config.NotificationChange)
+	report := store.reports.Enabled
+	notifyChange := store.notifies(config.NotificationChange)
 
 	var notification changeNotification
 
@@ -445,12 +367,11 @@ func (store *Store) announceChange(
 		notification.stage = store.notificationOperation == identifier
 	}
 
-	violation = violation && store.notifies(config.NotificationIntegrityViolation)
-	if !report && !notification.deliver && !notification.stage && !violation {
+	if !report && !notification.deliver && !notification.stage {
 		return nil
 	}
 
-	detail, err := describe(record, compared, actor)
+	detail, err := newDetail(compared.previous, record, compared.fields, actor, observedAt(record))
 	if err != nil {
 		return err
 	}
@@ -459,20 +380,11 @@ func (store *Store) announceChange(
 		reportDetail := detail
 		reportDetail.ChangeID = identifier
 
-		err = store.recordReport(transaction, reportDetail, reportViolation)
+		err = store.recordReport(transaction, reportDetail)
 		if err != nil {
 			return err
 		}
 	}
 
-	err = store.enqueueObservedChange(transaction, record, compared, detail, identifier, notification)
-	if err != nil {
-		return err
-	}
-
-	if violation {
-		store.enqueue(transaction, config.NotificationIntegrityViolation, token, []Detail{detail})
-	}
-
-	return nil
+	return store.enqueueObservedChange(transaction, record, compared, detail, identifier, notification)
 }

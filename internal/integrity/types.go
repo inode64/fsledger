@@ -2,7 +2,7 @@ package integrity
 
 import "golang.org/x/sys/unix"
 
-// File type names are shared by live observations, imported records and comparisons.
+// File type names are shared by observations, comparisons and their display.
 const (
 	TypeRegular   = "regular"
 	TypeDirectory = "directory"
@@ -14,8 +14,7 @@ const (
 	TypeSpecial   = "special"
 )
 
-// FileType translates Linux mode bits to a record type. Unknown modes return an
-// empty string so importers can reject them; live observations may use TypeSpecial.
+// FileType translates Linux mode bits to a record type; any other file type is TypeSpecial.
 func FileType(mode uint32) string {
 	switch mode & unix.S_IFMT {
 	case unix.S_IFREG:
@@ -33,6 +32,6 @@ func FileType(mode uint32) string {
 	case unix.S_IFBLK:
 		return TypeBlock
 	default:
-		return ""
+		return TypeSpecial
 	}
 }

@@ -38,23 +38,18 @@ func defaults() *Config {
 	cfg.Storage.Git.FetchInterval = time.Minute
 	cfg.Storage.Git.FetchTimeout = DefaultPushTimeout
 	cfg.Integrity = Integrity{
-		Reference: ReferenceBaseline,
-		Compare:   []string{"hash", "type", "mode", "uid", "gid", "size", "mtime", "ctime", "xattrs", "acl"},
 		Hash: Hash{
 			Algorithm: HashSHA256, OnEvent: true, FullScanInterval: defaultFullScanInterval,
 			FullScanSchedule: "", FullScanTimezone: defaultTimezone,
 		},
 		Directories: true,
+		Xattrs:      false,
+		ACL:         false,
 	}
 	cfg.Notifications = Notifications{
-		Ignore: nil,
-		Use:    nil,
-		Events: []string{
-			NotificationChange,
-			NotificationIntegrityViolation,
-			NotificationError,
-			NotificationRecovery,
-		},
+		Ignore:         nil,
+		Use:            nil,
+		Events:         notificationEvents(),
 		BatchWindow:    defaultBatchWindow,
 		MaxBatchWindow: defaultMaxBatchWindow,
 		MaxPending:     defaultMaxPending,

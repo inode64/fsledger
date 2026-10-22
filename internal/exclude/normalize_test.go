@@ -19,7 +19,7 @@ func TestNewNormalizesSeparatorsCleanPathsNeverContain(t *testing.T) {
 		"/srv//cache//":    {"/srv/cache/a": true, "/srv/cached": false},
 		"//var/tmp":        {"/var/tmp/a": true, "/var/tmpdir": false},
 		"cache/":           {"/srv/cache/a": false, "cache/a": true},
-		// An escaped separator stays as written: still accepted, as before.
+		// An escaped separator stays as written and is accepted.
 		`/srv\/`: {"/srv": false},
 	} {
 		matcher, err := exclude.New(pattern)

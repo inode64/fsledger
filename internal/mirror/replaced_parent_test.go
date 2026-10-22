@@ -33,7 +33,7 @@ func replacedParentMirror(t *testing.T) (string, string, *mirror.Sync) {
 	matcher, err := exclude.New()
 	must(t, err)
 
-	syncer, err := mirror.Open(repository, []string{root}, matcher, "")
+	syncer, err := mirror.Open(repository, []string{root}, matcher, "sha256")
 	if err != nil {
 		t.Fatal(err)
 	}

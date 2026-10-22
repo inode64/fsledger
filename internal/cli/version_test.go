@@ -24,8 +24,8 @@ func TestVersionNeedsNoConfiguration(t *testing.T) {
 		{"version"},
 		{"run", versionFlag},
 		{checkCommand, "-c", missing, versionFlag},
-		{"baseline", versionFlag, "init"},
-		{"migrate_aide", versionFlag},
+		{"report", versionFlag, "preview"},
+		{"restore", versionFlag},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			t.Parallel()

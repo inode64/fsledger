@@ -20,22 +20,12 @@ func TestCheckNormalizesTrailingSlashAndRejectsDotExclusions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for name, text := range map[string]string{
+	writeFiles(t, root, map[string]string{
 		fixtureMainYaml: "runtime: " + root + "/run\nstorage: {path: " + root + "/state}\n" +
 			"paths: {repositories: [system.yaml], excludes: [excludes]}\nexclude: [common]\n",
 		fixtureSystemYaml:      "paths: ['" + root + "/src']\n",
 		"excludes/common.yaml": "- " + root + "/src/private/\n- '**/node_modules/'\n",
-	} {
-		err = os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o700)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = os.WriteFile(filepath.Join(root, name), []byte(text), 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
+	})
 
 	var output, stderr bytes.Buffer
 

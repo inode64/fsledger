@@ -6,15 +6,14 @@ import (
 	"github.com/inode64/fsledger/internal/integrity"
 )
 
-// Markers of stored field values. Display and classification parse values back with the same
-// markers, so formatting and parsing cannot drift apart.
+// Markers of stored field values. Display parses values back with the same markers, so formatting
+// and parsing cannot drift apart.
 const (
 	hashSeparator = ":"
 	suffixOpening = " ("
 	suffixClosing = ")"
 	knownLabel    = "known="
 	knownTrue     = suffixOpening + knownLabel + "true" + suffixClosing
-	knownFalse    = suffixOpening + knownLabel + "false" + suffixClosing
 )
 
 // printableField encodes only requested evidence, preserving JSON's byte and string

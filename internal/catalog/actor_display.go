@@ -12,11 +12,10 @@ import (
 )
 
 // The daemon stores the actor as the rendered commit message with the labels of internal/event.
-// These views derive readable lines from that text, so deliveries queued by older versions
-// render the same way without migrating stored evidence.
+// These views derive readable lines from that text.
 const unknownActorSummary = event.Unknown + ":"
 
-// startTimePattern matches "start_time: <ticks> (<rendered time>)" written by newer daemons.
+// startTimePattern matches "start_time: <ticks> (<rendered time>)" in the actor text.
 var startTimePattern = regexp.MustCompile(`^(\s*` + regexp.QuoteMeta(event.ActorStartTime) + ` )\d+ \((.+)\)$`)
 
 // ActorLines returns the actor evidence as display lines: blank lines, the Git change trailer and

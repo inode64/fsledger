@@ -28,7 +28,7 @@ func TestReconcileVerifiesRacyTimestamps(t *testing.T) {
 
 	repository := t.TempDir()
 
-	syncer, err := Open(repository, []string{source}, matcher, "")
+	syncer, err := Open(repository, []string{source}, matcher, "sha256")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -26,5 +26,4 @@ message Record {
  uint32 mode = 20;
  bool no_atime = 21;
  bool has_btime = 22;
- bool times_in_seconds = 23;
 }

@@ -30,17 +30,12 @@ func restoreFixture(t *testing.T) (string, func(args ...string) (string, error))
 	root := t.TempDir()
 	mirror := filepath.Join(root, "state", restoreRepoName)
 
-	for name, body := range map[string]string{
+	writeFiles(t, root, map[string]string{
 		restoreRepoYaml: "type: git\npaths: ['" + root + "/source']\n",
 		fixtureMainYaml: "runtime: '" + root + "/run'\nstorage: {path: '" + root + "/state'}\n" +
 			"paths: {repositories: [" + restoreRepoYaml + ", db.yaml]}\n",
 		"db.yaml": "type: db\npaths: ['" + root + "/source']\n",
-	} {
-		err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
+	})
 
 	for _, directory := range []string{filepath.Join(root, "source"), filepath.Join(mirror, "etc")} {
 		err := os.MkdirAll(directory, 0o700)

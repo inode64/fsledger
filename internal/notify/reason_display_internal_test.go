@@ -21,7 +21,7 @@ func TestDefaultAndExampleBodiesEscapeReason(t *testing.T) {
 
 	sender := New(map[string]config.Template{displayExample: definition})
 	for _, name := range []string{"", displayExample} {
-		for _, kind := range []string{config.NotificationError, config.NotificationRecovery, config.NotificationChange} {
+		for _, kind := range []string{config.NotificationError, config.NotificationRecovery} {
 			message := catalog.Message{Repository: "escaped", Host: "escaped-host", Event: kind, Reason: reason}
 
 			rendered, renderErr := sender.render(

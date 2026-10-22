@@ -29,7 +29,7 @@ func gitMirror(t *testing.T, source string) (*gitrepo.Repository, *mirror.Sync) 
 	matcher, err := exclude.New()
 	must(t, err)
 
-	syncer, err := mirror.Open(repository.Path, []string{source}, matcher, "")
+	syncer, err := mirror.Open(repository.Path, []string{source}, matcher, "sha256")
 	if err != nil {
 		t.Fatal(err)
 	}

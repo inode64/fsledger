@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cockroachdb/pebble/v2"
-
 	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/integrity"
@@ -26,11 +24,10 @@ const (
 
 // Result identifies one observation operation, not an archived version.
 type Result struct {
-	ID         string `json:"id"`
-	Observed   int64  `json:"observed"`
-	Hashed     int64  `json:"hashed"`
-	Changed    int    `json:"changed"`
-	Violations int    `json:"violations"`
+	ID       string `json:"id"`
+	Observed int64  `json:"observed"`
+	Hashed   int64  `json:"hashed"`
+	Changed  int    `json:"changed"`
 }
 type mutation struct {
 	previous    *storedRecord
@@ -44,10 +41,6 @@ type mutation struct {
 type storedRecord struct {
 	data   []byte
 	record integrity.Record
-}
-
-func commitBatch(batch *pebble.Batch) error {
-	return fault.Wrap("commit reference batch", batch.Commit(pebble.Sync))
 }
 
 // Reconcile streams the inventory and prunes missing files only after a successful scan.
@@ -84,8 +77,6 @@ func (store *Store) beginOperation(ctx context.Context, scan bool) error {
 		transaction.state.Generation++
 	}
 
-	transaction.state.Complete = false
-
 	return transaction.commit()
 }
 
@@ -111,8 +102,7 @@ func (store *Store) reconcile(
 	batch := store.newBatcher(generation, &result, actor)
 
 	algorithm := store.policy.Hash.Algorithm
-	content := full && slices.Contains(store.policy.Compare, fieldHash)
-	err := scanner.ScanPaths(ctx, roots, paths, matcher, algorithm, content, store.policy.Directories,
+	err := scanner.ScanPaths(ctx, roots, paths, matcher, algorithm, full, store.policy.Directories,
 		func(record integrity.Record) error {
 			update, err := store.scanMutation(ctx, scanner, record, full)
 			if err != nil {
@@ -176,13 +166,7 @@ func (store *Store) finishScan(
 			return nil
 		}
 
-		return batch.add(ctx, mutation{
-			refreshHash: false,
-			excluded:    matcher.Match(string(path)),
-			record:      integrity.Record{Path: slices.Clone(path)},
-			previous:    nil,
-			deleted:     true,
-		})
+		return batch.add(ctx, deletion(slices.Clone(path), matcher.Match(string(path))))
 	})
 	if err != nil {
 		return result, err
@@ -193,24 +177,21 @@ func (store *Store) finishScan(
 		return result, err
 	}
 	// A subtree cannot certify completeness or hash freshness of the whole inventory.
-	if len(scopes) != 0 || len(unstable) != 0 {
+	if !full || len(scopes) != 0 || len(unstable) != 0 {
 		return result, nil
 	}
 
-	return result, store.completeScan(full)
+	return result, store.completeScan()
 }
 
-func (store *Store) completeScan(full bool) error {
+func (store *Store) completeScan() error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
 
-	transaction.state.Complete = true
-	if full {
-		transaction.state.Stats.LastFullScan = time.Now().UnixNano()
-	}
+	transaction.state.Stats.LastFullScan = time.Now().UnixNano()
 
 	return transaction.commit()
 }
@@ -243,7 +224,7 @@ func (store *Store) prepare(
 	record integrity.Record,
 	full bool,
 ) (integrity.Record, *storedRecord, error) {
-	if record.Type != integrity.TypeRegular || full || !slices.Contains(store.policy.Compare, fieldHash) {
+	if record.Type != integrity.TypeRegular || full {
 		return record, nil, nil
 	}
 
@@ -255,15 +236,7 @@ func (store *Store) prepare(
 	cached := &storedRecord{record: previous, data: data}
 	exists := data != nil
 
-	unchanged := exists &&
-		len(
-			integrity.Differences(
-				previous,
-				record,
-				[]string{fieldSize, fieldMtime, fieldCtime, fieldInode, fieldDevice, fieldType},
-			),
-		) == 0 &&
-		previous.Algorithm == store.policy.Hash.Algorithm
+	unchanged := exists && integrity.SameVersion(previous, record) && previous.Algorithm == store.policy.Hash.Algorithm
 	if unchanged {
 		record.Hash, record.Algorithm = previous.Hash, previous.Algorithm
 		record.HashedAt, record.NoAtime = previous.HashedAt, previous.NoAtime
@@ -394,7 +367,6 @@ func (store *Store) observeDirectories(
 		ctx, scanner, roots, matcher, false, actor, result.ID, pathutil.CompactRoots(directories)...,
 	)
 	result.Changed += subtrees.Changed
-	result.Violations += subtrees.Violations
 
 	return result, err
 }
@@ -430,9 +402,8 @@ func (batch *batcher) flush(ctx context.Context) error {
 		return fault.Wrap("apply observations", ctx.Err())
 	}
 
-	changed, violations, err := batch.store.apply(ctx, batch.pending, batch.generation, batch.result.ID, batch.actor)
+	changed, err := batch.store.apply(ctx, batch.pending, batch.generation, batch.result.ID, batch.actor)
 	batch.result.Changed += changed
-	batch.result.Violations += violations
 	batch.pending = batch.pending[:0]
 
 	return err
@@ -463,13 +434,7 @@ func (batch *batcher) addObservation(ctx context.Context, update mutation) error
 	}
 
 	return batch.store.iterate(ctx, currentPrefix+prefix, func(suffix, _ []byte) error {
-		return batch.add(ctx, mutation{
-			refreshHash: false,
-			excluded:    false,
-			record:      integrity.Record{Path: append([]byte(prefix), suffix...)},
-			previous:    nil,
-			deleted:     true,
-		})
+		return batch.add(ctx, deletion(append([]byte(prefix), suffix...), false))
 	})
 }
 
@@ -485,11 +450,15 @@ func (store *Store) readAffected(
 	scanner *integrity.Scanner,
 	path string,
 ) (mutation, bool, error) {
-	content := store.policy.Hash.OnEvent && slices.Contains(store.policy.Compare, fieldHash)
-
-	record, err := scanner.Observe(ctx, path, store.policy.Hash.Algorithm, content, store.copiedHashes)
+	record, err := scanner.Observe(
+		ctx,
+		path,
+		store.policy.Hash.Algorithm,
+		store.policy.Hash.OnEvent,
+		store.copiedHashes,
+	)
 	if integrity.Missing(err) {
-		return missingMutation(path), false, nil
+		return deletion([]byte(path), false), false, nil
 	}
 
 	if err != nil {
@@ -511,19 +480,20 @@ func (store *Store) readAffected(
 		update.record, update.previous, err = store.prepare(ctx, scanner, record, false)
 		// prepare observes a new file again to hash it; it may have vanished meanwhile.
 		if integrity.Missing(err) {
-			return missingMutation(path), false, nil
+			return deletion([]byte(path), false), false, nil
 		}
 	}
 
 	return update, false, err
 }
 
-func missingMutation(path string) mutation {
+// deletion records that path no longer exists; an excluded one is retired without an announcement.
+func deletion(path []byte, excluded bool) mutation {
 	return mutation{
-		record:      integrity.Record{Path: []byte(path)},
+		record:      integrity.Record{Path: path},
 		deleted:     true,
 		previous:    nil,
-		excluded:    false,
+		excluded:    excluded,
 		refreshHash: false,
 	}
 }

@@ -13,6 +13,10 @@ const (
 	binaryComment   = "user.comment"
 	// binaryOwnerACL is system.posix_acl_access as the kernel stores it: version 2, then user::rw-.
 	binaryOwnerACL = "\x02\x00\x00\x00\x01\x00\x06\x00\xff\xff\xff\xff"
+	// availableSuffix marks attributes that were readable.
+	availableSuffix = suffixOpening + integrity.AttributesAvailable + suffixClosing
+	// absentAttributes is how the missing side of a creation stores its attributes.
+	absentAttributes = "null ()"
 )
 
 // storedChange formats both versions as the catalog stores them: targets and attributes in base64.
@@ -101,18 +105,27 @@ func TestDisplayDecodesAttributes(t *testing.T) {
 			attributes("denied"), available("user.\nRuta", `x", user.b="y`, "user.multiline", "a\nb"),
 		},
 	} {
+		// Attributes are shown in creations and deletions, for the version that exists.
 		for _, field := range []string{fieldXattrs, fieldACL} {
-			want := []FieldChange{{Field: field, Before: fixture.before, After: fixture.after}}
-			if got := displayFields([]FieldChange{storedChange(t, field, fixture.previous, fixture.current)},
-				changeModified); !slices.Equal(got, want) {
-				t.Errorf("%s %s = %q, want %q", fixture.name, field, got, want)
+			created := []FieldChange{{Field: field, Before: humanize.Absent, After: fixture.after}}
+			if got := displayFields([]FieldChange{storedChange(t, field, integrity.Record{}, fixture.current)},
+				changeAdded); !slices.Equal(got, created) {
+				t.Errorf("%s %s created = %q, want %q", fixture.name, field, got, created)
+			}
+
+			deleted := []FieldChange{{Field: field, Before: fixture.before, After: humanize.Absent}}
+			if got := displayFields([]FieldChange{storedChange(t, field, fixture.previous, integrity.Record{})},
+				changeDeleted); !slices.Equal(got, deleted) {
+				t.Errorf("%s %s deleted = %q, want %q", fixture.name, field, got, deleted)
 			}
 		}
 	}
 
 	// Values that are not stored attribute lists are shown as they are.
-	unparsed := FieldChange{Field: fieldACL, Before: "old-acl" + availableSuffix, After: "new-acl" + availableSuffix}
-	if got := displayFields([]FieldChange{unparsed}, changeModified); !slices.Equal(got, []FieldChange{unparsed}) {
+	unparsed := FieldChange{Field: fieldACL, Before: absentAttributes, After: "new-acl" + availableSuffix}
+	want := []FieldChange{{Field: fieldACL, Before: humanize.Absent, After: unparsed.After}}
+
+	if got := displayFields([]FieldChange{unparsed}, changeAdded); !slices.Equal(got, want) {
 		t.Errorf("unparsed acl = %q", got)
 	}
 }

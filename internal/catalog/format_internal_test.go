@@ -38,7 +38,7 @@ func TestPrintableEvidencePreservesAbsentValues(t *testing.T) {
 	t.Parallel()
 
 	want := map[string]string{
-		fieldHash: ":", fieldTarget: "", fieldXattrs: "null ()", fieldACL: "null ()",
+		fieldHash: ":", fieldTarget: "", fieldXattrs: absentAttributes, fieldACL: absentAttributes,
 		fieldBtime: "0 (known=false)", fieldHasBtime: "false", "unknown": "",
 	}
 	for field, expected := range want {

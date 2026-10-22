@@ -40,7 +40,7 @@ func TestConsumeContinuesPastTransientPaths(t *testing.T) {
 		}
 
 		if errors.Is(failure, ErrUnstable) != errors.Is(err, ErrUnstable) {
-			t.Fatal("unstable observation was silently approved", err)
+			t.Fatal("unstable observation was silently accepted", err)
 		}
 	}
 }

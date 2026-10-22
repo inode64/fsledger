@@ -10,6 +10,7 @@ import (
 
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/exclude"
+	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/resource"
 	"github.com/inode64/fsledger/internal/watcher"
@@ -78,6 +79,13 @@ func (w *worker) startBoundary(
 	if mount.Remote() {
 		w.forceReconcile = true
 		w.warn("remote filesystem requires reconciliation: " + path)
+	}
+
+	// Like the pidfd advisory, an attribute comparison the filesystem cannot provide is a lasting
+	// limitation, not an error.
+	for _, message := range integrity.AttributeAdvisories(w.cfg.Integrity, path, mount.Type) {
+		w.logger.Warn("attribute comparison unsupported", "reason", message)
+		w.advise(message)
 	}
 
 	label := w.tryFanotify(ctx, path, matcher)

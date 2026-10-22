@@ -1,85 +1,36 @@
 package cli_test
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/inode64/fsledger/internal/cli"
 )
 
-//nolint:funlen // Ordered integration fixture keeps setup, transitions and assertions together.
-func TestDBCommandsAndExactApproval(t *testing.T) {
+// Each manual verification compares the sources with the previous observation on the fixed policy:
+// a new timestamp alone is no change, a new mode or content is.
+func TestVerifyRecordsChangesOnFixedPolicy(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 
-	source := filepath.Join(root, "source")
+	file, run := inventorySource(t, root, "{hash: {algorithm: blake3}}")
 
-	err := os.Mkdir(source, 0o700)
+	later := time.Now().Add(time.Hour)
+
+	err := os.Chtimes(file, later, later)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	file := filepath.Join(source, "file")
-
-	err = os.WriteFile(file, []byte("first"), 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	main := map[string]any{
-		"runtime": filepath.Join(root, "run"),
-		fixturePaths: map[string]any{
-			"repositories": []string{fixtureInventoryYaml},
-		},
-		fixtureStorage: map[string]any{fixturePath: filepath.Join(root, fixtureStorage)},
-	}
-
-	repository := map[string]any{
-		fixtureType:  "db",
-		fixturePaths: []string{source},
-		"integrity":  map[string]any{"compare": []string{"hash", fixtureType, "uid", "gid", "mode"}},
-	}
-	for name, document := range map[string]any{fixtureMainYaml: main, fixtureInventoryYaml: repository} {
-		data, encodeErr := json.Marshal(document)
-		if encodeErr != nil {
-			t.Fatal(encodeErr)
-		}
-
-		err = os.WriteFile(filepath.Join(root, name), data, 0o600)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	invoke := func(args ...string) ([]byte, error) {
-		t.Helper()
-
-		var output, stderr bytes.Buffer
-
-		runErr := cli.Run(
-			append(args, "-c", filepath.Join(root, fixtureMainYaml), fixtureRepoFlag, fixtureRepository),
-			&output,
-			&stderr,
-		)
-
-		return output.Bytes(), runErr
-	}
-
-	var initialOutput, initialError bytes.Buffer
-
-	err = cli.Run(
-		[]string{"baseline", "-c", filepath.Join(root, fixtureMainYaml), "init", fixtureRepoFlag, fixtureRepository},
-		&initialOutput,
-		&initialError,
-	)
-
-	output := initialOutput.Bytes()
-	if err != nil {
-		t.Fatalf("%s %v", output, err)
+	if changed := verifiedChanges(t, run); changed != 0 {
+		t.Fatalf("timestamps alone recorded %d changes", changed)
 	}
 
 	err = os.WriteFile(file, []byte("second"), 0o600)
@@ -87,77 +38,119 @@ func TestDBCommandsAndExactApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	output, err = invoke("verify")
-	if err == nil {
-		t.Fatal("alteration was approved automatically")
+	if changed := verifiedChanges(t, run); changed != 1 {
+		t.Fatalf("content change recorded %d changes, want 1", changed)
 	}
 
-	var report struct {
-		Result struct {
-			ID string `json:"id"`
-		} `json:"result"`
-	}
-
-	err = json.Unmarshal(output, &report)
+	err = os.Chmod(file, 0o400)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = os.WriteFile(file, []byte("third"), 0o600)
-	if err != nil {
-		t.Fatal(err)
+	if changed := verifiedChanges(t, run); changed != 1 {
+		t.Fatalf("mode change recorded %d changes, want 1", changed)
 	}
 
-	output, err = invoke("baseline", "accept", "--change", report.Result.ID)
-	if err != nil {
-		t.Fatalf("%s %v", output, err)
-	}
-
-	_, err = invoke("verify")
-	if err == nil {
-		t.Fatal("approval reread and accepted newer content")
-	}
-
-	verifyPolicyReplacement(t, root, source, report.Result.ID, invoke)
-
-	_, err = os.Stat(filepath.Join(root, fixtureStorage, fixtureRepository, ".git"))
+	_, err = os.Stat(filepath.Join(root, fixtureState, fixtureRepository, ".git"))
 	if !os.IsNotExist(err) {
 		t.Fatal("DB repository contains Git")
 	}
 }
 
-func verifyPolicyReplacement(t *testing.T, root, source, oldChange string, invoke func(...string) ([]byte, error)) {
-	t.Helper()
+// Extended attributes count only when the repository selects them.
+func TestVerifyComparesSelectedXattrs(t *testing.T) {
+	t.Parallel()
 
-	document := fmt.Sprintf(`type: db
-paths: [%s]
-integrity:
-  compare: [hash, type, uid, gid, mode]
-  hash: {algorithm: blake3}
-`, source)
+	for _, fixture := range []struct {
+		integrity string
+		want      int
+	}{{"{}", 0}, {"{xattrs: true}", 1}} {
+		file, run := inventorySource(t, t.TempDir(), fixture.integrity)
 
-	err := os.WriteFile(filepath.Join(root, fixtureInventoryYaml), []byte(document), 0o600)
+		err := unix.Setxattr(file, "user.fsledger", []byte("set"), 0)
+		if errors.Is(err, unix.ENOTSUP) {
+			t.Skip("temporary directory filesystem has no user xattrs")
+		}
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if changed := verifiedChanges(t, run); changed != fixture.want {
+			t.Fatalf("integrity %s recorded %d changes, want %d", fixture.integrity, changed, fixture.want)
+		}
+	}
+}
+
+// touch -d moves mtime back before the birth of the same file, which is a change on its own.
+func TestVerifyRecordsBackdatedModificationTime(t *testing.T) {
+	t.Parallel()
+
+	file, run := inventorySource(t, t.TempDir(), "{}")
+
+	var birth unix.Statx_t
+
+	err := unix.Statx(unix.AT_FDCWD, file, 0, unix.STATX_BTIME, &birth)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = invoke("verify")
-	if err == nil {
-		t.Fatal("new hash policy accepted old baseline")
+	if birth.Mask&unix.STATX_BTIME == 0 {
+		t.Skip("temporary directory filesystem has no birth times")
 	}
 
-	output, err := invoke("baseline", "replace")
-	if err != nil {
-		t.Fatalf("%s %v", output, err)
-	}
+	earlier := time.Now().Add(-48 * time.Hour)
 
-	_, err = invoke("verify")
+	err = os.Chtimes(file, earlier, earlier)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = invoke("baseline", "accept", "--change", oldChange)
-	if err == nil {
-		t.Fatal("old policy observation approved")
+	if changed := verifiedChanges(t, run); changed != 1 {
+		t.Fatalf("backdated mtime recorded %d changes, want 1", changed)
+	}
+}
+
+// A usage error must not leave a repository directory, Git metadata or a catalog behind.
+func TestUsageErrorsCreateNoState(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range []string{"db", "git"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			invoke := inventoryRepository(t, root, "type: "+kind+"\npaths: ['"+root+"/source']\n")
+
+			for name, args := range map[string][]string{
+				"verify with an operand": {verifyCommand, "extra"},
+				"unknown flag":           {verifyCommand, "--bogus", "id"},
+				"unknown command":        {"bogus"},
+			} {
+				output, err := invoke(args...)
+				if err == nil {
+					t.Fatalf("%s accepted: %s", name, output)
+				}
+
+				_, err = os.Lstat(filepath.Join(root, fixtureState))
+				if !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("%s created repository state: %v", name, err)
+				}
+			}
+		})
+	}
+}
+
+// A removed or mistyped command is named as unknown, even when operands follow it.
+func TestUnknownCommandWithOperands(t *testing.T) {
+	t.Parallel()
+
+	missing := filepath.Join(t.TempDir(), fixtureMainYaml)
+
+	for _, args := range [][]string{{"baseline", "init"}, {"changes"}, {"migrate_aide", "db", "repo"}} {
+		err := cli.Run(append(args, "-c", missing), io.Discard, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), `unknown command "`+args[0]+`"`) {
+			t.Errorf("%q: %v", args, err)
+		}
 	}
 }

@@ -44,15 +44,10 @@ func subtreeFixture(t *testing.T) (*Store, *integrity.Scanner, *exclude.Matcher,
 		t.Fatal(err)
 	}
 
-	err = store.InitBaseline(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	return store, scanner, matcher, root
 }
 
-//nolint:cyclop,funlen,gocognit,gocyclo // Ordered integration assertions cover scope, approval and mixed events.
+//nolint:cyclop,gocyclo // Ordered integration assertions cover scope and mixed events.
 func TestDirectoryObservationPreservesScopeAndOperation(t *testing.T) {
 	t.Parallel()
 	store, scanner, matcher, root := subtreeFixture(t)
@@ -100,31 +95,13 @@ func TestDirectoryObservationPreservesScopeAndOperation(t *testing.T) {
 		t.Fatal("missing child not pruned", err)
 	}
 
-	if store.state.Complete || store.state.Stats.LastFullScan != fullScan {
-		t.Fatal("subtree certified a complete inventory")
+	if store.state.Stats.LastFullScan != fullScan {
+		t.Fatal("subtree recorded a full scan")
 	}
 
-	err = store.InitBaseline(t.Context())
-	if err == nil {
-		t.Fatal("baseline initialization accepted partial scan")
-	}
-
-	err = store.Accept(t.Context(), result.ID)
-	if err != nil {
-		t.Fatal("change ID cannot be accepted", err)
-	}
-
-	if len(pendingIDs(t, store)) != 0 {
-		t.Fatal("group approval lost a subtree or direct file")
-	}
-
-	_, err = store.Reconcile(t.Context(), scanner, []string{root}, matcher, false, "periodic", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(pendingIDs(t, store)) != 1 || pendingIDs(t, store)[sibling] == "" {
-		t.Fatal("periodic scan failed to detect unrelated modification")
+	periodic, err := store.Reconcile(t.Context(), scanner, []string{root}, matcher, false, "periodic", "")
+	if err != nil || periodic.Changed != 1 {
+		t.Fatal("periodic scan failed to detect only the unrelated modification", periodic, err)
 	}
 }
 
@@ -167,7 +144,7 @@ func TestIncompleteSubtreeDoesNotPrune(t *testing.T) {
 		t.Fatal("cancelled scan succeeded")
 	}
 
-	if store.state.Generation <= generation || store.state.Complete {
+	if store.state.Generation <= generation {
 		t.Fatal("cancellation did not interrupt an active partial scan")
 	}
 
@@ -372,7 +349,8 @@ func TestObservationErrorPreservesEarlierValidPaths(t *testing.T) {
 		t.Fatal("failed group discarded an earlier valid observation", result, err)
 	}
 
-	if pendingIDs(t, store)[path] == "" {
-		t.Fatal("earlier valid change lost its baseline violation")
+	current, exists, err := store.Current(t.Context(), []byte(path))
+	if err != nil || !exists || current.Size != int64(len("changed")) {
+		t.Fatal("earlier valid change not kept", current, err)
 	}
 }

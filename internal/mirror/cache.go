@@ -109,10 +109,7 @@ func (s *Sync) sameContents(ctx context.Context, source *os.File, relative strin
 		return false, nil, err
 	}
 
-	input := io.LimitReader(source, sig.size)
-	if digest != nil {
-		input = io.TeeReader(input, digest)
-	}
+	input := io.TeeReader(io.LimitReader(source, sig.size), digest)
 
 	equal, err := s.equalContent(ctx, input, destination, sig.size)
 	if err == nil && equal {
@@ -170,12 +167,8 @@ func (s *Sync) equalContent(ctx context.Context, source, mirror io.Reader, size 
 	return true, nil
 }
 
-// newDigest returns nil when the catalog asked for no copied hashes.
+// newDigest hashes copied content with the catalog's algorithm.
 func (s *Sync) newDigest() (hash.Hash, error) {
-	if s.algorithm == "" {
-		return nil, nil //nolint:nilnil // No algorithm means no digest, not a failure.
-	}
-
 	digest, err := integrity.Hasher(s.algorithm)
 
 	return digest, fault.Wrap("mirror digest", err)

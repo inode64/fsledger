@@ -14,30 +14,20 @@ import (
 const Absent = "—"
 
 const (
-	timeLayout        = "2006-01-02 15:04:05 MST"
-	preciseTimeLayout = "2006-01-02 15:04:05.000000000 MST"
-	sizeUnit          = 1024
-	day               = 24 * time.Hour
-	daysThreshold     = 2 * day
+	timeLayout    = "2006-01-02 15:04:05 MST"
+	sizeUnit      = 1024
+	day           = 24 * time.Hour
+	daysThreshold = 2 * day
 )
 
 // Time renders Unix nanoseconds in the local time zone with second precision. Zero means absent.
 func Time(nanoseconds int64) string {
-	return format(nanoseconds, timeLayout)
-}
-
-// PreciseTime keeps the nanoseconds, for differences that a second-precision rendering would hide.
-func PreciseTime(nanoseconds int64) string {
-	return format(nanoseconds, preciseTimeLayout)
-}
-
-func format(nanoseconds int64, layout string) string {
 	if nanoseconds == 0 {
 		return Absent
 	}
 
 	//nolint:gosmopolitan // Alerts are read by the server's operators, in the server's time zone.
-	return time.Unix(0, nanoseconds).Local().Format(layout)
+	return time.Unix(0, nanoseconds).Local().Format(timeLayout)
 }
 
 // Size renders a byte count with IEC units and one decimal above one KiB.

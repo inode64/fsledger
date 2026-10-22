@@ -1,10 +1,6 @@
 package catalog
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -17,8 +13,6 @@ import (
 )
 
 const (
-	fixtureType             = "type"
-	fixtureMode             = "mode"
 	fixtureRegular          = "regular"
 	fixtureSHA256           = "sha256"
 	fixtureDestinationFirst = "first"
@@ -47,7 +41,6 @@ func testStoreConfig(t *testing.T) *config.Config {
 		t.Fatal(err)
 	}
 
-	cfg.Integrity.Compare = []string{"hash", fixtureType, "uid", "gid", fixtureMode}
 	cfg.Notifications.Use = []string{fixtureDestinationFirst, fixtureDestinationOther}
 	cfg.Notifications.BatchWindow = 0
 
@@ -78,6 +71,19 @@ func openTestStore(t *testing.T, path string, policy config.Integrity, notificat
 	return store
 }
 
+func reopenTestStore(t *testing.T, store *Store, path string, policy config.Integrity) *Store {
+	t.Helper()
+
+	err := store.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store.database = nil
+
+	return openTestStore(t, path, policy, store.Notifications)
+}
+
 func observeRecords(t *testing.T, store *Store, identifier string, records ...integrity.Record) {
 	t.Helper()
 
@@ -91,47 +97,19 @@ func observeRecords(t *testing.T, store *Store, identifier string, records ...in
 		}
 	}
 
-	_, _, err := store.apply(t.Context(), updates, 1, identifier, "test actor")
+	_, err := store.apply(t.Context(), updates, 1, identifier, "test actor")
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
-func reference(t *testing.T, store *Store, records ...integrity.Record) {
+func observeInitial(t *testing.T, store *Store, records ...integrity.Record) {
 	t.Helper()
 	observeRecords(t, store, "initial", records...)
-
-	store.state.Complete = true
-
-	err := store.InitBaseline(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
 }
 
-func pendingIDs(t *testing.T, store *Store) map[string]string {
-	t.Helper()
-
-	result := make(map[string]string)
-
-	err := store.Changes(
-		t.Context(),
-		100,
-		func(id string, path []byte, _ string, _ []byte) error {
-			result[string(path)] = id
-
-			return nil
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return result
-}
-
-//nolint:cyclop,funlen,gocognit,gocyclo // Ordered stale approval, cleanup and delivery lifecycle.
-func TestStaleApprovalAndNoHistory(t *testing.T) {
+// Every delivery carries its own evidence: no change history is kept once it is delivered.
+func TestDeliveriesCarryEvidenceWithoutHistory(t *testing.T) {
 	t.Parallel()
 	store := testStore(t)
 	first := integrity.Record{
@@ -142,52 +120,9 @@ func TestStaleApprovalAndNoHistory(t *testing.T) {
 	}
 	second := first
 	second.Path = []byte("/two")
-	reference(t, store, first, second)
+	observeInitial(t, store, first, second)
 	first.Hash, second.Hash = strings.Repeat("b", 64), strings.Repeat("c", 64)
 	observeRecords(t, store, "both", first, second)
-	original := pendingIDs(t, store)
-	first.Hash = strings.Repeat("d", 64)
-	observeRecords(t, store, "newer", first)
-
-	operationErr1 := store.Accept(t.Context(), "both")
-	if operationErr1 == nil {
-		t.Fatal("partly stale batch accepted")
-	}
-
-	operationErr2 := store.Accept(t.Context(), original["/one"])
-	if operationErr2 == nil {
-		t.Fatal("stale file version accepted")
-	}
-
-	operationErr3 := store.Accept(t.Context(), original["/two"])
-	if operationErr3 != nil {
-		t.Fatal(operationErr3)
-	}
-
-	operationErr4 := store.Accept(t.Context(), "newer")
-	if operationErr4 != nil {
-		t.Fatal(operationErr4)
-	}
-
-	stats, err := store.Stats(t.Context())
-	if err != nil || stats.Violations != 0 {
-		t.Fatalf("pending state retained: %+v %v", stats, err)
-	}
-
-	for _, prefix := range []string{pendingPrefix, tokenPrefix, approvalPrefix} {
-		err = store.iterate(
-			t.Context(),
-			prefix,
-			func(_, _ []byte) error {
-				t.Errorf("resolved data retained in %s", prefix)
-
-				return nil
-			},
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
 
 	due, err := store.Due(t.Context())
 	if err != nil || len(due) == 0 {
@@ -205,61 +140,9 @@ func TestStaleApprovalAndNoHistory(t *testing.T) {
 		}
 	}
 
-	stats, err = store.Stats(t.Context())
+	stats, err := store.Stats(t.Context())
 	if err != nil || stats.PendingNotifications != 0 {
 		t.Fatal("delivered evidence retained", err)
-	}
-}
-
-func TestResolvedDifferenceDisappears(t *testing.T) {
-	t.Parallel()
-	store := testStore(t)
-	original := integrity.Record{Path: []byte("/file"), Type: fixtureRegular, Mode: 0o600}
-	reference(t, store, original)
-	changed := original
-	changed.Mode = 0o700
-	observeRecords(t, store, "changed", changed)
-	observeRecords(t, store, "restored", original)
-
-	if len(pendingIDs(t, store)) != 0 {
-		t.Fatal("resolved difference retained")
-	}
-
-	err := store.Accept(t.Context(), "changed")
-	if err == nil {
-		t.Fatal("resolved ID accepted")
-	}
-}
-
-func TestReferenceReplacementCancellation(t *testing.T) {
-	t.Parallel()
-	store := testStore(t)
-	original := integrity.Record{Path: []byte("/file"), Type: fixtureRegular, Mode: 0o600}
-	reference(t, store, original)
-	changed := original
-	changed.Mode = 0o700
-	observeRecords(t, store, "changed", changed)
-	store.state.Complete = true
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-
-	operationErr5 := store.freezeBaselineInventory(ctx, true)
-	if operationErr5 == nil {
-		t.Fatal("cancelled reference published")
-	}
-
-	record, _, err := readRecord(store.database, baselinePrefix(store.state.Baseline), original.Path)
-	if err != nil || record.Mode != original.Mode {
-		t.Fatal("original reference lost", err)
-	}
-
-	err = store.freezeBaselineInventory(t.Context(), true)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(pendingIDs(t, store)) != 0 {
-		t.Fatal("replacement retained old differences")
 	}
 }
 
@@ -278,7 +161,6 @@ func TestBinaryMetadataCodec(t *testing.T) {
 		Ctime:            3,
 		Btime:            4,
 		HasBtime:         true,
-		TimesInSeconds:   true,
 		HashedAt:         5,
 		Observed:         6,
 		Nlink:            7,
@@ -306,41 +188,6 @@ func TestBinaryMetadataCodec(t *testing.T) {
 	_, err = unpack([]byte{255}, record.Path)
 	if err == nil {
 		t.Fatal("corrupt protobuf accepted")
-	}
-}
-
-func TestImportKeepsOriginalEvidence(t *testing.T) {
-	t.Parallel()
-	store := testStore(t)
-	store.Notifications.Use = nil
-	original := integrity.Record{
-		Path:      []byte("/file"),
-		Type:      fixtureRegular,
-		Algorithm: fixtureSHA256,
-		Hash:      strings.Repeat("a", 64),
-	}
-
-	data, err := json.Marshal(original)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = store.ImportBaseline(t.Context(), bytes.NewReader(data))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	changed := original
-	changed.Hash = strings.Repeat("b", 64)
-	observeRecords(t, store, "changed", changed)
-
-	if len(pendingIDs(t, store)) != 1 {
-		t.Fatal("import approved current data")
-	}
-
-	err = store.ImportBaseline(t.Context(), bytes.NewReader(data))
-	if err == nil {
-		t.Fatal("nonempty import allowed")
 	}
 }
 
@@ -379,43 +226,5 @@ func TestCatalogRejectsSymlinkAndFiles(t *testing.T) {
 	if err == nil {
 		resource.Close(other)
 		t.Fatal("existing file silently replaced")
-	}
-}
-
-func TestLargeApprovalRollsBackAtomically(t *testing.T) {
-	t.Parallel()
-	store := testStore(t)
-	store.Notifications.Use = nil
-
-	records := make([]integrity.Record, approvalPathLimit+1)
-	for index := range records {
-		records[index] = integrity.Record{
-			Path: []byte(fmt.Sprintf("/file-%05d", index)),
-			Type: fixtureRegular,
-			Mode: 0o600,
-		}
-	}
-
-	reference(t, store, records...)
-
-	for index := range records {
-		records[index].Mode = 0o700
-	}
-
-	observeRecords(t, store, "too-large", records...)
-
-	err := store.Accept(t.Context(), "too-large")
-	if err == nil {
-		t.Fatal("unbounded approval accepted")
-	}
-
-	original, _, err := readRecord(store.database, baselinePrefix(store.state.Baseline), records[0].Path)
-	if err != nil || original.Mode != 0o600 {
-		t.Fatal("failed approval changed reference", err)
-	}
-
-	stats, err := store.Stats(t.Context())
-	if err != nil || stats.Violations != int64(len(records)) {
-		t.Fatal("failed approval removed pending differences", stats, err)
 	}
 }

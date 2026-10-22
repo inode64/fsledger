@@ -58,7 +58,7 @@ func TestCopyRetriesRegularFileReplacedBeforeOpening(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			syncer, err := Open(t.TempDir(), []string{root}, matcher, "")
+			syncer, err := Open(t.TempDir(), []string{root}, matcher, "sha256")
 			if err != nil {
 				t.Fatal(err)
 			}

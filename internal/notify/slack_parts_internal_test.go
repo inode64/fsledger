@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -16,7 +15,6 @@ import (
 
 	"github.com/inode64/fsledger/internal/catalog"
 	"github.com/inode64/fsledger/internal/config"
-	"github.com/inode64/fsledger/internal/resource"
 )
 
 const (
@@ -87,27 +85,12 @@ func partsWebhook(
 }
 
 // partsOutbox queues one error carrying reason for the Slack destination schedulingSink.
-func partsOutbox(t *testing.T, reason string) *catalog.Store {
+func partsOutbox(t *testing.T, reason string, notifier config.Notifier) *catalog.Store {
 	t.Helper()
 
-	cfg, err := config.Load(testConfiguration(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := sinkOutbox(t, notifier)
 
-	cfg.Notifications.Use = []string{schedulingSink}
-	cfg.Notifications.BatchWindow = 0
-
-	store, err := catalog.Open(
-		t.Context(), filepath.Join(t.TempDir(), "catalog"), "repo", "host", cfg.Integrity, cfg.Notifications,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() { resource.Close(store) })
-
-	err = store.Announce(t.Context(), config.NotificationError, reason)
+	err := store.Announce(t.Context(), config.NotificationError, reason)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,12 +118,9 @@ func TestSlackRetryResumesAfterAcceptedParts(t *testing.T) {
 		return true
 	})
 
-	store := partsOutbox(t, reason)
-	routing := destinations(map[string]config.Notifier{
-		schedulingSink: {
-			Type: schedulingSlack, URL: server.URL, DSN: "", From: "", Template: partsTemplate, To: nil,
-		},
-	})
+	notifier := sinkNotifier(server.URL, partsTemplate)
+	store := partsOutbox(t, reason, notifier)
+	routing := destinations(map[string]config.Notifier{schedulingSink: notifier})
 
 	deliver := func(attempt context.Context) error {
 		sender := New(templates)
