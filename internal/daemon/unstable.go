@@ -6,6 +6,9 @@ import (
 	"github.com/inode64/fsledger/internal/integrity"
 )
 
+// unstableBackoffLimit caps unstable path retries when reconciliation follows a cron schedule.
+const unstableBackoffLimit = 15 * time.Minute
+
 // Path instability postpones an observation; it is not a loss of event attribution.
 func (w *worker) deferUnstable(err error) error {
 	paths, failure := integrity.SplitUnstable(err)
@@ -42,7 +45,12 @@ func (w *worker) finishUnstableScan() {
 		return
 	}
 
-	w.unstableDelay = doubledDelay(w.unstableDelay, maximumReconcileBackoff,
-		max(w.cfg.Watch.Reconcile.Interval, maximumReconcileBackoff))
+	// A cron schedule leaves the interval unset: the delay then grows up to unstableBackoffLimit.
+	limit := w.cfg.Watch.Reconcile.Interval
+	if limit <= 0 {
+		limit = unstableBackoffLimit
+	}
+
+	w.unstableDelay = doubledDelay(w.unstableDelay, maximumReconcileBackoff, limit)
 	w.unstableRetry = time.Now().Add(w.unstableDelay)
 }
