@@ -48,6 +48,19 @@ func (w *worker) nativeCovers(raw event.Raw) bool {
 	return false
 }
 
+// remarkRemounted has fanotify mark a remounted directory again: inotify follows the mount table for both.
+func (w *worker) remarkRemounted(raw event.Raw) {
+	if raw.Backend != event.Inotify || raw.Reason != inotify.RemountReason {
+		return
+	}
+
+	for _, detector := range w.watchers {
+		if candidate, ok := detector.(*fanotify.Watcher); ok {
+			candidate.Remount(raw.Path)
+		}
+	}
+}
+
 func (w *worker) startRoot(ctx context.Context, root string, mounts []mountinfo.Mount) {
 	boundaries := mountinfo.Resolve(root, mounts)
 	if len(boundaries) == 0 {
