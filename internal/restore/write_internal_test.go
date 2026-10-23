@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -156,5 +157,54 @@ func TestEntryOffPreservesConcurrentCreation(t *testing.T) {
 
 	if leftovers := temporaries(t, root); len(leftovers) != 0 {
 		t.Fatal("temporary copy left behind:", leftovers)
+	}
+}
+
+// A replacement that fails must leave the original link in place, and one that succeeds no temporary.
+func TestSymlinkReplacementKeepsOriginalOnFailure(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	link := filepath.Join(directory, "link")
+
+	err := os.Symlink("old", link)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parent, err := unix.Open(directory, integrity.DirectoryFlags, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.FD(parent)
+
+	existing, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = writeSymlink(strings.Repeat("x", unix.PathMax+1), parent, "link", existing)
+	if err == nil {
+		t.Fatal("overlong target accepted")
+	}
+
+	target, err := os.Readlink(link)
+	if err != nil || target != "old" {
+		t.Fatal("failed replacement lost the original link", target, err)
+	}
+
+	err = writeSymlink("new", parent, "link", existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target, err = os.Readlink(link)
+	if err != nil || target != "new" {
+		t.Fatal("replacement not applied", target, err)
+	}
+
+	entries, err := os.ReadDir(directory)
+	if err != nil || len(entries) != 1 {
+		t.Fatal("temporary link left behind", entries, err)
 	}
 }
