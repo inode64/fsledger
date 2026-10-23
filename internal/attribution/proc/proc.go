@@ -49,7 +49,7 @@ func resolve(ctx context.Context, raw event.Raw, observedAt *time.Time) event.Ac
 	}
 
 	if observedAt != nil {
-		// The cached boot time: ProcStat.StartTime would read /proc/stat again for every Audit record.
+		// The boot time from the clocks: ProcStat.StartTime would read /proc/stat again for every Audit record.
 		birth, known := StartTime(stat.Starttime)
 		if !known || !birth.Before(time.Unix(observedAt.Unix()-1, 0)) {
 			return event.Actor{}

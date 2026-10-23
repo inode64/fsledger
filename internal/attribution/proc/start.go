@@ -1,46 +1,37 @@
 package proc
 
 import (
-	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/procfs"
+	"golang.org/x/sys/unix"
 )
 
 // userHZ is the fixed Linux USER_HZ in which /proc/<pid>/stat start times are counted.
 const userHZ = 100
 
-// cachedBootTime holds /proc/stat btime, constant while the system runs, once a read succeeded.
-//
-//nolint:gochecknoglobals // Process-wide constant of the running kernel, cached on first success.
-var cachedBootTime atomic.Uint64
+// bootTime derives /proc/stat btime from the current clocks, without reading procfs. Derived for each call,
+// it follows a step of the wall clock, which a cached boot time would miss for every later start time.
+func bootTime() (time.Time, bool) {
+	var sinceBoot unix.Timespec
 
-// bootTime reads /proc/stat until it succeeds once: a failure must not disable every later start time.
-func bootTime() uint64 {
-	boot := cachedBootTime.Load()
-	if boot != 0 {
-		return boot
-	}
-
-	fs, err := procfs.NewDefaultFS()
+	err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &sinceBoot)
 	if err != nil {
-		return 0
+		return time.Time{}, false
 	}
 
-	stat, err := fs.Stat()
-	if err != nil {
-		return 0
-	}
-
-	cachedBootTime.Store(stat.BootTime)
-
-	return stat.BootTime
+	// The kernel truncates btime to whole seconds, as ps and the 1 s margin of ResolveAt expect.
+	return time.Now().Round(0).Add(-time.Duration(sinceBoot.Nano())).Truncate(time.Second), true
 }
 
 // StartTime converts a process start time in clock ticks since boot, as stored in event.Actor,
 // to wall-clock time. It reports false when the start time or the boot time is unknown.
 func StartTime(ticks uint64) (time.Time, bool) {
-	return startTime(ticks, bootTime())
+	boot, known := bootTime()
+	if !known {
+		return time.Time{}, false
+	}
+
+	return startTime(ticks, boot)
 }
 
 // startedBefore reports whether a start time in clock ticks since boot provably precedes an event
@@ -54,14 +45,11 @@ func startedBefore(ticks uint64, sinceBoot time.Duration) bool {
 	return ticks < uint64(sinceBoot/(time.Second/userHZ))
 }
 
-func startTime(ticks, boot uint64) (time.Time, bool) {
-	if ticks == 0 || boot == 0 {
+func startTime(ticks uint64, boot time.Time) (time.Time, bool) {
+	if ticks == 0 {
 		return time.Time{}, false
 	}
 
-	seconds := boot + ticks/userHZ
-	fraction := time.Duration(ticks%userHZ) * (time.Second / userHZ)
-
-	//nolint:gosec // Boot time plus uptime in seconds stays far below the int64 range.
-	return time.Unix(int64(seconds), int64(fraction)), true
+	//nolint:gosec // Ticks since boot stay far below the int64 range of a duration in ticks.
+	return boot.Add(time.Duration(ticks) * (time.Second / userHZ)), true
 }
