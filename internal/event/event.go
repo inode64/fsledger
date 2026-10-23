@@ -4,6 +4,8 @@ package event
 import (
 	"os"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // Backend, operation and reconciliation names are stable across adapters and commit messages.
@@ -63,4 +65,16 @@ type Group struct {
 	Paths  map[string]Raw
 	Reason string
 	Actor  Actor
+}
+
+// SinceBoot reads CLOCK_BOOTTIME, the clock of /proc/<pid>/stat start times; zero means unknown.
+func SinceBoot() time.Duration {
+	var now unix.Timespec
+
+	err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &now)
+	if err != nil {
+		return 0
+	}
+
+	return time.Duration(now.Nano())
 }

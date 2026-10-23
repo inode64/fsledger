@@ -3,7 +3,7 @@ package proc
 import (
 	"time"
 
-	"golang.org/x/sys/unix"
+	"github.com/inode64/fsledger/internal/event"
 )
 
 // userHZ is the fixed Linux USER_HZ in which /proc/<pid>/stat start times are counted.
@@ -12,15 +12,13 @@ const userHZ = 100
 // bootTime derives /proc/stat btime from the current clocks, without reading procfs. Derived for each call,
 // it follows a step of the wall clock, which a cached boot time would miss for every later start time.
 func bootTime() (time.Time, bool) {
-	var sinceBoot unix.Timespec
-
-	err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &sinceBoot)
-	if err != nil {
+	sinceBoot := event.SinceBoot()
+	if sinceBoot == 0 {
 		return time.Time{}, false
 	}
 
 	// The kernel truncates btime to whole seconds, as ps and the 1 s margin of ResolveAt expect.
-	return time.Now().Round(0).Add(-time.Duration(sinceBoot.Nano())).Truncate(time.Second), true
+	return time.Now().Round(0).Add(-sinceBoot).Truncate(time.Second), true
 }
 
 // StartTime converts a process start time in clock ticks since boot, as stored in event.Actor,

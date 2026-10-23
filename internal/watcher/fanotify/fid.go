@@ -172,7 +172,7 @@ func (w *Watcher) handleFID(data []byte, pid int, pidfd *os.File, reaped bool, m
 
 	w.queue.Send(event.Raw{
 		Path: path, OldPath: old, PID: pid, PIDFD: pidfd, Reaped: reaped,
-		Backend: event.Fanotify, Operation: operation(mask), Time: time.Now(), SinceBoot: sinceBoot(),
+		Backend: event.Fanotify, Operation: operation(mask), Time: time.Now(), SinceBoot: event.SinceBoot(),
 	})
 
 	return nil

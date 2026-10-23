@@ -161,18 +161,6 @@ func (w *Watcher) Close() error {
 	return fault.Wrap("close fanotify", err)
 }
 
-// sinceBoot reads CLOCK_BOOTTIME, the clock of /proc/<pid>/stat start times; zero means unknown.
-func sinceBoot() time.Duration {
-	var now unix.Timespec
-
-	err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &now)
-	if err != nil {
-		return 0
-	}
-
-	return time.Duration(now.Nano())
-}
-
 func signed(value []byte) int {
 	//nolint:gosec // fanotify's ABI encodes signed 32-bit fd/PID values, including -1.
 	return int(int32(binary.NativeEndian.Uint32(value)))
@@ -563,7 +551,7 @@ func (w *Watcher) handleDescriptor(descriptor, pid int, pidfd *os.File, reaped b
 
 	w.queue.Send(event.Raw{
 		Path: path, PID: pid, PIDFD: pidfd, Reaped: reaped,
-		Backend: w.Name(), Time: time.Now(), SinceBoot: sinceBoot(), Operation: event.Write,
+		Backend: w.Name(), Time: time.Now(), SinceBoot: event.SinceBoot(), Operation: event.Write,
 	})
 
 	return nil
