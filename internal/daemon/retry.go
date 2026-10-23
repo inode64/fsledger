@@ -65,13 +65,13 @@ func (w *worker) failedReconciliation(err error) {
 
 	w.warn(err.Error())
 
-	if w.retryDelay == 0 {
-		w.retryDelay = time.Second
-	} else {
-		w.retryDelay = min(w.retryDelay+w.retryDelay, maximumReconcileBackoff)
-	}
-
+	w.retryDelay = doubledDelay(w.retryDelay, time.Second, maximumReconcileBackoff)
 	w.retryAt = time.Now().Add(w.retryDelay)
+}
+
+// doubledDelay doubles a retry delay, starting at initial and capped at limit unless initial exceeds it.
+func doubledDelay(current, initial, limit time.Duration) time.Duration {
+	return max(initial, min(current+current, limit))
 }
 
 // Normal operations get a bounded grace period when shutdown begins. Explicit

@@ -43,7 +43,7 @@ func (w *worker) syncRemote(ctx context.Context, now time.Time) {
 	cancel()
 
 	if err != nil {
-		w.fetchDelay = max(settings.FetchInterval, min(w.fetchDelay+w.fetchDelay, maximumPublishBackoff))
+		w.fetchDelay = doubledDelay(w.fetchDelay, settings.FetchInterval, maximumPublishBackoff)
 		w.fetchNext = now.Add(w.fetchDelay)
 		w.status.LastFetchError = err.Error()
 
