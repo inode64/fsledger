@@ -591,3 +591,26 @@ func TestShutdownGraceStartsAtStopRequest(t *testing.T) {
 		t.Fatal("operation grace added to shutdown grace", remaining)
 	}
 }
+
+// Only this worker writes the mirror: without one of its operations, git status cannot change.
+func TestGitStatusRunsAgainOnlyAfterMirrorChanges(t *testing.T) {
+	t.Parallel()
+	runner := makeWorker(t)
+	runner.saveStatus(t.Context())
+	previous := runner.status.GitStatus
+	runner.repo.Path = filepath.Join(t.TempDir(), "not-a-repository")
+	runner.gitStatusNext = time.Time{}
+	runner.saveStatus(t.Context())
+
+	if runner.status.GitStatus != previous {
+		t.Fatal("git status ran without a mirror change")
+	}
+
+	runner.mirrorChanged()
+	runner.gitStatusNext = time.Time{}
+	runner.saveStatus(t.Context())
+
+	if runner.status.GitStatus == previous {
+		t.Fatal("git status not refreshed after a mirror change")
+	}
+}

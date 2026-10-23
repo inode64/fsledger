@@ -30,6 +30,8 @@ func (w *worker) beginIntent(ctx context.Context, message string) (string, strin
 }
 
 func (w *worker) commit(ctx context.Context, group event.Group) error {
+	defer w.mirrorChanged()
+
 	if w.incomingActive() {
 		return fault.New("incoming operation requires recovery before local commits")
 	}

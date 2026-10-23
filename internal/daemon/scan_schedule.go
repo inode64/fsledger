@@ -145,6 +145,8 @@ func (w *worker) scheduledPolling() bool {
 }
 
 func (w *worker) reconcile(ctx context.Context, message string) error {
+	defer w.mirrorChanged()
+
 	w.status.Scan.Started = time.Now()
 	w.status.Scan.Result = "running"
 	w.status.Scan.Full = false

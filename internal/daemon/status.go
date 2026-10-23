@@ -153,9 +153,13 @@ func (w *worker) saveStatus(ctx context.Context) {
 	}
 }
 
-// Git may exhaust its deadline; catalog counters and coverage need their own budget.
+// mirrorChanged makes the next status run git status again; operations that may write the mirror defer it.
+func (w *worker) mirrorChanged() { w.gitStatusCurrent = false }
+
+// Git may exhaust its deadline; catalog counters and coverage need their own budget. Only this worker
+// writes the mirror, so git status runs again only after one of its operations.
 func (w *worker) updateGitStatus(ctx context.Context) {
-	if w.repo == nil || time.Now().Before(w.gitStatusNext) {
+	if w.repo == nil || w.gitStatusCurrent || time.Now().Before(w.gitStatusNext) {
 		return
 	}
 
@@ -171,6 +175,8 @@ func (w *worker) updateGitStatus(ctx context.Context) {
 	} else {
 		w.status.GitStatus = status
 	}
+
+	w.gitStatusCurrent = err == nil
 }
 
 func (w *worker) announceError(ctx context.Context) {

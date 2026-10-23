@@ -320,6 +320,8 @@ func (w *worker) resumeIncoming(ctx context.Context) error {
 }
 
 func (w *worker) applyIncoming(ctx context.Context) error {
+	defer w.mirrorChanged()
+
 	policy, err := w.incomingPolicy()
 	if err != nil {
 		return err
