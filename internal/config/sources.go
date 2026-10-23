@@ -51,7 +51,7 @@ func (c *Config) ResolveRepository(name string) Sources {
 func (c *Config) resolveSources(only string, trusted func(uid uint32) bool) map[string]Sources {
 	resolved := make(map[string]Sources, len(c.Repositories))
 	claimed := make(map[string][]string)
-	reserved := c.InternalPaths()
+	reserved, remotes := c.InternalPaths(), c.localRemotes()
 	// Name order makes a conflict between repositories of one type resolve identically on every evaluation.
 	for _, name := range c.Names() {
 		kind := c.Repositories[name].Type
@@ -59,7 +59,7 @@ func (c *Config) resolveSources(only string, trusted func(uid uint32) bool) map[
 			continue
 		}
 
-		sources := c.resolveRepository(c.Repositories[name].Paths, claimed[kind], reserved, trusted)
+		sources := c.resolveRepository(c.Repositories[name].Paths, claimed[kind], reserved, remotes, trusted)
 		claimed[kind] = append(claimed[kind], sources.Roots...)
 		resolved[name] = sources
 
@@ -71,7 +71,10 @@ func (c *Config) resolveSources(only string, trusted func(uid uint32) bool) map[
 	return resolved
 }
 
-func (c *Config) resolveRepository(entries, claimed, reserved []string, trusted func(uid uint32) bool) Sources {
+func (c *Config) resolveRepository(
+	entries, claimed, reserved, remotes []string,
+	trusted func(uid uint32) bool,
+) Sources {
 	var sources Sources
 
 	for _, entry := range entries {
@@ -91,7 +94,7 @@ func (c *Config) resolveRepository(entries, claimed, reserved []string, trusted 
 		found := false
 
 		for _, match := range matches {
-			root, err := c.resolveSource(match, claimed, reserved, trusted)
+			root, err := c.resolveSource(match, claimed, reserved, remotes, trusted)
 
 			switch {
 			case err == nil:
@@ -119,6 +122,29 @@ func (c *Config) resolveRepository(entries, claimed, reserved []string, trusted 
 	return sources
 }
 
+// localRemotes lists path remotes, also with symlinks resolved: validation compares them with source
+// patterns only, and a source reached through a symlinked parent would record every push again.
+func (c *Config) localRemotes() []string {
+	var remotes []string
+
+	for _, name := range c.Names() {
+		repo := c.Repositories[name]
+		if repo.Type != RepositoryGit || !filepath.IsAbs(repo.Storage.Git.Remote) {
+			continue
+		}
+
+		remote := filepath.Clean(repo.Storage.Git.Remote)
+		remotes = append(remotes, remote)
+
+		resolved, err := filepath.EvalSymlinks(remote)
+		if err == nil && resolved != remote {
+			remotes = append(remotes, resolved)
+		}
+	}
+
+	return remotes
+}
+
 // unreadable separates a source that could not be read, such as a denied, stale or failing parent,
 // from one refused by policy: only a system error leaves unknown whether the source still exists.
 func unreadable(err error) bool {
@@ -129,7 +155,7 @@ func unreadable(err error) bool {
 
 func (c *Config) resolveSource(
 	match string,
-	claimed, reserved []string,
+	claimed, reserved, remotes []string,
 	trusted func(uid uint32) bool,
 ) (string, error) {
 	root, err := resolveParent(match, trusted)
@@ -155,6 +181,8 @@ func (c *Config) resolveSource(
 		return "", fault.New("resolves into reserved state " + root)
 	case c.Logging.File != "" && Overlaps(root, c.Logging.File):
 		return "", fault.New("resolves onto the log file " + root)
+	case slices.ContainsFunc(remotes, func(remote string) bool { return Overlaps(root, remote) }):
+		return "", fault.New("resolves onto a Git remote " + root)
 	case slices.ContainsFunc(claimed, func(other string) bool { return Overlaps(root, other) }):
 		return "", fault.New("resolves into another repository " + root)
 	}
