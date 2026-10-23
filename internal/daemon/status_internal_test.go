@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,5 +128,31 @@ func TestStatusWarnsAboutExhaustedNotifications(t *testing.T) {
 
 	if exhaustedWarnings() != 0 {
 		t.Fatalf("discarded notifications still reported: %v", runner.status.Warnings)
+	}
+}
+
+func TestKeepStatusAliveRefreshesSnapshotTime(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "repo.json")
+	old := time.Now().Add(-time.Hour)
+
+	err := os.WriteFile(path, []byte("{}"), 0o600)
+	if err == nil {
+		err = os.Chtimes(path, old, old)
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stop := keepStatusAlive(path, slog.New(slog.DiscardHandler))
+
+	time.Sleep(statusInterval + statusInterval/2)
+	stop()
+
+	info, err := os.Stat(path)
+	if err != nil || time.Since(info.ModTime()) > statusInterval {
+		t.Fatal("snapshot time not refreshed", info.ModTime(), err)
 	}
 }

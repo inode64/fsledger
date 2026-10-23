@@ -13,6 +13,7 @@ import (
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/daemon"
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/resource"
 )
 
 const (
@@ -32,8 +33,7 @@ func printStatus(stdout io.Writer, cfg *config.Config) error {
 	var err error
 
 	for _, name := range cfg.Names() {
-		//nolint:gosec // The path is configured locally or built from a kernel PID; no remote path input is accepted.
-		data, readErr := os.ReadFile(filepath.Join(cfg.Runtime, name+".json"))
+		data, refreshed, readErr := readStatus(filepath.Join(cfg.Runtime, name+".json"))
 		if errors.Is(readErr, fs.ErrNotExist) {
 			// Snapshots appear once a repository starts and do not survive a reboot. Like a stale one,
 			// an absent snapshot is a reported state, not a failure that hides the other repositories.
@@ -58,9 +58,14 @@ func printStatus(stdout io.Writer, cfg *config.Config) error {
 			return fmt.Errorf("decode status: %w", err)
 		}
 
-		if time.Since(state.Updated) > statusStaleAfter {
+		// The daemon refreshes the file's time while a long operation delays its content.
+		switch {
+		case time.Since(refreshed) > statusStaleAfter:
 			state.Running = false
-			state.Warnings = append(state.Warnings, "status snapshot is stale; daemon may be stopped or busy")
+			state.Warnings = append(state.Warnings, "status snapshot is stale; daemon may be stopped")
+		case time.Since(state.Updated) > statusStaleAfter:
+			state.Warnings = append(state.Warnings, "repository busy; status content dates from "+
+				state.Updated.Format(time.RFC3339))
 		}
 
 		err = writeStatus(stdout, state)
@@ -70,6 +75,25 @@ func printStatus(stdout io.Writer, cfg *config.Config) error {
 	}
 
 	return nil
+}
+
+// readStatus returns a snapshot with its modification time, which the daemon keeps fresh while it runs.
+func readStatus(path string) ([]byte, time.Time, error) {
+	//nolint:gosec // The path is the configured runtime directory and a configured repository name.
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, time.Time{}, fault.Wrap("open status", err)
+	}
+	defer resource.Close(file)
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, time.Time{}, fault.Wrap("inspect status", err)
+	}
+
+	data, err := io.ReadAll(file)
+
+	return data, info.ModTime(), fault.Wrap("read status", err)
 }
 
 func writeStatus(stdout io.Writer, state any) error {

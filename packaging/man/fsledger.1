@@ -91,8 +91,11 @@ catalog.last_full_scan persists the last complete scan across restarts.
 A full scan whose result is partial because of unstable_paths does not update
 it, and scan.initialized remains false until a full scan completes.
 Snapshots are published atomically but are volatile, without a durability
-guarantee across machine restarts. An updated timestamp older than five seconds
-sets running=false and adds a stale warning, even if the daemon is merely busy.
+guarantee across machine restarts. The daemon refreshes each snapshot's file
+time every second while its repository runs. A file time older than five seconds
+sets running=false and adds a stale warning; a fresh file with an updated
+timestamp older than five seconds keeps running and adds a busy warning, as
+during a long reconciliation.
 A repository without a snapshot, because the daemon is not running or has not
 started it yet, prints an object with only repository, type, running=false and
 a no status snapshot warning; the remaining repositories are still printed.
