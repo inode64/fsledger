@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	procattr "github.com/inode64/fsledger/internal/attribution/proc"
 	"github.com/inode64/fsledger/internal/event"
@@ -73,8 +75,16 @@ Process: unknown (grouped across processes)`,
 		)
 	}
 
-	// The name is process-controlled: escaped, it cannot add lines to the commit message.
-	executable := humanize.Printable(filepath.Base(actor.Executable))
+	// The name is process-controlled: its control characters and invalid bytes, which could add lines to the
+	// commit message, become U+FFFD. Escaping them instead would be escaped again where notices display the
+	// line; the executable line keeps the exact name.
+	executable := strings.Map(func(char rune) rune {
+		if unicode.IsPrint(char) {
+			return char
+		}
+
+		return utf8.RuneError
+	}, filepath.Base(actor.Executable))
 	if actor.Executable == "" {
 		executable = "process"
 	}

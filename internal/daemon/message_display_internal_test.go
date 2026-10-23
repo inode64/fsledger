@@ -108,14 +108,29 @@ func TestActorMessageKeepsRawStartTime(t *testing.T) {
 	}
 }
 
-// A process names itself: its executable must not add lines, such as a forged trailer, to the subject.
+// A process names itself: its executable must not add lines, such as a forged trailer, to the subject. Notices
+// display the subject escaped once, as any line, never the name escaped twice.
 func TestActorMessageEscapesExecutableName(t *testing.T) {
 	t.Parallel()
 
-	actor := event.Actor{Known: true, PID: 1, StartTime: 1, Executable: "/tmp/x\nFSLedger-Change-ID: forged"}
+	names := map[string]string{
+		"/tmp/x\nFSLedger-Change-ID: forged": "x\uFFFDFSLedger-Change-ID: forged",
+		"/tmp/a\\b":                          "a\\\\b",
+		"/tmp/\xff":                          "\uFFFD",
+	}
+	for executable, displayed := range names {
+		message := actorMessage(event.Actor{Known: true, PID: 1, StartTime: 1, Executable: executable}, false)
 
-	subject, _, _ := strings.Cut(actorMessage(actor, false), "\n")
-	if !strings.HasSuffix(subject, " modified files") || strings.Count(actorMessage(actor, false), "\nFSLedger") != 0 {
-		t.Fatalf("executable name broke the message: %q", actorMessage(actor, false))
+		subject, _, _ := strings.Cut(message, "\n")
+		if !strings.HasSuffix(subject, " modified files") || strings.Count(message, "\nFSLedger") != 0 {
+			t.Fatalf("executable name broke the message: %q", message)
+		}
+
+		lines := catalog.Detail{
+			Actor: message, ChangeID: "", Kind: "", Path: nil, Fields: nil, Observed: 0, BackdatedBy: 0,
+		}.ActorLines()
+		if len(lines) == 0 || !strings.HasSuffix(lines[0], ": "+displayed+" modified files") {
+			t.Fatalf("notice shows %q for %q", lines, executable)
+		}
 	}
 }
