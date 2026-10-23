@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/pathutil"
 	"github.com/inode64/fsledger/internal/resource"
 )
@@ -81,10 +82,6 @@ const (
 	temporaryPrefix = pathutil.RestoreTemporaryPrefix
 	// preservedBits is the part of a replaced file's mode its replacement inherits.
 	preservedBits = fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky
-	// directoryFlags opens a directory only when the component itself is one, never through a symlink.
-	directoryFlags = unix.O_PATH | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC
-	// syncFlags reopens a pinned directory readable, since an O_PATH descriptor cannot be synced.
-	syncFlags = unix.O_RDONLY | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC
 )
 
 type action int
@@ -211,9 +208,14 @@ func (s *run) open(directory string, create bool) error {
 		start = "/"
 	}
 
-	fd, err := unix.Open(start, directoryFlags, 0)
+	mode := uint32(0)
+	if create && !s.options.DryRun {
+		mode = directoryMode
+	}
+
+	fd, err := unix.Open(start, integrity.DirectoryFlags, 0)
 	if err == nil {
-		fd, err = descend(fd, components(directory), create && !s.options.DryRun)
+		fd, err = integrity.Descend(fd, components(directory), mode)
 	}
 
 	if err != nil {
@@ -239,40 +241,6 @@ func components(directory string) []string {
 	return strings.Split(directory, "/")
 }
 
-// descend walks parts below the owned directory fd, refusing symlinks and creating missing
-// directories when create is set. The fd is consumed even on failure.
-func descend(fd int, parts []string, create bool) (int, error) {
-	for _, part := range parts {
-		next, err := openDirectory(fd, part, create)
-		resource.FD(fd)
-
-		if err != nil {
-			return -1, err
-		}
-
-		fd = next
-	}
-
-	return fd, nil
-}
-
-// openDirectory opens one real directory below parent, first creating it when create is set.
-func openDirectory(parent int, name string, create bool) (int, error) {
-	fd, err := unix.Openat(parent, name, directoryFlags, 0)
-	if !create || !errors.Is(err, fs.ErrNotExist) {
-		return fd, fault.Wrap("openat "+name, err)
-	}
-
-	err = unix.Mkdirat(parent, name, directoryMode)
-	if err != nil && !errors.Is(err, fs.ErrExist) {
-		return -1, fault.Wrap("mkdirat "+name, err)
-	}
-
-	fd, err = unix.Openat(parent, name, directoryFlags, 0)
-
-	return fd, fault.Wrap("openat "+name, err)
-}
-
 // parent opens the directory holding relative below the destination without following symlinks.
 // It returns -1 when there is nothing to inspect: a dry run over a directory it would create.
 func (s *run) parent(relative string) (int, error) {
@@ -280,9 +248,9 @@ func (s *run) parent(relative string) (int, error) {
 		return -1, nil
 	}
 
-	fd, err := unix.Openat(s.root, ".", directoryFlags, 0)
+	fd, err := unix.Openat(s.root, ".", integrity.DirectoryFlags, 0)
 	if err == nil {
-		fd, err = descend(fd, components(path.Dir(relative)), false)
+		fd, err = integrity.Descend(fd, components(path.Dir(relative)), 0)
 	}
 
 	if s.options.DryRun && errors.Is(err, fs.ErrNotExist) {
@@ -484,7 +452,7 @@ func writeRegular(reader io.Reader, header *tar.Header, parent int, name string,
 		return fault.Wrap("replace file", err)
 	}
 
-	return syncDirectory(parent)
+	return integrity.SyncDirectory(parent)
 }
 
 // createTemporary creates a new sibling under the first name from next that is still free, so
@@ -512,17 +480,6 @@ func createTemporary(parent int, mode uint32, next func() string) (*os.File, err
 // may already use the whole NAME_MAX.
 func randomTemporary() string {
 	return temporaryPrefix + rand.Text()
-}
-
-// syncDirectory makes a rename in the pinned parent durable through a readable copy of it.
-func syncDirectory(parent int) error {
-	fd, err := unix.Openat(parent, ".", syncFlags, 0)
-	if err != nil {
-		return fault.Wrap("open parent directory for sync", err)
-	}
-	defer resource.FD(fd)
-
-	return fault.Wrap("sync parent directory", unix.Fsync(fd))
 }
 
 // removeTemporary deletes an abandoned temporary copy; a successful rename already removed it.

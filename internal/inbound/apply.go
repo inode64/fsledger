@@ -175,7 +175,7 @@ func (plan *Plan) replace(parent int, name, temp string, change Change, actual o
 		return fault.Wrap("replace incoming destination", err)
 	}
 
-	return fault.Wrap("sync incoming parent", unix.Fsync(parent))
+	return fault.Wrap("sync incoming parent", integrity.SyncDirectory(parent))
 }
 
 func verifyDestination(parent int, name, path string, actual observed) error {
@@ -246,37 +246,16 @@ func openAnchoredParent(root Root, path string, create bool) (int, string, error
 		return -1, "", conflict("incoming path escapes pinned root")
 	}
 
+	mode := uint32(0)
+	if create {
+		mode = 0o700
+	}
+
 	if relative != "." {
-		fd, err = descend(fd, strings.Split(relative, "/"), create)
+		fd, err = integrity.Descend(fd, strings.Split(relative, "/"), mode)
 	}
 
 	return fd, filepath.Base(path), err
-}
-
-func descend(fd int, parts []string, create bool) (int, error) {
-	for _, part := range parts {
-		next, err := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		if errors.Is(err, os.ErrNotExist) && create {
-			err = unix.Mkdirat(fd, part, 0o700)
-			if err == nil {
-				err = unix.Fsync(fd)
-			}
-
-			if err == nil || errors.Is(err, os.ErrExist) {
-				next, err = unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-			}
-		}
-
-		resource.FD(fd)
-
-		if err != nil {
-			return -1, fault.Wrap("open incoming parent", err)
-		}
-
-		fd = next
-	}
-
-	return fd, nil
 }
 
 func clearTemporary(parent int, name string) error {
