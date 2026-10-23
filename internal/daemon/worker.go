@@ -124,7 +124,8 @@ func (w *worker) shutdown(ctx context.Context) error {
 		return w.finishShutdown(ctx, shutdown, nil)
 	}
 
-	// Repeating a full scan that shutdown just interrupted would only delay the stop.
+	// Shutdown interrupted a reconciliation or a commit: a full scan now would only delay the stop, and the
+	// startup reconciliation covers the same work.
 	if w.interrupted && w.cfg.Watch.Reconcile.OnStart {
 		w.logger.Info("shutdown reconciliation skipped; startup reconciliation will resume the interrupted work")
 

@@ -275,7 +275,7 @@ func newWorker(
 
 	return &worker{
 		probePIDFD: probe,
-		// Forwarding is lightweight; saturation is sticky even if the event queue is full.
+		// A full queue drops events and latches the loss, so forwarding never blocks.
 		queue:   watcher.NewQueue(eventQueueSize),
 		catalog: store, scanner: scanner,
 		audit:          auditProvider,
