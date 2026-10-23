@@ -130,6 +130,10 @@ func (w *Watcher) remount(current mountStacks) {
 
 	for _, point := range points {
 		if !current.bounded(w.path, point) {
+			if w.remounted != nil {
+				w.remounted(point)
+			}
+
 			w.reportCoverageError(errors.Join(w.dropTree(point), w.addTree(point)))
 		}
 	}

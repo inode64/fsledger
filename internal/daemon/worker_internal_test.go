@@ -470,8 +470,8 @@ func TestAutomaticFanotifyFallbackIsNotEventLoss(t *testing.T) {
 	runner := makeWorker(t)
 	runner.cfg.Watch.Backend = config.BackendAuto
 
-	label := runner.tryFanotify(t.Context(), runner.cfg.Repositories[runner.name].Paths[0], runner.matcher)
-	if label != "" {
+	companion := runner.tryFanotify(t.Context(), runner.cfg.Repositories[runner.name].Paths[0], runner.matcher)
+	if companion != nil {
 		t.Fatal("unprivileged fixture unexpectedly acquired fanotify")
 	}
 

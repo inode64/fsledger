@@ -121,7 +121,7 @@ func (w *Watcher) forgetMarks(path string) {
 
 // Remount marks path again from scratch after the mount table changed there, as inotify's mount follower
 // reports: no mark sees a mount or an unmount, the kernel destroyed the marks of an unmounted filesystem, and
-// one mounted again may bring back the remembered directory identities.
+// one mounted again may bring back the remembered directory identities. It is safe for concurrent use.
 func (w *Watcher) Remount(path string) {
 	if !pathutil.Contains(w.path, path) {
 		return

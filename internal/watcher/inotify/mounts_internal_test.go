@@ -173,12 +173,27 @@ func TestRemountedRootWithTheSameDirectoriesIsWatchedAgain(t *testing.T) {
 		}
 	}
 
+	// fanotify learns of the remount before any new watch can report an event it would take as covered.
+	var reported []string
+
+	detector.OnRemount(func(path string) {
+		if len(detector.native.WatchList()) != 0 {
+			t.Error("remount reported after the new watches")
+		}
+
+		reported = append(reported, path)
+	})
+
 	detector.mounts = mountStacks{root: {mountAt(root, 30, 2)}}
 	detector.remount(mountStacks{root: {mountAt(root, 31, 2)}})
 	expectRemount(t, detector, root)
 
 	if got := detector.native.WatchList(); !slices.Contains(got, root) || !slices.Contains(got, nested) {
 		t.Fatal("the remounted root was not watched again", got)
+	}
+
+	if !slices.Equal(reported, []string{root}) {
+		t.Fatal("remount not reported:", reported)
 	}
 }
 

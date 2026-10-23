@@ -42,7 +42,9 @@ type Watcher struct {
 	mounts mountStacks
 	// rewalk asks restoreLoop to walk the root again after a loss; lossEpoch counts the losses consumed.
 	rewalk chan struct{}
-	path   string
+	// remounted, set before Start, learns of each directory the mount follower watches again.
+	remounted func(string)
+	path      string
 	// workers runs readErrors and restoreLoop, which Close waits for.
 	workers      sync.WaitGroup
 	lossEpoch    atomic.Uint64
@@ -77,6 +79,10 @@ func New(path string, matcher *exclude.Matcher) (*Watcher, error) {
 		rewalk:      make(chan struct{}, 1),
 	}, nil
 }
+
+// OnRemount has the mount follower report each directory it watches again after the mount table changed there,
+// before its watches are installed. It must be set before Start.
+func (w *Watcher) OnRemount(remounted func(path string)) { w.remounted = remounted }
 
 // Name identifies the selected backend.
 func (*Watcher) Name() string { return event.Inotify }

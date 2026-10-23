@@ -48,19 +48,6 @@ func (w *worker) nativeCovers(raw event.Raw) bool {
 	return false
 }
 
-// remarkRemounted has fanotify mark a remounted directory again: inotify follows the mount table for both.
-func (w *worker) remarkRemounted(raw event.Raw) {
-	if raw.Backend != event.Inotify || raw.Reason != inotify.RemountReason {
-		return
-	}
-
-	for _, detector := range w.watchers {
-		if candidate, ok := detector.(*fanotify.Watcher); ok {
-			candidate.Remount(raw.Path)
-		}
-	}
-}
-
 func (w *worker) startRoot(ctx context.Context, root string, mounts []mountinfo.Mount) {
 	boundaries := mountinfo.Resolve(root, mounts)
 	if len(boundaries) == 0 {
@@ -101,12 +88,17 @@ func (w *worker) startBoundary(
 		w.advise(message)
 	}
 
-	label := w.tryFanotify(ctx, path, matcher)
+	companion := w.tryFanotify(ctx, path, matcher)
+
+	label := ""
+	if companion != nil {
+		label = event.Fanotify + "+"
+	}
 
 	var selected watcher.Watcher
 
 	if w.cfg.Watch.Backend != event.Polling {
-		candidate := w.tryInotify(ctx, path, matcher)
+		candidate := w.tryInotify(ctx, path, matcher, companion)
 		if candidate != nil {
 			selected = candidate
 		}
@@ -124,13 +116,14 @@ func (w *worker) startBoundary(
 	w.logger.Info("backend selected", "path", path, "mount", mount.Point, "filesystem", mount.Type, "backend", label)
 }
 
+// tryFanotify starts fanotify for path, or returns nil when it is not selected or unavailable.
 func (w *worker) tryFanotify(
 	ctx context.Context,
 	path string,
 	matcher *exclude.Matcher,
-) string {
+) *fanotify.Watcher {
 	if w.cfg.Watch.Backend != config.BackendAuto && w.cfg.Watch.Backend != event.Fanotify {
-		return ""
+		return nil
 	}
 
 	candidate, err := fanotify.New(path, matcher)
@@ -141,7 +134,7 @@ func (w *worker) tryFanotify(
 			w.logger.Info("fanotify mode selected", "path", path, "mode", candidate.Mode())
 			w.checkPIDFDLifetime(ctx, candidate.PIDFD())
 
-			return event.Fanotify + "+"
+			return candidate
 		}
 
 		resource.Close(candidate)
@@ -153,7 +146,7 @@ func (w *worker) tryFanotify(
 		w.warn("fanotify fallback: " + err.Error())
 	}
 
-	return ""
+	return nil
 }
 
 func (w *worker) checkPIDFDLifetime(ctx context.Context, enabled bool) {
@@ -218,12 +211,23 @@ func (w *worker) boundaryMatcher(path string, boundaries []mountinfo.Mount) *exc
 	return w.matcher.Protect(nestedPaths...)
 }
 
-func (w *worker) tryInotify(ctx context.Context, path string, matcher *exclude.Matcher) *inotify.Watcher {
+// tryInotify starts inotify for path. Its mount follower tells fanotify, when it runs for the same path, of every
+// remounted directory: no fanotify mark sees a mount or an unmount.
+func (w *worker) tryInotify(
+	ctx context.Context,
+	path string,
+	matcher *exclude.Matcher,
+	companion *fanotify.Watcher,
+) *inotify.Watcher {
 	candidate, err := inotify.New(path, matcher)
 	if err != nil {
 		w.warn("inotify init fallback: " + err.Error())
 
 		return nil
+	}
+
+	if companion != nil {
+		candidate.OnRemount(companion.Remount)
 	}
 
 	err = candidate.Start(ctx)
