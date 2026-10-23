@@ -47,7 +47,28 @@ func coalesce(messages []*auparse.AuditMessage, scopes map[string]func(string) b
 		return nil, err
 	}
 
-	return recordedPaths(value, actor, operationCode), nil
+	// Only observations in scope pay for the procfs reads that identify the live process.
+	observations := slices.DeleteFunc(recordedPaths(value, actor, operationCode), func(candidate observation) bool {
+		return !inScope(scopes, candidate)
+	})
+	if len(observations) > 0 {
+		startTime := liveStartTime(value, actor)
+		for index := range observations {
+			observations[index].actor.StartTime = startTime
+		}
+	}
+
+	return observations, nil
+}
+
+func inScope(scopes map[string]func(string) bool, value observation) bool {
+	for _, key := range value.keys {
+		if accept := scopes[key]; accept != nil && accept(value.path) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func recordedPaths(value *aucoalesce.Event, actor event.Actor, operationCode string) []observation {
@@ -164,13 +185,18 @@ func recordedActor(value *aucoalesce.Event) (event.Actor, error) {
 		actor.LoginUID, actor.LoginKnown = uint32(login), true
 	}
 
-	live := (procattr.Provider{}).ResolveAt(context.Background(), event.Raw{PID: pid}, value.Timestamp)
+	return actor, nil
+}
+
+// liveStartTime identifies the recorded process only while it still runs with the recorded identity.
+func liveStartTime(value *aucoalesce.Event, actor event.Actor) uint64 {
+	live := (procattr.Provider{}).ResolveAt(context.Background(), event.Raw{PID: actor.PID}, value.Timestamp)
 	if live.Known && live.UserKnown && live.UID == actor.UID && live.EUID == actor.EUID &&
 		live.Executable == actor.Executable {
-		actor.StartTime = live.StartTime
+		return live.StartTime
 	}
 
-	return actor, nil
+	return 0
 }
 
 func auditOperation(data map[string]string) string {

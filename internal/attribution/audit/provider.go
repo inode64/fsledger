@@ -159,7 +159,7 @@ func (provider *Provider) ReassemblyComplete(messages []*auparse.AuditMessage) {
 	defer provider.mu.Unlock()
 
 	for _, value := range values {
-		if now.Sub(value.time) > retention || value.time.After(now.Add(matchWindow)) || !provider.accepts(value) {
+		if now.Sub(value.time) > retention || value.time.After(now.Add(matchWindow)) {
 			continue
 		}
 
@@ -280,14 +280,4 @@ func (provider *Provider) prune() {
 	}
 
 	provider.observations = kept
-}
-
-func (provider *Provider) accepts(value observation) bool {
-	for _, key := range value.keys {
-		if accept := provider.scopes[key]; accept != nil && accept(value.path) {
-			return true
-		}
-	}
-
-	return false
 }
