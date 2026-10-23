@@ -212,6 +212,11 @@ func TestRepositoryStartupFailureLeavesOthersRunning(t *testing.T) {
 	case <-time.After(time.Second):
 	}
 
+	_, err = os.Stat(filepath.Join(cfg.Runtime, "sourceA.json"))
+	if err != nil {
+		t.Fatal("the other repository is not running", err)
+	}
+
 	cancel()
 
 	err = <-done
