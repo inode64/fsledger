@@ -185,6 +185,8 @@ func retryRepository(ctx context.Context, logger *slog.Logger, name string, run 
 	var delay time.Duration
 
 	for {
+		started := time.Now()
+
 		err := run()
 		if err == nil || ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 			return nil
@@ -196,7 +198,7 @@ func retryRepository(ctx context.Context, logger *slog.Logger, name string, run 
 			return err
 		}
 
-		delay = doubledDelay(delay, repositoryRetryDelay, maximumRepositoryRetryDelay)
+		delay = nextRepositoryRetry(delay, time.Since(started))
 		logger.Error("repository stopped", "repository", name, "error", err, "retry_in", delay)
 
 		timer := time.NewTimer(delay)
@@ -209,6 +211,16 @@ func retryRepository(ctx context.Context, logger *slog.Logger, name string, run 
 		case <-timer.C:
 		}
 	}
+}
+
+// nextRepositoryRetry doubles the retry delay, unless the failed run outlasted the longest delay: a repository
+// that ran that long was healthy, and its next failure starts again from the first delay.
+func nextRepositoryRetry(delay, ran time.Duration) time.Duration {
+	if ran >= maximumRepositoryRetryDelay {
+		delay = 0
+	}
+
+	return doubledDelay(delay, repositoryRetryDelay, maximumRepositoryRetryDelay)
 }
 
 func runRepository(
