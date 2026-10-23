@@ -97,7 +97,21 @@ func observeRecords(t *testing.T, store *Store, identifier string, records ...in
 		}
 	}
 
-	_, err := store.apply(t.Context(), updates, 1, identifier, "test actor")
+	apply := func(operation string) (Result, error) {
+		_, err := store.apply(t.Context(), updates, 1, operation, "test actor")
+
+		return Result{ID: operation}, err
+	}
+
+	// Production applies inside an operation that publishes its staged changes; tests that start
+	// one themselves keep it open to inspect the staged state.
+	var err error
+	if store.notificationOperation == "" {
+		_, err = store.withNotificationOperation(t.Context(), identifier, apply)
+	} else {
+		_, err = apply(identifier)
+	}
+
 	if err != nil {
 		t.Fatal(err)
 	}
