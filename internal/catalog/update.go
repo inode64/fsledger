@@ -59,7 +59,7 @@ func (store *Store) Reconcile(
 	})
 }
 
-func (store *Store) beginOperation(ctx context.Context, scan bool) error {
+func (store *Store) beginOperation(ctx context.Context) error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
@@ -72,10 +72,7 @@ func (store *Store) beginOperation(ctx context.Context, scan bool) error {
 	defer resource.Close(transaction.batch)
 
 	transaction.clear(hashPrefix)
-
-	if scan {
-		transaction.state.Generation++
-	}
+	transaction.state.Generation++
 
 	return transaction.commit()
 }
@@ -93,7 +90,7 @@ func (store *Store) reconcile(
 
 	result := observationResult(identifier)
 
-	operationErr1 := store.beginOperation(ctx, true)
+	operationErr1 := store.beginOperation(ctx)
 	if operationErr1 != nil {
 		return result, operationErr1
 	}
@@ -275,11 +272,6 @@ func (store *Store) Observe(
 	}
 
 	return store.withNotificationOperation(ctx, identifier, func(operationID string) (Result, error) {
-		err := store.beginOperation(ctx, false)
-		if err != nil {
-			return Result{}, err
-		}
-
 		return store.observePaths(ctx, scanner, paths, roots, matcher, actor, observationResult(operationID))
 	})
 }
