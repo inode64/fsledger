@@ -238,8 +238,16 @@ func (w *worker) checkLosses() {
 
 			w.loseAttribution(lossMessage(detector.Name()+" event loss or coverage loss", reason))
 		}
+
+		// Not a loss: periodic reconciliation covers the unmarked directories, without attribution.
+		if limited, ok := detector.(interface{ MarkLimitReached() bool }); ok && limited.MarkLimitReached() {
+			w.advise(fanotifyMarkLimit)
+		}
 	}
 }
+
+const fanotifyMarkLimit = "fanotify mark limit reached: directories beyond it are covered by periodic " +
+	"reconciliation without attribution; grant CAP_SYS_ADMIN or raise fs.fanotify.max_user_marks"
 
 // lossMessage names the cause when the detector reported one, such as a kernel queue overflow.
 func lossMessage(summary, reason string) string {

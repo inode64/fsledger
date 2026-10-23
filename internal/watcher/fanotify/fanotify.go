@@ -59,9 +59,12 @@ type Watcher struct {
 	once          sync.Once
 	coverageMutex sync.Mutex
 	coverageLost  atomic.Bool
-	// unmarkedFilesystem reports another filesystem left unmarked below the root; only a walk of the root clears it.
-	unmarkedFilesystem atomic.Bool
-	pidfd              bool
+	// unmarked reports directories left unmarked below the root, on another filesystem or beyond the mark
+	// limit; only a walk of the root clears it.
+	unmarked atomic.Bool
+	// markLimit reports that the last walk of the root hit the kernel's mark limit.
+	markLimit atomic.Bool
+	pidfd     bool
 }
 
 // New tries PIDFD independently and falls back to ordinary PID events.
@@ -109,6 +112,9 @@ func (w *Watcher) Dirty() bool {
 
 // ReconciliationPending consumes routine requests independently of overflow.
 func (w *Watcher) ReconciliationPending() bool { return w.queue.ReconciliationPending() }
+
+// MarkLimitReached reports directories left unmarked by the kernel's mark limit, which reconciliation covers.
+func (w *Watcher) MarkLimitReached() bool { return w.markLimit.Load() }
 
 // Start installs recursive marks before starting the reader and coverage refresher.
 func (w *Watcher) Start(ctx context.Context) error {
@@ -231,18 +237,22 @@ func (w *Watcher) markTree(path string, verified map[string]bool) error {
 		return nil
 	}
 
-	skipped, err := w.walkTree(path, verified)
-	// A subtree cannot tell that no other filesystem remains below the root; only a walk of the root can.
+	skipped, limited, err := w.walkTree(path, verified)
+	// A subtree cannot tell that nothing else remains unmarked below the root; only a walk of the root can.
 	if err == nil && (skipped || path == w.path) {
-		w.unmarkedFilesystem.Store(skipped)
+		w.unmarked.Store(skipped)
+		w.markLimit.Store(limited)
 	}
 
 	return err
 }
 
-// walkTree marks the selected directories below path and reports whether it left another filesystem unmarked.
-func (w *Watcher) walkTree(path string, verified map[string]bool) (bool, error) {
-	skipped := false
+func markLimit(err error) bool { return errors.Is(err, unix.ENOSPC) || errors.Is(err, unix.ENOMEM) }
+
+// walkTree marks the selected directories below path and reports whether it left directories unmarked, and
+// whether the mark limit was the cause.
+func (w *Watcher) walkTree(path string, verified map[string]bool) (bool, bool, error) {
+	skipped, limited := false, false
 
 	err := filepath.WalkDir(path, func(name string, entry fs.DirEntry, walkErr error) error {
 		if errors.Is(walkErr, os.ErrNotExist) {
@@ -263,9 +273,10 @@ func (w *Watcher) walkTree(path string, verified map[string]bool) (bool, error) 
 
 		markErr := w.markExisting(name, verified)
 		// A filesystem mounted below the root after Start is a boundary, like the nested mounts excluded at startup,
-		// but without a watcher of its own: reconciliation covers it. At the root itself it is lost coverage.
-		if errors.Is(markErr, errOtherFilesystem) && name != w.path {
-			skipped = true
+		// but without a watcher of its own: reconciliation covers it. So is a directory beyond the mark limit;
+		// treating it as lost coverage would flush and re-mark every 30 seconds. At the root it is lost coverage.
+		if name != w.path && (errors.Is(markErr, errOtherFilesystem) || markLimit(markErr)) {
+			skipped, limited = true, limited || markLimit(markErr)
 
 			return filepath.SkipDir
 		}
@@ -273,7 +284,7 @@ func (w *Watcher) walkTree(path string, verified map[string]bool) (bool, error) 
 		return markErr
 	})
 
-	return skipped, fault.Wrap("install fanotify marks", err)
+	return skipped, limited, fault.Wrap("install fanotify marks", err)
 }
 
 const (

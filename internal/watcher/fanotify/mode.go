@@ -57,8 +57,14 @@ func (w *Watcher) initialize() error {
 }
 
 func (w *Watcher) tryMode(mode, pidfd uint) error {
-	fd, err := unix.FanotifyInit(unix.FAN_CLASS_NOTIF|unix.FAN_CLOEXEC|unix.FAN_NONBLOCK|mode|pidfd,
-		unix.O_RDONLY|unix.O_LARGEFILE|unix.O_CLOEXEC)
+	flags := unix.FAN_CLASS_NOTIF | unix.FAN_CLOEXEC | unix.FAN_NONBLOCK | mode | pidfd
+	// One mark per directory exceeds the per-user max_user_marks on large trees. Without CAP_SYS_ADMIN the
+	// limit stays, and walkTree leaves the directories beyond it to reconciliation.
+	fd, err := unix.FanotifyInit(flags|unix.FAN_UNLIMITED_MARKS, unix.O_RDONLY|unix.O_LARGEFILE|unix.O_CLOEXEC)
+	if errors.Is(err, unix.EPERM) {
+		fd, err = unix.FanotifyInit(flags, unix.O_RDONLY|unix.O_LARGEFILE|unix.O_CLOEXEC)
+	}
+
 	if err != nil {
 		return fault.Wrap("fanotify init", err)
 	}
