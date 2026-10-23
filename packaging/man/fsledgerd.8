@@ -103,7 +103,10 @@ controller role from auditd. Administrator rules must cover the desired
 sources.
 .SH EXIT STATUS
 0 on clean shutdown, help or version; 1 on configuration, startup or runtime
-error.
+error. A repository that fails is logged as "repository stopped" and the others
+keep running: the daemon exits with 1 once every repository has stopped, or at
+shutdown. Until then fsledger status shows the failed repository without a
+current snapshot.
 .SH SEE ALSO
 .BR fsledger (1),
 .BR fsledger.yaml (5),
