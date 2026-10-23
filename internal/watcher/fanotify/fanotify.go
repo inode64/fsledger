@@ -242,6 +242,10 @@ func (w *Watcher) markTree(path string, verified map[string]bool) error {
 	// A subtree cannot tell that nothing else remains unmarked below the root; only a walk of the root can.
 	if err == nil && (skipped || path == w.path) {
 		w.unmarked.Store(skipped)
+	}
+
+	// Likewise, only a walk of the root can tell that the mark limit no longer leaves directories unmarked.
+	if err == nil && (limited || path == w.path) {
 		w.markLimit.Store(limited)
 	}
 
