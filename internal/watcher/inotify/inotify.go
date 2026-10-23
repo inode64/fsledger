@@ -226,8 +226,8 @@ func (w *Watcher) unwatched(name string) bool {
 //
 //nolint:cyclop,gocognit,gocyclo // Each check guards one registration hazard listed above; split, they lose order.
 func (w *Watcher) watchDirectory(name string, directory int) error {
-	identity, valid := watcher.IdentifyDescriptor(directory)
-	if current, holds := watcher.IdentifyPath(name); !valid || !holds || current != identity {
+	identity, err := watcher.IdentifyDescriptor(directory)
+	if err != nil || !w.holds(name, identity) {
 		return fs.SkipDir
 	}
 
@@ -235,21 +235,27 @@ func (w *Watcher) watchDirectory(name string, directory int) error {
 		return nil
 	}
 
+	// A previous name still holding the directory is a bind mount, which the mount follower turns into a
+	// boundary: its watches are still correct.
 	if previous, moved := w.directories.nameOf(identity); moved {
-		err := w.dropTree(previous)
+		if w.holds(previous, identity) {
+			return fs.SkipDir
+		}
+
+		err = w.dropTree(previous)
 		if err != nil {
 			return err
 		}
 	}
 
 	if _, replaced := w.directories.get(name); replaced {
-		err := w.dropTree(name)
+		err = w.dropTree(name)
 		if err != nil {
 			return err
 		}
 	}
 
-	err := w.native.Add(name)
+	err = w.native.Add(name)
 	if errors.Is(err, os.ErrNotExist) {
 		return fs.SkipDir
 	}
@@ -271,6 +277,13 @@ func (w *Watcher) watchDirectory(name string, directory int) error {
 	w.directories.set(name, identity)
 
 	return nil
+}
+
+// holds reports whether name, not followed, still names the directory identity describes.
+func (*Watcher) holds(name string, identity watcher.DirectoryIdentity) bool {
+	current, err := watcher.IdentifyPath(name)
+
+	return err == nil && current == identity
 }
 
 // dropTree removes paths fsnotify still associates with the old name of a
