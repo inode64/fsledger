@@ -87,7 +87,7 @@ func ReportText(message catalog.Message) (string, string, error) {
 
 	err := compiled.Execute(&body, message)
 	if err != nil {
-		return "", "", fault.New("report exceeds output limit or cannot be rendered")
+		return "", "", fault.Wrap("render report", err)
 	}
 
 	subject := fmt.Sprintf(

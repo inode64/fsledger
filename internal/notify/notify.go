@@ -324,7 +324,7 @@ func (sender *Sender) render(notifier config.Notifier, message catalog.Message) 
 
 	err := parsed.Subject.Execute(&subject, message)
 	if err != nil {
-		return renderedNotification{}, fault.New("notification subject execution failed")
+		return renderedNotification{}, fault.Wrap("render notification subject", err)
 	}
 
 	if strings.ContainsAny(subject.String(), "\r\n") {
@@ -335,7 +335,7 @@ func (sender *Sender) render(notifier config.Notifier, message catalog.Message) 
 
 	err = parsed.Body.Execute(&body, message)
 	if err != nil {
-		return renderedNotification{}, fault.New("notification body execution failed")
+		return renderedNotification{}, fault.Wrap("render notification body", err)
 	}
 
 	return renderedNotification{subject: subject.String(), body: body.String(), messageID: ""}, nil
