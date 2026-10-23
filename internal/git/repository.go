@@ -212,10 +212,12 @@ type process struct {
 func (r *Repository) command(ctx context.Context, args []string) process {
 	ctx, cancel := context.WithTimeout(ctx, r.commandTimeout(args))
 
+	// The default core.fsync skips loose objects and references: after a crash HEAD could name lost objects.
 	//nolint:gosec // Git receives explicit argument elements without a shell; paths belong to this repository.
 	command := exec.CommandContext(ctx, "git", append([]string{
 		"-C", r.Path, "--literal-pathspecs", "--no-optional-locks",
 		"-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false",
+		"-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=batch",
 	}, args...)...)
 	// Keep hooks and foreground maintenance in the command's cancellation group.
 	command.SysProcAttr = &syscall.SysProcAttr{}
