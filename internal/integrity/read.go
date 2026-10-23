@@ -26,7 +26,6 @@ import (
 type HashSource func(Record, string) (string, int64, bool)
 
 // readWorkspace is owned exclusively by one scanner slot while observing a file.
-// Buffers are allocated lazily: metadata-only scans retain no content buffers.
 type readWorkspace struct {
 	digest    hash.Hash
 	algorithm string
