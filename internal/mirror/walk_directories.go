@@ -12,7 +12,7 @@ import (
 // walkDirectories keeps, during one reconciliation walk, the source and mirror directories whose entries
 // are being copied: resolving both from their roots for every file dominated cached reconciliations. The
 // source directory is the anchored descriptor its first entry opened, so a later rename or symlink swap of
-// it is never followed; the walk listed its entries from that same directory.
+// it is never followed: its remaining entries are copied from the directory the walk was listing.
 type walkDirectories struct {
 	mirrorRoot *os.Root
 	source     string
