@@ -51,8 +51,9 @@ func (Provider) resolve(ctx context.Context, raw event.Raw, observedAt *time.Tim
 	}
 
 	if observedAt != nil {
-		birth, birthErr := stat.StartTime()
-		if birthErr != nil || birth >= float64(observedAt.Unix()-1) {
+		// The cached boot time: ProcStat.StartTime would read /proc/stat again for every Audit record.
+		birth, known := StartTime(stat.Starttime)
+		if !known || !birth.Before(time.Unix(observedAt.Unix()-1, 0)) {
 			return event.Actor{}
 		}
 	} else if raw.PIDFD == nil && !startedBefore(stat.Starttime, raw.SinceBoot) {
