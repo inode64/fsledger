@@ -386,22 +386,57 @@ func lstat(parent int, name string) (fs.FileInfo, error) {
 func write(
 	reader io.Reader, header *tar.Header, parent int, name string, kind fs.FileMode, existing fs.FileInfo,
 ) error {
-	if kind == fs.ModeDir {
-		return fault.Wrap("create directory", unix.Mkdirat(parent, name, directoryMode))
+	if kind == fs.ModeSymlink {
+		return writeSymlink(header.Linkname, parent, name, existing)
 	}
 
-	if kind != fs.ModeSymlink {
+	if kind != fs.ModeDir {
 		return writeRegular(reader, header, parent, name, existing)
 	}
 
-	if existing != nil {
-		err := unix.Unlinkat(parent, name, 0)
+	err := unix.Mkdirat(parent, name, directoryMode)
+	if err != nil {
+		return fault.Wrap("create directory", err)
+	}
+
+	return integrity.SyncDirectory(parent)
+}
+
+// writeSymlink replaces a link through a temporary sibling that takes the replaced link's owner, so a
+// failure never leaves the destination missing.
+func writeSymlink(target string, parent int, name string, existing fs.FileInfo) error {
+	if existing == nil {
+		err := unix.Symlinkat(target, parent, name)
 		if err != nil {
-			return fault.Wrap("replace symlink", err)
+			return fault.Wrap("create symlink", err)
+		}
+
+		return integrity.SyncDirectory(parent)
+	}
+
+	temporary := randomTemporary()
+
+	err := unix.Symlinkat(target, parent, temporary)
+	if err != nil {
+		return fault.Wrap("create temporary symlink", err)
+	}
+	// A successful rename leaves nothing to remove; any earlier failure does.
+	defer removeTemporary(parent, temporary)
+
+	stat, ok := existing.Sys().(*syscall.Stat_t)
+	if ok {
+		err = unix.Fchownat(parent, temporary, int(stat.Uid), int(stat.Gid), unix.AT_SYMLINK_NOFOLLOW)
+		if err != nil {
+			return fault.Wrap("preserve symlink owner", err)
 		}
 	}
 
-	return fault.Wrap("create symlink", unix.Symlinkat(header.Linkname, parent, name))
+	err = unix.Renameat(parent, temporary, parent, name)
+	if err != nil {
+		return fault.Wrap("replace symlink", err)
+	}
+
+	return integrity.SyncDirectory(parent)
 }
 
 // writeRegular stages the content next to its destination and durably renames it into place,
