@@ -226,6 +226,13 @@ func (w *Watcher) markTree(path string, verified map[string]bool) error {
 		return nil
 	}
 
+	// A directory too deep to name stays unmarked, left to reconciliation like a walk's deep directories.
+	if errors.Is(err, unix.ENAMETOOLONG) {
+		w.unmarked.Store(true)
+
+		return nil
+	}
+
 	if err != nil {
 		return fault.Wrap("stat watched root", err)
 	}

@@ -77,9 +77,9 @@ func (w *Watcher) mark(path string) error {
 
 // markAt marks the opened directory, never path itself: path may lead elsewhere by now.
 func (w *Watcher) markAt(path string, directory int) error {
-	identity, valid := watcher.IdentifyDescriptor(directory)
-	if !valid {
-		return fault.New("identify directory to mark: " + path)
+	identity, err := watcher.IdentifyDescriptor(directory)
+	if err != nil {
+		return fault.Wrap("mark "+path, err)
 	}
 
 	if !w.coverageLost.Load() {
@@ -93,7 +93,7 @@ func (w *Watcher) markAt(path string, directory int) error {
 		return errOtherFilesystem
 	}
 
-	err := unix.FanotifyMark(w.fd, unix.FAN_MARK_ADD|unix.FAN_MARK_ONLYDIR, w.mask, directory, ".")
+	err = unix.FanotifyMark(w.fd, unix.FAN_MARK_ADD|unix.FAN_MARK_ONLYDIR, w.mask, directory, ".")
 	if err != nil {
 		return fault.Wrap("mark directory", err)
 	}
@@ -133,9 +133,9 @@ func (w *Watcher) resetMarks() error {
 }
 
 func matchesDirectory(path string, identity watcher.DirectoryIdentity) bool {
-	current, valid := watcher.IdentifyPath(path)
+	current, err := watcher.IdentifyPath(path)
 
-	return valid && current == identity
+	return err == nil && current == identity
 }
 
 // PollingRequired remains true while coverage is unverified, the reader has stopped, or directories below

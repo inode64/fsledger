@@ -390,9 +390,9 @@ func TestRefreshQueueOverflowRequestsFullRefresh(t *testing.T) {
 func identityOf(t *testing.T, path string) watcher.DirectoryIdentity {
 	t.Helper()
 
-	identity, valid := watcher.IdentifyPath(path)
-	if !valid {
-		t.Fatal("not a directory:", path)
+	identity, err := watcher.IdentifyPath(path)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	return identity
