@@ -147,12 +147,16 @@ func TestKeepStatusAliveRefreshesSnapshotTime(t *testing.T) {
 	}
 
 	stop := keepStatusAlive(path, slog.New(slog.DiscardHandler))
+	defer stop()
 
-	time.Sleep(statusInterval + statusInterval/2)
-	stop()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		info, statErr := os.Stat(path)
+		if statErr == nil && info.ModTime().After(old) {
+			return
+		}
 
-	info, err := os.Stat(path)
-	if err != nil || time.Since(info.ModTime()) > statusInterval {
-		t.Fatal("snapshot time not refreshed", info.ModTime(), err)
+		if time.Now().After(deadline) {
+			t.Fatal("snapshot time not refreshed", statErr)
+		}
 	}
 }

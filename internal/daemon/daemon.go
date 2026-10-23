@@ -307,11 +307,19 @@ func (w *worker) run(ctx context.Context, initial bool) error {
 	stopped := context.AfterFunc(ctx, func() { w.stopRequested.Store(time.Now().UnixNano()) })
 	defer stopped()
 
-	stopRefresh := keepStatusAlive(filepath.Join(w.cfg.Runtime, w.name+".json"), w.logger)
+	// A snapshot left by a previous process must not look current while this one starts.
+	snapshot := filepath.Join(w.cfg.Runtime, w.name+".json")
+
+	err := os.Remove(snapshot)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		w.logger.Warn("remove previous status snapshot", "error", err)
+	}
+
+	stopRefresh := keepStatusAlive(snapshot, w.logger)
 	defer stopRefresh()
 
 	// Validated before any watcher starts: returning afterwards would leave them and their forwarders running.
-	err := w.prepareScanSchedule(time.Now())
+	err = w.prepareScanSchedule(time.Now())
 	if err != nil {
 		return err
 	}
