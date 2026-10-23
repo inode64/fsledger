@@ -206,15 +206,22 @@ func TestRepositoryStartupFailureLeavesOthersRunning(t *testing.T) {
 
 	go func() { done <- daemon.Run(ctx, cfg, slog.New(slog.DiscardHandler)) }()
 
-	select {
-	case err = <-done:
-		t.Fatal("one repository failure stopped the daemon", err)
-	case <-time.After(time.Second):
-	}
+	// The other repository publishing its status proves it runs; the daemon must not have returned meanwhile.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		select {
+		case err = <-done:
+			t.Fatal("one repository failure stopped the daemon", err)
+		default:
+		}
 
-	_, err = os.Stat(filepath.Join(cfg.Runtime, "sourceA.json"))
-	if err != nil {
-		t.Fatal("the other repository is not running", err)
+		_, err = os.Stat(filepath.Join(cfg.Runtime, "sourceA.json"))
+		if err == nil {
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("the other repository is not running", err)
+		}
 	}
 
 	cancel()

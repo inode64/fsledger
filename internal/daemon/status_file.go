@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/resource"
 )
@@ -65,8 +67,10 @@ func keepStatusAlive(path string, logger *slog.Logger) func() {
 			case <-done:
 				return
 			case now := <-tick.C:
-				// Before the first snapshot there is nothing to refresh.
-				err := os.Chtimes(path, time.Time{}, now)
+				// Before the first snapshot there is nothing to refresh; a link put in its place is not followed.
+				err := unix.UtimesNanoAt(unix.AT_FDCWD, path,
+					[]unix.Timespec{{Sec: 0, Nsec: unix.UTIME_OMIT}, unix.NsecToTimespec(now.UnixNano())},
+					unix.AT_SYMLINK_NOFOLLOW)
 				if err != nil && !errors.Is(err, fs.ErrNotExist) {
 					logger.Debug("refresh status snapshot time", "error", err)
 				}
