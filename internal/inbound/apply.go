@@ -73,7 +73,7 @@ func (plan *Plan) ClearTemporary() error {
 	}
 
 	parent, _, err := plan.openParent(string(plan.Changes[plan.Done].Path), false)
-	// A replacement creates missing parents before its temporary.
+	// Only a creation adds missing parents, before its temporary.
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -88,10 +88,22 @@ func (plan *Plan) ClearTemporary() error {
 }
 
 func (plan *Plan) applyOne(ctx context.Context, objects Objects, index int, change Change) error {
-	parent, name, err := plan.openParent(string(change.Path), change.After.Mode != absent)
+	// Only a pending creation may add parents: any other path with a missing parent changed locally.
+	create := index >= plan.Done && change.Before.Mode == absent && change.After.Mode != absent
+
+	parent, name, err := plan.openParent(string(change.Path), create)
+	if errors.Is(err, os.ErrNotExist) {
+		if change.After.Mode == absent {
+			return nil
+		}
+
+		return conflict("incoming destination parent is missing: " + string(change.Path))
+	}
+
 	if err != nil {
 		return err
 	}
+
 	defer resource.FD(parent)
 
 	err = clearTemporary(parent, tempName(plan, index))
