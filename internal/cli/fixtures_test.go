@@ -23,6 +23,7 @@ const (
 	fixtureSystemYaml    = "system.yaml"
 	fixtureState         = "state"
 	verifyCommand        = "verify"
+	statusCommand        = "status"
 	// fixtureMailNotifier is an email notifier whose relay never resolves, so nothing is sent.
 	fixtureMailNotifier = "type: email\ndsn: smtps://unreachable.invalid\nfrom: sender@example.org\n" +
 		"to: [reader@example.org]\n"

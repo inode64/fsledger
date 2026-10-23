@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -301,6 +302,9 @@ func (w *worker) run(ctx context.Context, initial bool) error {
 
 	stopped := context.AfterFunc(ctx, func() { w.stopRequested.Store(time.Now().UnixNano()) })
 	defer stopped()
+
+	stopRefresh := keepStatusAlive(filepath.Join(w.cfg.Runtime, w.name+".json"), w.logger)
+	defer stopRefresh()
 
 	// Validated before any watcher starts: returning afterwards would leave them and their forwarders running.
 	err := w.prepareScanSchedule(time.Now())

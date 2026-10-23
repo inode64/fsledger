@@ -81,7 +81,7 @@ func TestStatusReportsMissingSnapshotAndContinues(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 
-	err := cli.Run([]string{"status", "-c", filepath.Join(root, fixtureMainYaml)}, &stdout, &stderr)
+	err := cli.Run([]string{statusCommand, "-c", filepath.Join(root, fixtureMainYaml)}, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("status error = %v; stdout %q, stderr %q", err, stdout.String(), stderr.String())
 	}
@@ -101,5 +101,57 @@ func TestStatusReportsMissingSnapshotAndContinues(t *testing.T) {
 
 	if present.Repository != "zz" || present.LastCommit != "published" {
 		t.Fatalf("present snapshot reported as %+v; want the zz snapshot", present)
+	}
+}
+
+// staleSnapshotStatus reports zz from a snapshot written a minute ago, whose file time is old too when stopped.
+func staleSnapshotStatus(t *testing.T, stopped bool) daemon.Status {
+	t.Helper()
+
+	root := t.TempDir()
+	writeStatusFixture(t, root)
+
+	path := filepath.Join(root, "run", "zz.json")
+	old := time.Now().Add(-time.Minute)
+
+	snapshot, err := json.Marshal(daemon.Status{Repository: "zz", Type: "db", Updated: old, Running: true})
+	if err == nil {
+		err = os.WriteFile(path, snapshot, 0o600)
+	}
+
+	if err == nil && stopped {
+		err = os.Chtimes(path, old, old)
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+
+	err = cli.Run([]string{statusCommand, "-c", filepath.Join(root, fixtureMainYaml)}, &stdout, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	states := decodeStatuses(t, stdout.String())
+	if len(states) != 2 {
+		t.Fatalf("status printed %d objects", len(states))
+	}
+
+	return states[1]
+}
+
+// A snapshot whose content is old while the daemon keeps its file time fresh belongs to a busy repository.
+func TestStatusSeparatesBusyFromStopped(t *testing.T) {
+	t.Parallel()
+
+	for stopped, warning := range map[bool]string{false: "repository busy", true: "status snapshot is stale"} {
+		state := staleSnapshotStatus(t, stopped)
+		if state.Running == stopped || !slices.ContainsFunc(state.Warnings, func(text string) bool {
+			return strings.HasPrefix(text, warning)
+		}) {
+			t.Fatalf("stopped=%v reported as %+v", stopped, state)
+		}
 	}
 }
