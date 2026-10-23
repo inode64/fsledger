@@ -208,3 +208,47 @@ func TestSymlinkReplacementKeepsOriginalOnFailure(t *testing.T) {
 		t.Fatal("temporary link left behind", entries, err)
 	}
 }
+
+// A rename that fails after the temporary link exists must remove it and keep the destination.
+func TestSymlinkReplacementRemovesTemporaryOnRenameFailure(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	link := filepath.Join(directory, "link")
+
+	err := os.Symlink("old", link)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	existing, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The destination became a directory after the policy check: a link cannot be renamed over it.
+	err = os.Remove(link)
+	if err == nil {
+		err = os.Mkdir(link, 0o700)
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parent, err := unix.Open(directory, integrity.DirectoryFlags, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.FD(parent)
+
+	err = writeSymlink("new", parent, "link", existing)
+	if err == nil {
+		t.Fatal("link renamed over a directory")
+	}
+
+	entries, err := os.ReadDir(directory)
+	if err != nil || len(entries) != 1 || !entries[0].IsDir() {
+		t.Fatal("temporary link left behind or destination changed", entries, err)
+	}
+}
