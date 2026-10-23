@@ -31,8 +31,8 @@ func TestRootParentRemovalIsCanonical(t *testing.T) {
 	}
 	defer resource.Close(detector)
 
-	detector.directories.add(root)
-	detector.directories.add(filepath.Join(root, "ssh"))
+	detector.directories.Set(root, directoryIdentity{})
+	detector.directories.Set(filepath.Join(root, "ssh"), directoryIdentity{})
 
 	detector.handle(fsnotify.Event{Name: "//etc", Op: fsnotify.Remove})
 
