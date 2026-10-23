@@ -4,10 +4,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/resource"
 )
@@ -71,5 +73,57 @@ func TestDescendCreatesOnlyWithModeAndRefusesSymlinks(t *testing.T) {
 
 	if !errors.Is(open(0o700, "link", "c"), unix.ENOTDIR) {
 		t.Fatal("symlinked component followed")
+	}
+}
+
+// A chain reaching PATH_MAX is left unobserved below that point and reported as unstable: walking it would
+// hold a descriptor per level, and its recorded entries must not look deleted.
+func TestScanLeavesPathsPastPathMaxUnstable(t *testing.T) {
+	t.Parallel()
+
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name := strings.Repeat("d", 250)
+
+	directory, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	for level := 0; err == nil && level < 20; level++ {
+		err = unix.Mkdirat(directory, name, 0o700)
+
+		var next int
+
+		if err == nil {
+			next, err = unix.Openat(directory, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+		}
+
+		resource.FD(directory)
+		directory = next
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resource.FD(directory)
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	visited := 0
+
+	err = integrity.NewScanner(1, 1).ScanPaths(t.Context(), []string{root}, nil, matcher, "sha256", false, true,
+		func(integrity.Record) error {
+			visited++
+
+			return nil
+		}, nil)
+
+	paths, failure := integrity.SplitUnstable(err)
+	if failure != nil || len(paths) != 1 || len(paths[0]) < unix.PathMax || visited > unix.PathMax/len(name)+1 {
+		t.Fatal("deep chain walked or not reported", visited, paths, failure)
 	}
 }

@@ -120,7 +120,9 @@ func (scanner *Scanner) ScanPaths(
 	go func() {
 		defer close(jobs)
 
-		walkDone <- scanner.walkPaths(ctx, paths, scanWalk{matcher: matcher, jobs: jobs, directories: directories})
+		walkDone <- scanner.walkPaths(ctx, paths, scanWalk{
+			matcher: matcher, jobs: jobs, deep: new([]string), directories: directories,
+		})
 	}()
 
 	var workers sync.WaitGroup
@@ -225,10 +227,11 @@ func (scanner *Scanner) checkPaths(roots, paths []string) error {
 	return scanner.CheckRoots(roots)
 }
 
-// scanWalk is shared by every step of one walk.
+// scanWalk is shared by every step of one walk. deep collects the directories it leaves unobserved.
 type scanWalk struct {
 	matcher     *exclude.Matcher
 	jobs        chan<- string
+	deep        *[]string
 	directories bool
 }
 
@@ -248,6 +251,14 @@ func (walk scanWalk) queue(ctx context.Context, path string) error {
 // or a symlink since is gone with it, while a requested path below such a parent is rejected.
 func (scanner *Scanner) walk(ctx context.Context, path string, listed bool, walk scanWalk) error {
 	if walk.matcher.MatchEntry(path) {
+		return nil
+	}
+
+	// Every level holds a descriptor and is resolved from /: past PATH_MAX, a chain built below a source
+	// would exhaust the daemon's descriptors. Such a directory keeps its recorded entries, as an unstable path.
+	if len(path) >= unix.PathMax {
+		*walk.deep = append(*walk.deep, path)
+
 		return nil
 	}
 
@@ -347,6 +358,10 @@ func (scanner *Scanner) walkPaths(ctx context.Context, paths []string, walk scan
 		if err != nil {
 			return err
 		}
+	}
+
+	if len(*walk.deep) > 0 {
+		return UnstablePathsError(*walk.deep)
 	}
 
 	return nil
