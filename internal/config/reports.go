@@ -1,10 +1,7 @@
 package config
 
 import (
-	"strings"
 	"time"
-
-	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/redact"
@@ -56,13 +53,7 @@ func (settings Reports) validate() error {
 		return fault.New("report AI requires profiles and an explicit include allowlist")
 	}
 
-	for _, pattern := range settings.AI.Include {
-		if !strings.HasPrefix(pattern, "/") || !doublestar.ValidatePattern(pattern) {
-			return fault.New("invalid report AI include pattern")
-		}
-	}
-
-	return nil
+	return fault.Wrap("reports.ai.include", ValidateAIIncludes(settings.AI.Include))
 }
 
 func (c *Config) validateReports() error {

@@ -18,7 +18,8 @@ func TestReportConfigurationValidation(t *testing.T) {
 	for _, invalid := range []string{
 		"schedule: '@daily'", "schedule: '0 0 31 2 *'", "timezone: No/SuchZone",
 		"enabled: true", "ai: {input: content}", "ai: {enabled: true}",
-		"ai: {include: ['[']}", "ai: {include: [relative]}", "unknown_option: true",
+		"ai: {include: ['[']}", "ai: {include: [relative]}", "ai: {include: [/etc/../root]}",
+		"unknown_option: true",
 	} {
 		_, err = config.Parse(strings.NewReader("reports: {" + invalid + "}"))
 		if err == nil {

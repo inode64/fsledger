@@ -125,9 +125,9 @@ func (c *Config) validateAISelection(repo *Repository) error {
 		rules = append(rules, profile.Redact...)
 	}
 
-	err := repo.ValidateAIIncludes()
+	err := ValidateAIIncludes(repo.IAInclude)
 	if err != nil {
-		return err
+		return fault.Wrap("ia_include", err)
 	}
 
 	_, err = redact.Compile(rules)
@@ -181,15 +181,15 @@ func (repo *Repository) AIEnabled() bool {
 	return len(repo.IACommit) > 0 && len(repo.IAInclude) > 0
 }
 
-// ValidateAIIncludes shares allowlist validation with the summary adapter.
-func (repo *Repository) ValidateAIIncludes() error {
-	for _, pattern := range repo.IAInclude {
+// ValidateAIIncludes checks an ia_include or reports.ai.include allowlist; the summary adapter shares it.
+func ValidateAIIncludes(patterns []string) error {
+	for _, pattern := range patterns {
 		if !strings.HasPrefix(pattern, "/") {
-			return fault.New("ia_include must use absolute patterns")
+			return fault.New("AI include patterns must be absolute")
 		}
 	}
 
-	_, err := exclude.New(repo.IAInclude...)
+	_, err := exclude.New(patterns...)
 
 	return err
 }

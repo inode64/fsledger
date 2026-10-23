@@ -17,7 +17,12 @@ const reportInstruction = "Resume en español los metadatos de cambios observado
 
 // ReportSession has independent cooldowns but shares the daemon's outbound concurrency budget.
 func (manager *Manager) ReportSession(settings config.ReportAI) (*Session, error) {
-	return manager.session(settings.Profiles, settings.Include)
+	include, err := selection(settings.Include)
+	if err != nil {
+		return nil, err
+	}
+
+	return manager.session(settings.Profiles, include)
 }
 
 // SummarizeReport never reads source files, blobs, attribute values or process commands.
