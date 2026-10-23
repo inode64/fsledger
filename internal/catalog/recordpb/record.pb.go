@@ -293,7 +293,7 @@ const file_internal_catalog_recordpb_record_proto_rawDesc = "" +
 	"&internal/catalog/recordpb/record.proto\x12\x13fsledger.catalog.v1\"5\n" +
 	"\tAttribute\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\fR\x04name\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value\"\xd6\x04\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\"\xee\x04\n" +
 	"\x06Record\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12+\n" +
 	"\x11attributes_status\x18\x02 \x01(\tR\x10attributesStatus\x12\x1c\n" +
@@ -317,7 +317,7 @@ const file_internal_catalog_recordpb_record_proto_rawDesc = "" +
 	"\x03uid\x18\x13 \x01(\rR\x03uid\x12\x12\n" +
 	"\x04mode\x18\x14 \x01(\rR\x04mode\x12\x19\n" +
 	"\bno_atime\x18\x15 \x01(\bR\anoAtime\x12\x1b\n" +
-	"\thas_btime\x18\x16 \x01(\bR\bhasBtimeB7Z5github.com/inode64/fsledger/internal/catalog/recordpbb\x06proto3"
+	"\thas_btime\x18\x16 \x01(\bR\bhasBtimeJ\x04\b\x17\x10\x18R\x10times_in_secondsB7Z5github.com/inode64/fsledger/internal/catalog/recordpbb\x06proto3"
 
 var (
 	file_internal_catalog_recordpb_record_proto_rawDescOnce sync.Once

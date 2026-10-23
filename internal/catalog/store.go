@@ -185,7 +185,7 @@ func Open(
 		Notifications: notifications,
 	}
 
-	err = store.initialize()
+	err = store.initialize(ctx)
 	if err != nil {
 		resource.Close(store)
 
@@ -235,21 +235,53 @@ func (store *Store) Stats(ctx context.Context) (Stats, error) {
 // BindCopiedHashes is called by the owner before inventory operations begin.
 func (store *Store) BindCopiedHashes(source integrity.HashSource) { store.copiedHashes = source }
 
-func (store *Store) initialize() error {
+func (store *Store) initialize(ctx context.Context) error {
 	format, err := get(store.database, []byte(formatKey))
 	if err != nil {
 		return err
 	}
 
 	err = store.loadState(format)
-	if err != nil || format != nil {
+	if err != nil {
 		return err
+	}
+
+	if format != nil {
+		return store.dropRetiredKeys(ctx)
 	}
 
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
 
 	transaction.set([]byte(formatKey), []byte(catalogFormat))
+
+	return transaction.commit()
+}
+
+// dropRetiredKeys deletes the baseline (b/), pending approval (p/), token (t/) and approval (a/) keys that
+// catalogs written before their removal still hold. Remove it once every deployed catalog has been opened.
+func (store *Store) dropRetiredKeys(ctx context.Context) error {
+	transaction := store.begin()
+	defer resource.Close(transaction.batch)
+
+	found := false
+
+	for _, prefix := range []string{"b/", "p/", "t/", "a/"} {
+		err := store.iterate(ctx, prefix, func(_, _ []byte) error {
+			found = true
+
+			transaction.clear(prefix)
+
+			return errStop
+		})
+		if withoutStop(err) != nil {
+			return withoutStop(err)
+		}
+	}
+
+	if !found {
+		return nil
+	}
 
 	return transaction.commit()
 }
