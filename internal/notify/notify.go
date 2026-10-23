@@ -46,6 +46,15 @@ const (
 	defaultSubject       = `fsledger {{.Host}} / {{.Repository}}: {{.Event}}` +
 		`{{if not (or (eq .Event "error") (eq .Event "recovery"))}} ` +
 		`({{.Count}}: +{{.Added}} ~{{.Modified}} -{{.Deleted}}){{end}}`
+	// codeLegend explains Detail.Code in alerts and reports; examples/templates/change.yaml repeats it.
+	codeLegend = `C = Creado; D = Borrado; M = Contenido; P = Solo permisos o atributos; MP = Contenido y permisos.
+T = Fecha retrocedida (mtime anterior a btime) sin otro cambio comprobado.
+— = Sin evidencia suficiente para clasificar.
+`
+	// backdatedWarning renders a Detail.BackdatedBy duration in alerts and reports.
+	backdatedWarning = `AVISO: mtime es {{duration .}} anterior a btime, la creación de esta versión del fichero:
+fecha conservada al copiar (tar, rsync -a, cp -p) o falseada.
+`
 	// Up to Message.DetailLimit paths every detail is listed with its fields. Larger summaries (plugin
 	// or core updates) list every path grouped by actor and change ID without per-path fields, so one
 	// email carries up to digestMaxPaths paths instead of being split every few hundred. The shared
@@ -64,10 +73,7 @@ Elementos cambiados
 Clave  Ruta
 {{range .Details}}{{printf "%-5s" .Code}}  {{printf "%q" .Path}}
 {{end}}
-C = Creado; D = Borrado; M = Contenido; P = Solo permisos o atributos; MP = Contenido y permisos.
-T = Fecha retrocedida (mtime anterior a btime) sin otro cambio comprobado.
-— = Sin evidencia suficiente para clasificar.
-
+` + codeLegend + `
 Detalle de cambios
 {{range .Details}}
 Ruta: {{printf "%q" .Path}} / {{.Code}}
@@ -76,17 +82,12 @@ Ruta: {{printf "%q" .Path}} / {{.Code}}
 {{if not $common}}{{with .Detection}}Detección: {{.}}
 {{end}}{{end}}Actor:{{with .ActorLines}}{{range .}}
     {{.}}{{end}}{{else}} sin evidencia{{end}}
-{{with .BackdatedBy}}AVISO: mtime es {{duration .}} anterior a btime, la creación de esta versión del fichero:
-fecha conservada al copiar (tar, rsync -a, cp -p) o falseada.
-{{end}}{{range .DisplayFields}}{{.Field}}: {{.Before}} -> {{.After}}
+{{with .BackdatedBy}}` + backdatedWarning + `{{end}}{{range .DisplayFields}}{{.Field}}: {{.Before}} -> {{.After}}
 {{else}}Sin diferencias de campos visibles.
 {{end}}{{end}}{{else}}
 Elementos cambiados, agrupados por actor
 Más de {{.DetailLimit}} rutas: se omite el detalle de campos por ruta; el catálogo conserva la evidencia completa.
-C = Creado; D = Borrado; M = Contenido; P = Solo permisos o atributos; MP = Contenido y permisos.
-T = Fecha retrocedida (mtime anterior a btime) sin otro cambio comprobado.
-— = Sin evidencia suficiente para clasificar.
-{{$actor := "\x00"}}{{$change := "\x00"}}{{range .Details}}
+` + codeLegend + `{{$actor := "\x00"}}{{$change := "\x00"}}{{range .Details}}
 {{- if or (ne .Actor $actor) (ne .ChangeID $change)}}{{$actor = .Actor}}{{$change = .ChangeID}}
 {{if .ChangeID}}ID de cambio: {{.ChangeID}}
 {{end}}{{if not $common}}{{with .Detection}}Detección: {{.}}

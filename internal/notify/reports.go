@@ -23,10 +23,7 @@ Elementos cambiados
 Clave  Ruta
 {{range .Report.Items}}{{printf "%-5s" .Detail.Code}}  {{printf "%q" .Detail.Path}}
 {{end}}
-C = Creado; D = Borrado; M = Contenido; P = Solo permisos o atributos; MP = Contenido y permisos.
-T = Fecha retrocedida (mtime anterior a btime) sin otro cambio comprobado.
-— = Sin evidencia suficiente para clasificar.
-
+` + codeLegend + `
 {{if .Report.Summary}}{{.Report.Summary}}
 {{else}}Resumen automático: {{len .Report.Items}} observaciones en esta parte.
 {{if not .Report.Items}}No hay cambios registrados.{{end}}
@@ -42,9 +39,7 @@ Observado: {{localtime .Detail.Observed}} / cambio: {{.Detail.ChangeID}}
 {{with .Detail.Detection}}Detección: {{.}}
 {{end}}Actor:{{with .Detail.ActorLines}}{{range .}}
     {{.}}{{end}}{{else}} sin evidencia{{end}}
-{{with .Detail.BackdatedBy}}AVISO: mtime es {{duration .}} anterior a btime, la creación de esta versión del fichero:
-fecha conservada al copiar (tar, rsync -a, cp -p) o falseada.
-{{end}}Diferido al observar: {{.Deferred}}
+{{with .Detail.BackdatedBy}}` + backdatedWarning + `{{end}}Diferido al observar: {{.Deferred}}
 {{if .Head}}Último HEAD conocido al observar (no prueba de commit de esta versión): {{.Head}}
 {{end}}{{range .Detail.DisplayFields}}{{.Field}}: {{.Before}} -> {{.After}}
 {{else}}Sin diferencias de campos visibles.
