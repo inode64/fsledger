@@ -13,6 +13,7 @@ import (
 
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/daemon"
+	"github.com/inode64/fsledger/internal/resource"
 )
 
 //nolint:funlen,gocognit // The full lifecycle keeps ordered filesystem/Git assertions together.
@@ -179,5 +180,42 @@ func TestPollingCancellationDuringStartupIsGraceful(t *testing.T) {
 	err := daemon.Run(ctx, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal("shutdown during catalog initialization was reported as a failure", err)
+	}
+}
+
+// A repository that cannot start must not stop the others, as a lock held by another process would.
+func TestRepositoryStartupFailureLeavesOthersRunning(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cfg := pollingCatalogConfig(
+		t,
+		root,
+		filepath.Join(root, "a"),
+		filepath.Join(root, "extra"),
+		filepath.Join(root, "b"),
+	)
+
+	lock, err := resource.LockDirectory(cfg.RepositoryPath("sourceB"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(lock)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+
+	go func() { done <- daemon.Run(ctx, cfg, slog.New(slog.DiscardHandler)) }()
+
+	select {
+	case err = <-done:
+		t.Fatal("one repository failure stopped the daemon", err)
+	case <-time.After(time.Second):
+	}
+
+	cancel()
+
+	err = <-done
+	if err == nil || !strings.Contains(err.Error(), "repository sourceB") {
+		t.Fatal("the failed repository was not reported", err)
 	}
 }
