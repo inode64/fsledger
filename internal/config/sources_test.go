@@ -342,3 +342,32 @@ func TestResolveSourcesSkipsLocalRemoteBehindSymlink(t *testing.T) {
 		t.Fatalf("local remote watched through a symlinked parent: %+v", sources)
 	}
 }
+
+// A path remote named through a link resolves like a source: a trusted link leads to the remote, and a link
+// another user owns leads nowhere, or pointing it at / would skip every source.
+func TestResolveSourcesFollowsOnlyTrustedRemoteLinks(t *testing.T) {
+	t.Parallel()
+
+	tree := sourceTree(t, "remote/repo.git/HEAD", "etc/passwd")
+
+	err := os.Symlink(filepath.Join(tree, "remote", "repo.git"), filepath.Join(tree, "repo.git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := loadRepositories(
+		t,
+		map[string][]string{systemRepository: {tree + "/remote", tree + "/etc"}},
+		"storage: {git: {remote: "+tree+"/repo.git}}",
+	)
+
+	sources := cfg.ResolveSources()[systemRepository]
+	if !slices.Equal(sources.Roots, []string{tree + "/etc"}) || len(sources.Skipped) != 1 {
+		t.Fatalf("source containing the remote behind a trusted link was watched: %+v", sources)
+	}
+
+	sources = cfg.ResolveSourcesTrusting(func(uint32) bool { return false })[systemRepository]
+	if len(sources.Roots) != 2 || len(sources.Skipped) != 0 {
+		t.Fatalf("untrusted remote link redirected the sources: %+v", sources)
+	}
+}

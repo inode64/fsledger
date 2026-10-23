@@ -51,7 +51,7 @@ func (c *Config) ResolveRepository(name string) Sources {
 func (c *Config) resolveSources(only string, trusted func(uid uint32) bool) map[string]Sources {
 	resolved := make(map[string]Sources, len(c.Repositories))
 	claimed := make(map[string][]string)
-	reserved, remotes := c.InternalPaths(), c.localRemotes()
+	reserved, remotes := c.InternalPaths(), c.localRemotes(trusted)
 	// Name order makes a conflict between repositories of one type resolve identically on every evaluation.
 	for _, name := range c.Names() {
 		kind := c.Repositories[name].Type
@@ -123,8 +123,9 @@ func (c *Config) resolveRepository(
 }
 
 // localRemotes lists path remotes, also with symlinks resolved: validation compares them with source
-// patterns only, and a source reached through a symlinked parent would record every push again.
-func (c *Config) localRemotes() []string {
+// patterns only, and a source reached through a symlinked parent would record every push again. Only
+// trusted links count, as for sources: another owner could point the remote at / and so skip every source.
+func (c *Config) localRemotes(trusted func(uid uint32) bool) []string {
 	var remotes []string
 
 	for _, name := range c.Names() {
@@ -135,7 +136,8 @@ func (c *Config) localRemotes() []string {
 
 		remotes = append(remotes, remote)
 
-		resolved, err := filepath.EvalSymlinks(remote)
+		// The remote itself is followed too: its name may be a link.
+		resolved, err := resolveParent(remote+"/.", trusted)
 		if err == nil && resolved != remote {
 			remotes = append(remotes, resolved)
 		}
