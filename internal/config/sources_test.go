@@ -319,3 +319,26 @@ func TestContentAndIntegrityRepositoriesMayShareSources(t *testing.T) {
 		}
 	}
 }
+
+// Validation compares a path remote with source patterns only; a symlinked parent can still lead into it.
+func TestResolveSourcesSkipsLocalRemoteBehindSymlink(t *testing.T) {
+	t.Parallel()
+
+	tree := sourceTree(t, "remote/repo.git/HEAD", "mods/")
+
+	err := os.Symlink(filepath.Join(tree, "remote"), filepath.Join(tree, "mods", "link"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := loadRepositories(
+		t,
+		map[string][]string{systemRepository: {tree + "/mods/link/repo.git"}},
+		"storage: {git: {remote: "+tree+"/remote/repo.git}}",
+	)
+
+	sources := cfg.ResolveSources()[systemRepository]
+	if len(sources.Roots) != 0 || len(sources.Skipped) != 1 || !strings.Contains(sources.Skipped[0], "Git remote") {
+		t.Fatalf("local remote watched through a symlinked parent: %+v", sources)
+	}
+}
