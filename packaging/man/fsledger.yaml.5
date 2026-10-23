@@ -156,9 +156,10 @@ literal metacharacter with a backslash. A symlinked parent directory is replaced
 by its target when the link belongs to root or to the daemon user, so
 /usr/src/linux/.config is mirrored below the real kernel directory; the final
 component is never followed. Matches that resolve into state directories, onto
-the log file or a path Git remote, or into another repository of the same type
-are skipped and reported
-as skipped_sources. Special files cannot be selection roots; their metadata may
+the log file, into a path Git remote or onto a directory containing one, or into
+another repository of the same type are skipped whole and reported
+as skipped_sources. A path remote named through symlinks is compared as its
+trusted links resolve, like a source. Special files cannot be selection roots; their metadata may
 still be observed beneath a selected directory.
 The selection is re-read at ordinary or full-hash scan deadlines, whether
 configured
