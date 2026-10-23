@@ -164,7 +164,14 @@ func (session *Session) attempt(
 		return "", "", err
 	}
 
-	return "Resumen generado por IA (" + name + "):\n" + text, "summarized:" + name, nil
+	summary, status := summarized(name, text)
+
+	return summary, status, nil
+}
+
+// summarized labels a provider's text; commit and report summaries share the label and status.
+func summarized(name, text string) (string, string) {
+	return "Resumen generado por IA (" + name + "):\n" + text, "summarized:" + name
 }
 
 type preparedPatch struct {
