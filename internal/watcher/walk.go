@@ -17,23 +17,41 @@ import (
 // following symlinks: a directory replaced by a symlink during the walk is never entered, nor is anything
 // it points to. skip prunes a directory before it is opened. visit receives each opened directory and may
 // return fs.SkipDir. A directory gone or replaced meanwhile is skipped: its parent reports the change.
-func WalkDirectories(root string, skip func(string) bool, visit func(path string, directory int) error) error {
+// Directories whose path reaches PATH_MAX are not walked, and the result reports them: every level holds a
+// descriptor, and such paths cannot be named in events anyway.
+func WalkDirectories(root string, skip func(string) bool, visit func(path string, directory int) error) (bool, error) {
 	parent, name, err := integrity.OpenParent(root)
 	if integrity.Missing(err) {
-		return nil
+		return false, nil
 	}
 
 	if err != nil {
-		return fault.Wrap("open watched root parent", err)
+		return false, fault.Wrap("open watched root parent", err)
 	}
 
 	defer resource.FD(parent)
 
-	return walkAt(parent, name, root, skip, visit)
+	walk := directoryWalk{skip: skip, visit: visit, deep: false}
+	err = walk.at(parent, name, root)
+
+	return walk.deep, err
 }
 
-func walkAt(parent int, name, path string, skip func(string) bool, visit func(string, int) error) error {
-	if skip(path) {
+type directoryWalk struct {
+	skip  func(string) bool
+	visit func(string, int) error
+	deep  bool
+}
+
+//nolint:gocognit // One level of the walk: bound, prune, open, visit, list and descend stay together.
+func (walk *directoryWalk) at(parent int, name, path string) error {
+	if len(path) >= unix.PathMax {
+		walk.deep = true
+
+		return nil
+	}
+
+	if walk.skip(path) {
 		return nil
 	}
 
@@ -49,7 +67,7 @@ func walkAt(parent int, name, path string, skip func(string) bool, visit func(st
 	directory := os.NewFile(uintptr(fd), path)
 	defer resource.Close(directory)
 
-	err = visit(path, fd)
+	err = walk.visit(path, fd)
 	if errors.Is(err, fs.SkipDir) {
 		return nil
 	}
@@ -69,7 +87,7 @@ func walkAt(parent int, name, path string, skip func(string) bool, visit func(st
 
 	for _, entry := range entries {
 		if entry.IsDir() {
-			err = walkAt(fd, entry.Name(), filepath.Join(path, entry.Name()), skip, visit)
+			err = walk.at(fd, entry.Name(), filepath.Join(path, entry.Name()))
 			if err != nil {
 				return err
 			}
