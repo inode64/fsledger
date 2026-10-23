@@ -34,7 +34,7 @@ func (loader *catalogLoader) templates(cfg *Config) error {
 
 		err := loader.read(file, &definition)
 		if err != nil {
-			return fault.New("invalid template document: " + file)
+			return fault.Wrap("invalid template document", err)
 		}
 
 		parsed, err := ParseTemplate(name, definition.Subject, definition.Body)

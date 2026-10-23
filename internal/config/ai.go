@@ -72,7 +72,7 @@ func (loader *catalogLoader) aiProfiles(base string, cfg *Config) error {
 
 		readErr := loader.read(file, &profile)
 		if readErr != nil {
-			return fault.New("invalid AI profile document: " + name)
+			return fault.Wrap("invalid AI profile document", readErr)
 		}
 
 		cfg.AI[name] = profile

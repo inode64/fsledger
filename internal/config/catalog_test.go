@@ -146,6 +146,10 @@ func TestTemplateDocumentsAreStrict(t *testing.T) {
 			if err == nil {
 				t.Fatal("invalid template document accepted")
 			}
+
+			if testCase.name == "unknown field" && !strings.Contains(err.Error(), "html") {
+				t.Fatal("rejection hides its cause", err)
+			}
 		})
 	}
 }
