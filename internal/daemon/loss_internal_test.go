@@ -193,7 +193,7 @@ func TestDroppedEventsDowngradeOnlyTheirPaths(t *testing.T) {
 		runner.accept(event.Raw{Path: path, Operation: event.Write, Backend: event.Inotify, Actor: known})
 	}
 
-	queue := watcher.NewRememberingQueue(1, 8)
+	queue := watcher.NewRememberingQueue(1, 4096)
 	runner.queue = queue
 	// The first event fills the queue; the second is dropped.
 	queue.Send(event.Raw{Path: other, Operation: event.Write, Actor: known})

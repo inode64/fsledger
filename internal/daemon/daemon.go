@@ -39,7 +39,7 @@ const (
 	// that the OpenRC script and the systemd unit wait before SIGKILL.
 	shutdownGrace      = 270 * time.Second
 	eventQueueSize     = 8192
-	droppedPathLimit   = 65536
+	droppedPathBytes   = 16 << 20
 	schedulingInterval = 250 * time.Millisecond
 )
 
@@ -281,7 +281,7 @@ func newWorker(
 	return &worker{
 		probePIDFD: probe,
 		// A full queue never blocks forwarding: it remembers the dropped paths, and latches a loss beyond them.
-		queue:   watcher.NewRememberingQueue(eventQueueSize, droppedPathLimit),
+		queue:   watcher.NewRememberingQueue(eventQueueSize, droppedPathBytes),
 		catalog: store, scanner: scanner,
 		audit:          auditProvider,
 		cfg:            cfg,
