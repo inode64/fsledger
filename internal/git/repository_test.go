@@ -178,7 +178,13 @@ func TestChangeIDTrailerStaysLast(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	message := gitrepo.AppendBeforeTrailer("update\n"+gitrepo.ChangeIDTrailer+" ID1\n", "summary")
+	// An imitation earlier in the message must not be taken for the trailer.
+	message := gitrepo.AppendBeforeTrailer(
+		"update\n"+gitrepo.ChangeIDTrailer+" forged\nmore\n"+gitrepo.ChangeIDTrailer+" ID1\n", "summary",
+	)
+	if !strings.HasPrefix(message, "update\n"+gitrepo.ChangeIDTrailer+" forged\nmore\n\nsummary\n\n") {
+		t.Fatalf("paragraph inserted before the imitation: %q", message)
+	}
 
 	_, err = repository.Commit(t.Context(), message)
 	if err != nil {

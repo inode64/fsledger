@@ -73,7 +73,8 @@ Process: unknown (grouped across processes)`,
 		)
 	}
 
-	executable := filepath.Base(actor.Executable)
+	// The name is process-controlled: escaped, it cannot add lines to the commit message.
+	executable := humanize.Printable(filepath.Base(actor.Executable))
 	if actor.Executable == "" {
 		executable = "process"
 	}
