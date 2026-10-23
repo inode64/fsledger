@@ -2,6 +2,7 @@ package inotify
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
@@ -117,7 +118,8 @@ func (w *Watcher) followMounts(ctx context.Context) {
 
 // remount applies a mount table change. A filesystem mounted below the root is a boundary, like the nested mounts
 // excluded at startup, but without a detector of its own: reconciliation covers it. A directory it no longer hides,
-// and the root whose own filesystem changed, get their watches back. Each changed point is then reconciled: its
+// and the root whose own filesystem changed, get their watches back from scratch: the kernel dropped those of an
+// unmounted filesystem, which may come back with the same directories. Each changed point is then reconciled: its
 // contents changed without a single event.
 func (w *Watcher) remount(current mountStacks) {
 	w.coverage.Lock()
@@ -128,7 +130,7 @@ func (w *Watcher) remount(current mountStacks) {
 
 	for _, point := range points {
 		if !current.bounded(w.path, point) {
-			w.reportCoverageError(w.addTree(point))
+			w.reportCoverageError(errors.Join(w.dropTree(point), w.addTree(point)))
 		}
 	}
 

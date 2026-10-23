@@ -151,6 +151,37 @@ func TestUnmountedRootGetsItsWatchesBack(t *testing.T) {
 	}
 }
 
+// A filesystem unmounted and mounted again before the follower reads the table brings back the same directories,
+// whose watches the kernel dropped at the unmount: they must be installed again, not taken as still watched.
+func TestRemountedRootWithTheSameDirectoriesIsWatchedAgain(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested")
+
+	err := os.Mkdir(nested, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector := treeWatcher(t, root)
+
+	// IN_UNMOUNT made fsnotify forget every watch on the filesystem.
+	for _, name := range detector.native.WatchList() {
+		err = detector.native.Remove(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	detector.mounts = mountStacks{root: {mountAt(root, 30, 2)}}
+	detector.remount(mountStacks{root: {mountAt(root, 31, 2)}})
+	expectRemount(t, detector, root)
+
+	if got := detector.native.WatchList(); !slices.Contains(got, root) || !slices.Contains(got, nested) {
+		t.Fatal("the remounted root was not watched again", got)
+	}
+}
+
 // The mount follower ends with the context, like the reader, and Close still waits for it.
 func TestMountFollowerEndsWithItsContext(t *testing.T) {
 	t.Parallel()
