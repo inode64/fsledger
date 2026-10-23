@@ -174,7 +174,7 @@ func (s *Sync) newDigest() (hash.Hash, error) {
 	return digest, fault.Wrap("mirror digest", err)
 }
 
-// CopyN retains file-to-file acceleration while bounding work between cancellation checks.
+// copyContent copies in bounded chunks so cancellation is checked between them.
 func copyContent(ctx context.Context, destination io.Writer, source io.Reader) error {
 	for {
 		err := ctx.Err()
