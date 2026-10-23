@@ -61,12 +61,11 @@ func (c *Config) validateLocalRemotes() error {
 	reserved := c.InternalPaths()
 
 	for _, name := range c.Names() {
-		repo := c.Repositories[name]
-		if repo.Type != RepositoryGit || !filepath.IsAbs(repo.Storage.Git.Remote) {
+		remote, local := c.pathRemote(name)
+		if !local {
 			continue
 		}
 
-		remote := filepath.Clean(repo.Storage.Git.Remote)
 		if pathutil.Within(reserved, remote) {
 			return fault.New("repository " + name + ": Git remote is inside reserved state: " + remote)
 		}
@@ -96,9 +95,9 @@ func (c *Config) validateDistinctRemotes() error {
 			continue
 		}
 
-		remote := settings.Remote
-		if filepath.IsAbs(remote) {
-			remote = filepath.Clean(remote)
+		remote, local := c.pathRemote(name)
+		if !local {
+			remote = settings.Remote
 		}
 
 		target := [2]string{remote, settings.Branch}
@@ -111,6 +110,16 @@ func (c *Config) validateDistinctRemotes() error {
 	}
 
 	return nil
+}
+
+// pathRemote returns the clean path remote of a Git repository; other repositories and remotes report false.
+func (c *Config) pathRemote(name string) (string, bool) {
+	repo := c.Repositories[name]
+	if repo.Type != RepositoryGit || !filepath.IsAbs(repo.Storage.Git.Remote) {
+		return "", false
+	}
+
+	return filepath.Clean(repo.Storage.Git.Remote), true
 }
 
 func validBranch(branch string) bool {
