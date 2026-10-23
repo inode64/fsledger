@@ -228,6 +228,17 @@ func openAnchoredParent(root Root, path string, create bool) (int, string, error
 		return -1, "", fault.Wrap("open incoming root", err)
 	}
 
+	// CheckRoots compared the path earlier; the descriptor itself must still be the pinned root.
+	var info unix.Statx_t
+
+	err = unix.Statx(fd, "", unix.AT_EMPTY_PATH, unix.STATX_INO|unix.STATX_MNT_ID, &info)
+	if err != nil || unix.Mkdev(info.Dev_major, info.Dev_minor) != root.Device || info.Ino != root.Inode ||
+		info.Mnt_id != root.Mount {
+		resource.FD(fd)
+
+		return -1, "", conflict("incoming destination identity changed: " + string(root.Path))
+	}
+
 	relative, err := filepath.Rel(string(root.Anchor), filepath.Dir(path))
 	if err != nil || !filepath.IsLocal(relative) {
 		resource.FD(fd)
