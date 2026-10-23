@@ -1,7 +1,7 @@
 package proc
 
 import (
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/procfs"
@@ -10,10 +10,18 @@ import (
 // userHZ is the fixed Linux USER_HZ in which /proc/<pid>/stat start times are counted.
 const userHZ = 100
 
-// bootTime is read once: /proc/stat btime is constant while the system runs.
+// cachedBootTime holds /proc/stat btime, constant while the system runs, once a read succeeded.
 //
-//nolint:gochecknoglobals // Process-wide constant of the running kernel, cached on first use.
-var bootTime = sync.OnceValue(func() uint64 {
+//nolint:gochecknoglobals // Process-wide constant of the running kernel, cached on first success.
+var cachedBootTime atomic.Uint64
+
+// bootTime reads /proc/stat until it succeeds once: a failure must not disable every later start time.
+func bootTime() uint64 {
+	boot := cachedBootTime.Load()
+	if boot != 0 {
+		return boot
+	}
+
 	fs, err := procfs.NewDefaultFS()
 	if err != nil {
 		return 0
@@ -24,8 +32,10 @@ var bootTime = sync.OnceValue(func() uint64 {
 		return 0
 	}
 
+	cachedBootTime.Store(stat.BootTime)
+
 	return stat.BootTime
-})
+}
 
 // StartTime converts a process start time in clock ticks since boot, as stored in event.Actor,
 // to wall-clock time. It reports false when the start time or the boot time is unknown.
