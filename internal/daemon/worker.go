@@ -87,7 +87,8 @@ func (w *worker) startForwarding(ctx context.Context) {
 	}
 }
 
-// stopWatching closes every detector and accepts what was already queued.
+// stopWatching closes every detector and drops what was already queued: both callers clear the pending
+// groups next, since a reconciliation certifies those paths without their actors.
 func (w *worker) stopWatching() {
 	for _, detector := range w.watchers {
 		err := detector.Close()
@@ -100,8 +101,7 @@ func (w *worker) stopWatching() {
 
 	for {
 		select {
-		case raw := <-w.queue.Channel:
-			w.accept(*raw)
+		case <-w.queue.Channel:
 		default:
 			return
 		}
