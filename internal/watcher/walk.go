@@ -20,6 +20,10 @@ import (
 // Directories whose path reaches PATH_MAX are not walked, and the result reports them: every level holds a
 // descriptor, and such paths cannot be named in events anyway.
 func WalkDirectories(root string, skip func(string) bool, visit func(path string, directory int) error) (bool, error) {
+	if len(root) >= unix.PathMax {
+		return true, nil
+	}
+
 	parent, name, err := integrity.OpenParent(root)
 	if integrity.Missing(err) {
 		return false, nil

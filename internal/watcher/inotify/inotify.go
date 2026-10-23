@@ -51,7 +51,9 @@ type Watcher struct {
 	unwatchedFilesystem atomic.Bool
 	// mountsStopped reports a mount follower that failed: no walk restores what it no longer follows.
 	mountsStopped atomic.Bool
-	// deepDirectories reports directories left unwatched because their paths reach PATH_MAX.
+	// deepDirectories reports directories left unwatched because their paths reach PATH_MAX; deepMarks counts
+	// the walks that found one.
+	deepMarks       atomic.Uint64
 	deepDirectories atomic.Bool
 }
 
@@ -188,17 +190,23 @@ func (w *Watcher) watchTree() error {
 // addTree walks without following symlinks, even one swapped in meanwhile. Another filesystem mounted below
 // the root, without a detector of its own, is a boundary that reconciliation covers.
 func (w *Watcher) addTree(path string) error {
+	marks := w.deepMarks.Load()
 	deep, err := watcher.WalkDirectories(path, w.unwatched, w.watchDirectory)
-	w.noteDeep(path, deep)
+	w.noteDeep(path, deep, marks)
 
 	return fault.Wrap("install recursive watches", err)
 }
 
 // noteDeep records directories left unwatched because their paths reach PATH_MAX; reconciliation covers
-// them. Only a walk of the root can tell that none remain.
-func (w *Watcher) noteDeep(path string, deep bool) {
-	if deep || path == w.path {
-		w.deepDirectories.Store(deep)
+// them. Only a walk of the root can tell that none remain, and only if no other walk found one since it
+// began: marks is the count of such findings when it started.
+func (w *Watcher) noteDeep(path string, deep bool, marks uint64) {
+	switch {
+	case deep:
+		w.deepMarks.Add(1)
+		w.deepDirectories.Store(true)
+	case path == w.path && w.deepMarks.Load() == marks:
+		w.deepDirectories.Store(false)
 	}
 }
 
@@ -423,6 +431,8 @@ func (w *Watcher) restoreCoverage() {
 	if !w.matcher.Match(w.path) {
 		var deep bool
 
+		marks := w.deepMarks.Load()
+
 		deep, err = watcher.WalkDirectories(w.path, func(name string) bool {
 			w.coverage.Lock()
 			defer w.coverage.Unlock()
@@ -435,7 +445,7 @@ func (w *Watcher) restoreCoverage() {
 			return w.watchDirectory(name, directory)
 		})
 
-		w.noteDeep(w.path, deep)
+		w.noteDeep(w.path, deep, marks)
 	}
 
 	if err == nil && w.lossEpoch.Load() == epoch {
@@ -468,10 +478,12 @@ func (w *Watcher) maintainCoverage(native fsnotify.Event) {
 
 	created := false
 
+	// A name too long to stat may be a directory: addTree records it as left unwatched.
 	if native.Has(fsnotify.Create) {
 		var stat unix.Stat_t
 
-		created = unix.Lstat(native.Name, &stat) == nil && stat.Mode&unix.S_IFMT == unix.S_IFDIR
+		err := unix.Lstat(native.Name, &stat)
+		created = err == nil && stat.Mode&unix.S_IFMT == unix.S_IFDIR || errors.Is(err, unix.ENAMETOOLONG)
 	}
 
 	if !removed && !created {

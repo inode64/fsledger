@@ -3,6 +3,7 @@ package inotify
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,5 +152,30 @@ func TestStoppedMountFollowerKeepsPolling(t *testing.T) {
 
 	if !detector.PollingRequired() {
 		t.Fatal("a walk cleared the failed follower")
+	}
+}
+
+// A directory created past PATH_MAX cannot be watched or even stat'ed: reconciliation must cover it.
+func TestCreationPastPathMaxForcesPolling(t *testing.T) {
+	t.Parallel()
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+
+	detector, err := New(root, matcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(detector)
+
+	name := filepath.Join(root, strings.Repeat(strings.Repeat("d", 250)+"/", 17), "new")
+	detector.maintainCoverage(fsnotify.Event{Name: name, Op: fsnotify.Create})
+
+	if !detector.PollingRequired() {
+		t.Fatal("a directory past PATH_MAX was left uncovered")
 	}
 }
