@@ -377,3 +377,30 @@ func TestReadOnlyReportDoesNotCreateCatalog(t *testing.T) {
 		}
 	}
 }
+
+// A full scan hashing a version observed without a hash must not present the first hash as a content change.
+func TestReportDoesNotClassifyFirstHashAsContentChange(t *testing.T) {
+	t.Parallel()
+	store := testStore(t)
+	configureReportClock(t, store)
+
+	err := store.ConfigureReports(t.Context(), reportSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store.Notifications.Use = nil
+	unhashed := workloadRecord(0)
+	unhashed.Hash, unhashed.Algorithm = "", ""
+	observeRecords(t, store, "event", unhashed)
+	observeRecords(t, store, "full scan", workloadRecord(0))
+
+	preview, err := store.PreviewReport(t.Context())
+	if err != nil || len(preview.Report.Items) != 2 {
+		t.Fatal("expected the creation and the hashed observation", preview.Report, err)
+	}
+
+	if code := preview.Report.Items[1].Detail.Code(); code != "—" {
+		t.Fatalf("first hash reported as %q", code)
+	}
+}

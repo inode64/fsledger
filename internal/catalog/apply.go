@@ -83,6 +83,16 @@ func differences(
 	return fields
 }
 
+// verifiedFields drops a hash difference from a version that was never hashed: hashing the new version
+// cannot verify the old content. Hash refresh for Git still uses every difference.
+func verifiedFields(previous integrity.Record, fields []string) []string {
+	if previous.Type != integrity.TypeRegular || previous.Hash != "" {
+		return fields
+	}
+
+	return slices.DeleteFunc(slices.Clone(fields), func(field string) bool { return field == fieldHash })
+}
+
 func changeKind(fields []string) string {
 	if slices.Contains(fields, changeAdded) {
 		return changeAdded
@@ -371,7 +381,9 @@ func (store *Store) announceChange(
 		return nil
 	}
 
-	detail, err := newDetail(compared.previous, record, compared.fields, actor, observedAt(record))
+	detail, err := newDetail(
+		compared.previous, record, verifiedFields(compared.previous, compared.fields), actor, observedAt(record),
+	)
 	if err != nil {
 		return err
 	}
