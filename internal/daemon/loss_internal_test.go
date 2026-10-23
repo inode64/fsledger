@@ -228,3 +228,38 @@ func TestDroppedEventsDowngradeOnlyTheirPaths(t *testing.T) {
 		}
 	}
 }
+
+// An event queued before a drop is older than the dropped one. Read after its path's marker, it would replace the
+// marker, and a delayed actor such as Audit's could then claim the newer bytes for the older writer.
+func TestDroppedMarkerOutlivesOlderQueuedEvents(t *testing.T) {
+	t.Parallel()
+	runner := makeWorker(t)
+
+	err := runner.reconcile(t.Context(), "initial")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.dirty = false
+	path := writeSource(t, runner, "shared", "edited")
+
+	queue := watcher.NewRememberingQueue(1, 4096)
+	runner.queue = queue
+	// The older write fills the queue; the newer one is dropped.
+	older := time.Now().Add(-time.Second)
+	queue.Send(event.Raw{Path: path, Operation: event.Write, Backend: event.Inotify, Time: older})
+	queue.Send(event.Raw{Path: path, Operation: event.Write, Backend: event.Inotify, Time: time.Now()})
+
+	runner.checkLosses()
+
+	// The loop then reads whatever is still queued.
+	for range len(queue.Channel) {
+		runner.accept(*<-queue.Channel)
+	}
+
+	for _, group := range runner.manager.DueWithAttributionDelay(time.Now(), true, 0) {
+		if raw, found := group.Paths[path]; found && raw.Operation != event.Reconciliation {
+			t.Fatalf("an older queued event replaced the dropped marker: %+v", raw)
+		}
+	}
+}
