@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"time"
 
@@ -100,10 +99,7 @@ func (store *Store) nextDetailedReport(
 
 	// The next part resumes after the removed entries instead of skipping their tombstones again.
 	if len(keys) > 0 {
-		//nolint:gosec // Journal sequences are allocated as positive signed counters.
-		transaction.state.Reports.Period.After = int64(
-			binary.BigEndian.Uint64(keys[len(keys)-1][len(reportJournalPrefix):]),
-		)
+		transaction.state.Reports.Period.After = keyNumber(keys[len(keys)-1][len(reportJournalPrefix):])
 	}
 
 	transaction.state.Reports.Pending -= int64(len(items))

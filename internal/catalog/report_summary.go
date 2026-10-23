@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"slices"
 	"time"
@@ -155,8 +154,7 @@ func (store *Store) aggregateReportChunk(ctx context.Context, aggregate *ReportA
 		}
 
 		aggregate.add(item)
-		//nolint:gosec // Journal sequences are allocated as positive signed counters.
-		aggregate.Cursor = int64(binary.BigEndian.Uint64(suffix))
+		aggregate.Cursor = keyNumber(suffix)
 		count++
 
 		return nil
@@ -240,8 +238,8 @@ func (store *Store) cleanReportEvidence(ctx context.Context) error {
 		if len(suffix) != numberBytes {
 			return fault.New("invalid report cleanup sequence")
 		}
-		//nolint:gosec // Journal sequences are allocated as positive signed counters.
-		hold.After = int64(binary.BigEndian.Uint64(suffix))
+
+		hold.After = keyNumber(suffix)
 		count++
 
 		return nil
