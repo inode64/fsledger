@@ -255,18 +255,84 @@ func TestErrorsDrainWhileTheReaderWaits(t *testing.T) {
 		case native := <-detector.native.Events:
 			removed = native.Name == moved+".old" && native.Has(fsnotify.Remove)
 		case <-timeout:
-			// Reading the error lets fsnotify, and so the cleanup, go on.
-			select {
-			case err = <-detector.native.Errors:
-				t.Fatal("fsnotify stopped on an error nobody read:", err)
-			default:
-				t.Fatal("no event for the removed directory")
-			}
+			failStopped(t, detector)
 		}
 	}
 
 	if !eventually(detector.Dirty) {
 		t.Fatal("the fsnotify error was not reported as a loss")
+	}
+}
+
+// Before Start, as while it installs the first watches, nobody reads fsnotify's events, yet the error it reports
+// for a watch it fails to remove after a move must still be read, or its next Add waits forever.
+func TestErrorsDrainBeforeStart(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	moved := filepath.Join(root, "moved")
+
+	err := os.Mkdir(moved, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector, err := New(root, matcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(detector)
+
+	err = errors.Join(detector.native.Add(root), detector.native.Add(moved))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// fsnotify reads the move only after the moved directory is gone, and fails to remove its watch.
+	fillEvents(t, detector, root)
+
+	err = errors.Join(os.Rename(moved, moved+".old"), os.Remove(moved+".old"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	added := make(chan error, 1)
+
+	go func() {
+		for native := range detector.native.Events {
+			if native.Name == moved+".old" && native.Has(fsnotify.Remove) {
+				break
+			}
+		}
+
+		added <- detector.native.Add(root)
+	}()
+
+	select {
+	case err = <-added:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		failStopped(t, detector)
+	}
+}
+
+// failStopped fails a test whose fsnotify stopped; reading its pending error lets fsnotify, and so the cleanup,
+// go on.
+func failStopped(t *testing.T, detector *Watcher) {
+	t.Helper()
+
+	select {
+	case err := <-detector.native.Errors:
+		t.Fatal("fsnotify stopped on an error nobody read:", err)
+	default:
+		t.Fatal("no event for the removed directory")
 	}
 }
 
