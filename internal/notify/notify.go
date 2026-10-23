@@ -388,8 +388,8 @@ func (sender *Sender) slack(ctx context.Context, endpoint, body string) (time.Du
 }
 
 const (
-	// emailSlogan repeats the README tagline; keep the two in step.
-	emailSlogan = "Change history, file integrity, and intrusion alerts for your Linux servers."
+	// emailSlogan repeats the README tagline; a test keeps the two in step.
+	emailSlogan = "Detect unexpected file changes, investigate incidents, and recover recorded versions on Linux."
 	projectURL  = "https://github.com/inode64/fsledger"
 )
 
