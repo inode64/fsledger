@@ -48,7 +48,7 @@ type Watcher struct {
 	matcher      *exclude.Matcher
 	queue        *watcher.Queue
 	// marks is shared by the reader, coverage refreshes and Covers.
-	marks         pathindex.Index[directoryIdentity]
+	marks         pathindex.Index[watcher.DirectoryIdentity]
 	mode          string
 	path          string
 	marksMutex    sync.Mutex

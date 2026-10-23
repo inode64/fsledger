@@ -16,8 +16,6 @@ import (
 	"github.com/inode64/fsledger/internal/watcher"
 )
 
-type directoryIdentity struct{ device, inode uint64 }
-
 // errOtherFilesystem refuses a mark on a filesystem mounted below the root after Start (or a btrfs subvolume).
 // Its events would carry an fsid the root's handle anchor cannot resolve, or the kernel rejects the mark
 // (no FID support, mixed fsids); either way every coverage refresh would end in another loss.
@@ -37,14 +35,14 @@ func (w *Watcher) Covers(path string) bool {
 	return found && matchesDirectory(parent, identity)
 }
 
-func (w *Watcher) markedIdentity(path string) (directoryIdentity, bool) {
+func (w *Watcher) markedIdentity(path string) (watcher.DirectoryIdentity, bool) {
 	w.marksMutex.Lock()
 	defer w.marksMutex.Unlock()
 
 	return w.marks.Get(path)
 }
 
-func (w *Watcher) rememberMark(path string, identity directoryIdentity) {
+func (w *Watcher) rememberMark(path string, identity watcher.DirectoryIdentity) {
 	w.marksMutex.Lock()
 	defer w.marksMutex.Unlock()
 
@@ -55,7 +53,7 @@ func (w *Watcher) clearMarks() {
 	w.marksMutex.Lock()
 	defer w.marksMutex.Unlock()
 
-	w.marks = pathindex.Index[directoryIdentity]{}
+	w.marks = pathindex.Index[watcher.DirectoryIdentity]{}
 }
 
 // mark opens path without following any symlink, so the mark lands on the directory named under the root.
@@ -79,14 +77,11 @@ func (w *Watcher) mark(path string) error {
 
 // markAt marks the opened directory, never path itself: path may lead elsewhere by now.
 func (w *Watcher) markAt(path string, directory int) error {
-	var stat unix.Stat_t
-
-	err := unix.Fstat(directory, &stat)
-	if err != nil {
-		return fault.Wrap("identify directory to mark", err)
+	identity, valid := watcher.IdentifyDescriptor(directory)
+	if !valid {
+		return fault.New("identify directory to mark: " + path)
 	}
 
-	identity := directoryIdentity{device: stat.Dev, inode: stat.Ino}
 	if !w.coverageLost.Load() {
 		if remembered, found := w.markedIdentity(path); found && remembered == identity {
 			return nil
@@ -94,11 +89,11 @@ func (w *Watcher) markAt(path string, directory int) error {
 	}
 
 	// The descriptor about to be marked is checked, so a mount racing the walk cannot slip in.
-	if stat.Dev != w.device {
+	if identity.Device != w.device {
 		return errOtherFilesystem
 	}
 
-	err = unix.FanotifyMark(w.fd, unix.FAN_MARK_ADD|unix.FAN_MARK_ONLYDIR, w.mask, directory, ".")
+	err := unix.FanotifyMark(w.fd, unix.FAN_MARK_ADD|unix.FAN_MARK_ONLYDIR, w.mask, directory, ".")
 	if err != nil {
 		return fault.Wrap("mark directory", err)
 	}
@@ -137,13 +132,10 @@ func (w *Watcher) resetMarks() error {
 	return nil
 }
 
-func matchesDirectory(path string, identity directoryIdentity) bool {
-	var stat unix.Stat_t
+func matchesDirectory(path string, identity watcher.DirectoryIdentity) bool {
+	current, valid := watcher.IdentifyPath(path)
 
-	err := unix.Lstat(path, &stat)
-
-	return err == nil && stat.Mode&unix.S_IFMT == unix.S_IFDIR && identity.device == stat.Dev &&
-		identity.inode == stat.Ino
+	return valid && current == identity
 }
 
 // PollingRequired remains true while coverage is unverified, the reader has stopped, or directories below

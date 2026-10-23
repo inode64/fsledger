@@ -63,8 +63,8 @@ func TestVerifiedMarksAreReusedAndLossCanRecover(t *testing.T) {
 	detector.matcher = matcher
 	detector.queue = watcher.NewQueue(1)
 	detector.path = root
-	detector.rememberMark(root, directoryIdentity{device: stat.Dev, inode: stat.Ino})
-	detector.rememberMark(filepath.Join(root, "vanished"), directoryIdentity{device: stat.Dev, inode: stat.Ino})
+	detector.rememberMark(root, identityOf(t, root))
+	detector.rememberMark(filepath.Join(root, "vanished"), identityOf(t, root))
 	detector.refreshCoverage()
 
 	if _, exists := detector.markedIdentity(filepath.Join(root, "vanished")); exists {
@@ -325,7 +325,7 @@ func TestHealthyNameCoverageAvoidsFullPeriodicWalk(t *testing.T) {
 	detector.mode = ModeDFIDName
 	detector.path = root
 	detector.queue = watcher.NewQueue(1)
-	detector.rememberMark(root, directoryIdentity{device: stat.Dev, inode: stat.Ino})
+	detector.rememberMark(root, identityOf(t, root))
 
 	now := time.Now()
 	if detector.needsCoverageRefresh(now, now.Add(-coverageRefreshInterval)) {
@@ -385,4 +385,15 @@ func TestRefreshQueueOverflowRequestsFullRefresh(t *testing.T) {
 	if detector.Dirty() || detector.coverageLost.Load() || len(detector.refreshAll) != 1 {
 		t.Fatal("refresh queue overflow became a coverage loss")
 	}
+}
+
+func identityOf(t *testing.T, path string) watcher.DirectoryIdentity {
+	t.Helper()
+
+	identity, valid := watcher.IdentifyPath(path)
+	if !valid {
+		t.Fatal("not a directory:", path)
+	}
+
+	return identity
 }

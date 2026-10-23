@@ -11,6 +11,7 @@ import (
 	"github.com/inode64/fsledger/internal/event"
 	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/resource"
+	"github.com/inode64/fsledger/internal/watcher"
 )
 
 // The "/" watch over a root such as /etc names its events "//etc": the removal of the root itself must still be
@@ -31,8 +32,8 @@ func TestRootParentRemovalIsCanonical(t *testing.T) {
 	}
 	defer resource.Close(detector)
 
-	detector.directories.Set(root, directoryIdentity{})
-	detector.directories.Set(filepath.Join(root, "ssh"), directoryIdentity{})
+	detector.directories.set(root, watcher.DirectoryIdentity{Device: 0, Inode: 1, Birth: 0})
+	detector.directories.set(filepath.Join(root, "ssh"), watcher.DirectoryIdentity{Device: 0, Inode: 2, Birth: 0})
 
 	detector.handle(fsnotify.Event{Name: "//etc", Op: fsnotify.Remove})
 
@@ -45,7 +46,7 @@ func TestRootParentRemovalIsCanonical(t *testing.T) {
 		t.Fatal("root removal was dropped")
 	}
 
-	if len(detector.directories.Subtree("/")) != 0 {
+	if len(detector.directories.names.Subtree("/")) != 0 {
 		t.Fatal("stale root watches were retained", detector.directories)
 	}
 }
@@ -78,7 +79,7 @@ func TestRootParentCreationRestoresCoverage(t *testing.T) {
 		t.Fatal("lost root recreation coverage", got)
 	}
 
-	if _, watched := detector.directories.Get(root); !watched || len(detector.directories.Subtree("/")) != 2 {
+	if _, watched := detector.directories.get(root); !watched || len(detector.directories.names.Subtree("/")) != 2 {
 		t.Fatal("root watch recorded under a non-canonical path", detector.directories)
 	}
 }

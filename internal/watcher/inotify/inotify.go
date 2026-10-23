@@ -207,27 +207,35 @@ func (w *Watcher) unwatched(name string) bool {
 	return w.matcher.MatchEntry(name) || w.mounts.boundary(w.path, name)
 }
 
-// watchDirectory watches name, which the walk opened as directory. A name already watched for that same
-// directory is left alone: adding it again after a symlink swap would make fsnotify keep a dangling entry,
-// and removing that entry panics. inotify resolves name again and follows its symlinks, so a watch that landed
+// watchDirectory watches name, which the walk opened as directory. A visit made stale by a later change of
+// name is dropped without touching the registrations: the change has its own event. A name already watched
+// for the same directory is left alone: adding it again after a symlink swap would make fsnotify keep a
+// dangling entry, and removing that entry panics. After lost events the directory may still be registered
+// under a name it left, or the name for a directory it replaced: both subtrees belong to directories that
+// moved and are dropped first. inotify resolves name again and follows its symlinks, so a watch that landed
 // elsewhere meanwhile is removed. A directory removed meanwhile has nothing left to watch: its parent's watch
 // reports the removal, so ENOENT is not coverage loss and must not taint attribution.
+//
+//nolint:cyclop,gocognit,gocyclo // Each check guards one registration hazard listed above; split, they lose order.
 func (w *Watcher) watchDirectory(name string, directory int) error {
-	var opened unix.Stat_t
-	if unix.Fstat(directory, &opened) != nil {
+	identity, valid := watcher.IdentifyDescriptor(directory)
+	if current, holds := watcher.IdentifyPath(name); !valid || !holds || current != identity {
 		return fs.SkipDir
 	}
 
-	identity := directoryIdentity{device: opened.Dev, inode: opened.Ino}
-
-	watched, known := w.directories.Get(name)
-	if known && watched == identity {
+	if watched, known := w.directories.get(name); known && watched == identity {
 		return nil
 	}
 
-	// The name now holds another directory: its registration still names the old one consistently.
-	if known {
-		err := w.forget(name)
+	if previous, moved := w.directories.nameOf(identity); moved {
+		err := w.dropTree(previous)
+		if err != nil {
+			return err
+		}
+	}
+
+	if _, replaced := w.directories.get(name); replaced {
+		err := w.dropTree(name)
 		if err != nil {
 			return err
 		}
@@ -243,7 +251,7 @@ func (w *Watcher) watchDirectory(name string, directory int) error {
 	}
 
 	var resolved unix.Stat_t
-	if unix.Stat(name, &resolved) != nil || (directoryIdentity{device: resolved.Dev, inode: resolved.Ino}) != identity {
+	if unix.Stat(name, &resolved) != nil || resolved.Dev != identity.Device || resolved.Ino != identity.Inode {
 		removeErr := w.native.Remove(name)
 		if removeErr != nil && !staleWatch(removeErr) {
 			return fmt.Errorf("remove misdirected watch %s: %w", name, removeErr)
@@ -252,19 +260,7 @@ func (w *Watcher) watchDirectory(name string, directory int) error {
 		return fs.SkipDir
 	}
 
-	w.directories.Set(name, identity)
-
-	return nil
-}
-
-// forget removes one watch and its bookkeeping, not its subtree.
-func (w *Watcher) forget(name string) error {
-	w.directories.Delete(name)
-
-	err := w.native.Remove(name)
-	if err != nil && !staleWatch(err) {
-		return fmt.Errorf("remove replaced watch %s: %w", name, err)
-	}
+	w.directories.set(name, identity)
 
 	return nil
 }
@@ -275,25 +271,58 @@ func (w *Watcher) dropTree(path string) error {
 	return fault.Wrap("remove stale recursive watches", w.directories.dropTree(path, w.native.Remove))
 }
 
-// directoryIdentity is the directory a watch was installed on.
-type directoryIdentity struct{ device, inode uint64 }
-
-// directoryWatches finds a removed tree's watches without scanning every watched directory.
+// directoryWatches records the directory each watched name holds and the name each directory is watched
+// under, finding a removed tree's watches without scanning every watched directory.
 type directoryWatches struct {
-	pathindex.Index[directoryIdentity]
+	identities map[watcher.DirectoryIdentity]string
+	names      pathindex.Index[watcher.DirectoryIdentity]
+}
+
+func (directories *directoryWatches) get(name string) (watcher.DirectoryIdentity, bool) {
+	return directories.names.Get(name)
+}
+
+func (directories *directoryWatches) nameOf(identity watcher.DirectoryIdentity) (string, bool) {
+	name, found := directories.identities[identity]
+
+	return name, found
+}
+
+func (directories *directoryWatches) set(name string, identity watcher.DirectoryIdentity) {
+	directories.remove(name)
+
+	if directories.identities == nil {
+		directories.identities = make(map[watcher.DirectoryIdentity]string)
+	}
+
+	directories.names.Set(name, identity)
+	directories.identities[identity] = name
+}
+
+func (directories *directoryWatches) remove(name string) {
+	identity, found := directories.names.Get(name)
+	if !found {
+		return
+	}
+
+	directories.names.Delete(name)
+
+	if directories.identities[identity] == name {
+		delete(directories.identities, identity)
+	}
 }
 
 func (directories *directoryWatches) dropTree(path string, remove func(string) error) error {
 	var failure error
 
-	for directory := range directories.Subtree(path) {
+	for directory := range directories.names.Subtree(path) {
 		err := remove(directory)
 		if err != nil && !staleWatch(err) {
 			failure = errors.Join(failure, err)
 		}
-	}
 
-	directories.DeleteSubtree(path)
+		directories.remove(directory)
+	}
 
 	return failure
 }
@@ -377,14 +406,14 @@ func (w *Watcher) restoreCoverage() {
 
 	var forgotten []string
 
-	for name := range w.directories.All() {
+	for name := range w.directories.names.All() {
 		if !watched[name] {
 			forgotten = append(forgotten, name)
 		}
 	}
 
 	for _, name := range forgotten {
-		w.directories.Delete(name)
+		w.directories.remove(name)
 	}
 
 	w.coverage.Unlock()
