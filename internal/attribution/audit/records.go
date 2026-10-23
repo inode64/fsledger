@@ -95,7 +95,7 @@ func recordedPaths(value *aucoalesce.Event, actor event.Actor, operationCode str
 			operation = event.Remove
 		}
 
-		if file["nametype"] == event.Create {
+		if file["nametype"] == "CREATE" {
 			operation = event.Create
 		}
 
