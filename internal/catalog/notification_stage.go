@@ -46,27 +46,15 @@ func stagedChangeKey(identifier string, path []byte) []byte {
 	return key(notificationStagePrefix+identifier+stagedChangeKeySeparator, path)
 }
 
-type changeNotification struct {
-	deliver bool
-	stage   bool
-}
-
+// enqueueObservedChange stages a change of the current operation, which publishes it when it ends.
 func (store *Store) enqueueObservedChange(
 	transaction *transaction,
 	record integrity.Record,
 	compared *comparison,
 	detail Detail,
 	identifier string,
-	notification changeNotification,
+	deliver bool,
 ) error {
-	if !notification.stage {
-		if notification.deliver {
-			store.enqueueRoutes(transaction, identifier, detail, store.notificationRoutes())
-		}
-
-		return nil
-	}
-
 	lookup := stagedChangeKey(identifier, record.Path)
 
 	data, err := get(transaction.batch, lookup)
@@ -92,7 +80,7 @@ func (store *Store) enqueueObservedChange(
 	}
 
 	staged.observe(record, compared.currentData != nil, detail.Actor, detail.Observed)
-	staged.Notify = notification.deliver
+	staged.Notify = deliver
 	transaction.put(lookup, staged)
 
 	return transaction.err

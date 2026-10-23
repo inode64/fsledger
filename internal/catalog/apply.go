@@ -370,14 +370,7 @@ func (store *Store) announceChange(
 	report := store.reports.Enabled
 	notifyChange := store.notifies(config.NotificationChange)
 
-	var notification changeNotification
-
-	if notifyChange {
-		notification.deliver = !store.ignored(ctx, record.Path)
-		notification.stage = store.notificationOperation == identifier
-	}
-
-	if !report && !notification.deliver && !notification.stage {
+	if !report && !notifyChange {
 		return nil
 	}
 
@@ -398,5 +391,16 @@ func (store *Store) announceChange(
 		}
 	}
 
-	return store.enqueueObservedChange(transaction, record, compared, detail, identifier, notification)
+	if !notifyChange {
+		return nil
+	}
+
+	return store.enqueueObservedChange(
+		transaction,
+		record,
+		compared,
+		detail,
+		identifier,
+		!store.ignored(ctx, record.Path),
+	)
 }
