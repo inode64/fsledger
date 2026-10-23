@@ -354,3 +354,39 @@ func TestObservationErrorPreservesEarlierValidPaths(t *testing.T) {
 		t.Fatal("earlier valid change not kept", current, err)
 	}
 }
+
+// A directory moved out of the selection or removed takes its entries along: observing its path prunes them.
+func TestObservingVanishedDirectoryPrunesItsEntries(t *testing.T) {
+	t.Parallel()
+	store, scanner, matcher, root := subtreeFixture(t)
+
+	err := os.RemoveAll(filepath.Join(root, "a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = store.Observe(
+		t.Context(),
+		scanner,
+		[]string{filepath.Join(root, "a")},
+		[]string{root},
+		matcher,
+		"actor",
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"a", filepath.Join("a", "kept"), filepath.Join("a", "gone")} {
+		_, exists, currentErr := store.Current(t.Context(), []byte(filepath.Join(root, name)))
+		if currentErr != nil || exists {
+			t.Fatal("entry of a vanished directory kept", name, currentErr)
+		}
+	}
+
+	_, exists, err := store.Current(t.Context(), []byte(filepath.Join(root, "ab", "sibling")))
+	if err != nil || !exists {
+		t.Fatal("sibling with a common prefix pruned", err)
+	}
+}

@@ -27,17 +27,17 @@ func TestRecreatedDirectoryWithReusedInodeIsMarkedAgain(t *testing.T) {
 	for _, test := range []struct {
 		name, path, old string
 		mask            uint64
-		hasOld, hasNew  bool
+		hasOld          bool
 	}{
-		{"delete", recreated, "", unix.FAN_DELETE, false, false},
-		{"moved from", recreated, "", unix.FAN_MOVED_FROM, false, false},
-		{"rename within the selection", filepath.Join(root, "renamed"), recreated, unix.FAN_RENAME, true, true},
-		{"one-sided rename", recreated, "", unix.FAN_RENAME, true, false},
+		{"delete", recreated, "", unix.FAN_DELETE, false},
+		{"moved from", recreated, "", unix.FAN_MOVED_FROM, false},
+		{"rename within the selection", filepath.Join(root, "renamed"), recreated, unix.FAN_RENAME, true},
+		{"one-sided rename", recreated, "", unix.FAN_RENAME, true},
 	} {
 		detector := rememberedTree(t, root, recreated, nested)
 
 		// The current directories carry the remembered identities, exactly as recreated ones reusing the inodes.
-		detector.updateDirectoryCoverage(test.path, test.old, unix.FAN_ONDIR|test.mask, test.hasOld, test.hasNew)
+		detector.updateDirectoryCoverage(test.path, test.old, unix.FAN_ONDIR|test.mask, test.hasOld)
 		assertRecreatedTreeUncovered(t, test.name, detector, root, recreated, nested)
 
 		// A rename also requests marks for the name it reached; only the recreation matters here.
@@ -45,7 +45,7 @@ func TestRecreatedDirectoryWithReusedInodeIsMarkedAgain(t *testing.T) {
 			<-detector.refreshPaths
 		}
 
-		detector.updateDirectoryCoverage(recreated, "", unix.FAN_ONDIR|unix.FAN_CREATE, false, false)
+		detector.updateDirectoryCoverage(recreated, "", unix.FAN_ONDIR|unix.FAN_CREATE, false)
 
 		select {
 		case path := <-detector.refreshPaths:
