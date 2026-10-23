@@ -429,6 +429,8 @@ A path remote of a Git repository must lie outside storage and runtime state and
 must not overlap any repository's sources: every push would otherwise change
 what is watched.
 Credentials belong in SSH or Git credential configuration, never the remote URL.
+Two Git repositories cannot publish to the same branch of one URL or path remote:
+their histories are unrelated. Remote names are not compared.
 Publication is serialized with repository work and never forces remote history.
 Branch permissions restrict writes; read isolation requires separate
 repositories.

@@ -61,7 +61,12 @@ func (c *Config) Validate() error {
 		seen[kind] = append(seen[kind], c.Repositories[name].Paths...)
 	}
 
-	return c.validateLocalRemotes()
+	err = c.validateLocalRemotes()
+	if err != nil {
+		return err
+	}
+
+	return c.validateDistinctRemotes()
 }
 
 // validateStores keeps repository state apart. Sources are kept out of it through InternalPaths,

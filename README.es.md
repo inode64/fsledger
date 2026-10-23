@@ -515,6 +515,8 @@ storage:
 
 Configura las credenciales en SSH o Git. fsledger publica solo la rama indicada,
 sin force push, y reintenta los fallos de red mientras sigue registrando cambios locales.
+Cada repositorio necesita su propia rama: dos repositorios no pueden publicar en la misma
+rama de una misma URL o ruta remota.
 
 Si también quieres aplicar cambios procedentes de esa rama, activa
 `storage.git.bidirectional: true`. Publica primero el historial local y trabaja sobre
