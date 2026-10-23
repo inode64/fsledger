@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"golang.org/x/sys/unix"
 
+	"github.com/inode64/fsledger/internal/event"
 	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/resource"
 	"github.com/inode64/fsledger/internal/watcher"
@@ -333,5 +335,43 @@ func TestStaleWalkVisitKeepsNewerWatch(t *testing.T) {
 	err = detector.watchDirectory(name, int(stale.Fd()))
 	if !errors.Is(err, filepath.SkipDir) || !slices.Contains(detector.native.WatchList(), name) {
 		t.Fatal("stale visit removed the newer watch", err, detector.native.WatchList())
+	}
+}
+
+// Two watched directories swapped with RENAME_EXCHANGE, as mv --exchange does, both stay watched: each name's
+// Create comes before the Rename of the directory that left it.
+func TestExchangedDirectoriesStayWatched(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	first, second := filepath.Join(root, "first"), filepath.Join(root, "second")
+
+	for _, directory := range []string{first, second} {
+		err := os.Mkdir(directory, 0o700)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	detector := startedWatcher(t.Context(), t, root)
+
+	err := unix.Renameat2(unix.AT_FDCWD, first, unix.AT_FDCWD, second, unix.RENAME_EXCHANGE)
+	if err != nil {
+		t.Skip("RENAME_EXCHANGE unsupported:", err)
+	}
+
+	// The exchange ends with the Create of the first name; the reader handled every event before it.
+	for exchanged := false; !exchanged; {
+		select {
+		case raw := <-detector.Events():
+			exchanged = raw.Path == first && raw.Operation == event.Create
+		case <-time.After(3 * time.Second):
+			t.Fatal("no event for the exchange")
+		}
+	}
+
+	for _, directory := range []string{first, second} {
+		writeFile(t, filepath.Join(directory, "after"))
+		waitEvent(t, detector, filepath.Join(directory, "after"), "")
 	}
 }

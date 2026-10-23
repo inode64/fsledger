@@ -498,17 +498,20 @@ func (w *Watcher) handle(native fsnotify.Event) {
 
 // maintainCoverage takes the coverage lock only for names that may change watches: writes, and creations of
 // anything but a directory, go straight through. A directory replacing such a name later has its own Create.
+// A name removed or renamed that holds a directory again is watched again: as after RENAME_EXCHANGE or a
+// rename back, its Create may have come first, and dropping the name's tree removed that watch.
 func (w *Watcher) maintainCoverage(native fsnotify.Event) {
 	removed := native.Has(fsnotify.Remove) || native.Has(fsnotify.Rename)
 
 	created := false
 
-	// A name too long to stat may be a directory: addTree records it as left unwatched.
-	if native.Has(fsnotify.Create) {
+	// A created name too long to stat may be a directory: addTree records it as left unwatched.
+	if native.Has(fsnotify.Create) || removed {
 		var stat unix.Stat_t
 
 		err := unix.Lstat(native.Name, &stat)
-		created = err == nil && stat.Mode&unix.S_IFMT == unix.S_IFDIR || errors.Is(err, unix.ENAMETOOLONG)
+		created = err == nil && stat.Mode&unix.S_IFMT == unix.S_IFDIR ||
+			native.Has(fsnotify.Create) && errors.Is(err, unix.ENAMETOOLONG)
 	}
 
 	if !removed && !created {

@@ -23,7 +23,8 @@ import (
 func TestRootParentRemovalIsCanonical(t *testing.T) {
 	t.Parallel()
 
-	const root = "/etc"
+	// Absent, as after the removal: a directory found there again would be watched again.
+	const root = "/fsledger-removed-root"
 
 	matcher, err := exclude.New()
 	if err != nil {
@@ -39,7 +40,7 @@ func TestRootParentRemovalIsCanonical(t *testing.T) {
 	detector.directories.set(root, watcher.DirectoryIdentity{Device: 0, Inode: 1, Birth: 0})
 	detector.directories.set(filepath.Join(root, "ssh"), watcher.DirectoryIdentity{Device: 0, Inode: 2, Birth: 0})
 
-	detector.handle(fsnotify.Event{Name: "//etc", Op: fsnotify.Remove})
+	detector.handle(fsnotify.Event{Name: "/" + root, Op: fsnotify.Remove})
 
 	select {
 	case raw := <-detector.Events():
