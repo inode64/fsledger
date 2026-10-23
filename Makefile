@@ -122,7 +122,7 @@ secrets-history:
 # Ignoring a path does not remove an already staged file from a future commit.
 publication-check:
 	@set -eu; paths=$$(git ls-files -- \
-		':(top)AGENTS.md' ':(top)hosts' ':(top)docs' ':(top)scripts' \
+		':(top)AGENTS.md' ':(top)CLAUDE.md' ':(top)hosts' ':(top)docs' ':(top)scripts' \
 		':(top)reports' ':(top)graphify-out' ':(top)bin' \
 		':(top).idea' ':(top).vscode' ':(top).history' ':(top).codex' ':(top).claude' \
 		':(top).env' ':(top).env.*' ':(top,exclude).env.example'); \
