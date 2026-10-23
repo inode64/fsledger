@@ -54,24 +54,33 @@ func (manager *Manager) Session(repo *config.Repository) (*Session, error) {
 		return nil, fault.New("AI repository selection missing")
 	}
 
-	err := repo.ValidateAIIncludes()
+	include, err := selection(repo.IAInclude)
 	if err != nil {
 		return nil, err
 	}
 
-	// Validation normalizes as exclusions do; selection must match what it accepted.
-	include := make([]string, 0, len(repo.IAInclude))
+	return manager.session(repo.IACommit, include)
+}
 
-	for _, pattern := range repo.IAInclude {
-		selection, err := exclude.Selection(pattern)
+// selection validates an allowlist and normalizes it as exclusions are, so it matches what validation accepted.
+func selection(patterns []string) ([]string, error) {
+	err := config.ValidateAIIncludes(patterns)
+	if err != nil {
+		return nil, err
+	}
+
+	include := make([]string, 0, len(patterns))
+
+	for _, pattern := range patterns {
+		selected, err := exclude.Selection(pattern)
 		if err != nil {
 			return nil, err
 		}
 
-		include = append(include, selection)
+		include = append(include, selected)
 	}
 
-	return manager.session(repo.IACommit, include)
+	return include, nil
 }
 
 func (manager *Manager) session(names, include []string) (*Session, error) {

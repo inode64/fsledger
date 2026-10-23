@@ -104,3 +104,19 @@ func TestReportEmptySelectionDoesNotCallProvider(t *testing.T) {
 		t.Fatal(summary, status)
 	}
 }
+
+// Report selection follows ia_include: a trailing slash selects a directory's contents.
+func TestReportSelectionNormalizesLikeCommitSelection(t *testing.T) {
+	t.Parallel()
+
+	session, err := New(nil).ReportSession(
+		config.ReportAI{Profiles: nil, Include: []string{"//etc/ssh/"}, Input: metadataFixture, Enabled: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !session.selected("/etc/ssh/sshd_config") || session.selected("/etc/hosts") {
+		t.Fatal("report selection differs from commit selection", session.include)
+	}
+}

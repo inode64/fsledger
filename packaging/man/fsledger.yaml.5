@@ -637,8 +637,9 @@ report archive after acknowledgement, nor automatic evidence-dropping retention.
 Notification backlog remains a soft watermark, not a data-loss limit.
 .PP
 reports.ai.enabled defaults to false. When true, profiles and include must both
-be nonempty. profiles references ordered alternatives from ai/. include uses
-absolute doublestar patterns. input currently accepts only metadata (default).
+be nonempty. profiles references ordered alternatives from ai/. include takes
+absolute patterns with the same rules as ia_include: a trailing slash selects
+everything below a directory. input currently accepts only metadata (default).
 Selection is independent of ia_commit and applies to Git and DB repositories.
 Only selected paths, change kinds, field names and deferred flags are
 sent, never source contents, attribute values or actor commands. The union of
