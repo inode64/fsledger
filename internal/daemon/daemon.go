@@ -81,6 +81,7 @@ type worker struct {
 	publishDelay     time.Duration
 	fetchDelay       time.Duration
 	retryDelay       time.Duration
+	unstableDelay    time.Duration
 	// recoveryQuiet is how long a repository must stay free of new warnings before its recovery is
 	// announced; lastWarning starts that period again.
 	recoveryQuiet time.Duration

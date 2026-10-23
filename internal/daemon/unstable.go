@@ -31,11 +31,18 @@ func (w *worker) deferUnstable(err error) error {
 	return failure
 }
 
+// finishUnstableScan retries a path that stays unstable ever less often, up to the reconciliation interval:
+// each retry is a full reconciliation.
 func (w *worker) finishUnstableScan() {
 	w.unstable = w.scanningUnstable
 
-	w.unstableRetry = time.Time{}
-	if len(w.unstable) > 0 {
-		w.unstableRetry = time.Now().Add(maximumReconcileBackoff)
+	if len(w.unstable) == 0 {
+		w.unstableRetry, w.unstableDelay = time.Time{}, 0
+
+		return
 	}
+
+	w.unstableDelay = doubledDelay(w.unstableDelay, maximumReconcileBackoff,
+		max(w.cfg.Watch.Reconcile.Interval, maximumReconcileBackoff))
+	w.unstableRetry = time.Now().Add(w.unstableDelay)
 }

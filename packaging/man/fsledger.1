@@ -114,7 +114,9 @@ Queue an asynchronous request for the running Git worker to commit deferred
 paths.
 Also refresh the source selection and reconcile it. Check status.catalog for
 deferred_paths and deferred_since; queuing does not confirm a commit or Git
-publication. Pending versions survive restart; the volatile request may not.
+publication. The request completes after one reconciliation; paths still listed
+in unstable_paths are not waited for. Pending versions survive restart; the
+volatile request may not.
 .TP
 .B verify --repository NAME
 Rescan every source and recompute content hashes, comparing each entry with its

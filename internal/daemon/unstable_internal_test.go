@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -122,7 +123,8 @@ func TestUnstableDoesNotMaskFatalError(t *testing.T) {
 	}
 }
 
-func TestFlushRequestWaitsForUnstablePaths(t *testing.T) {
+// A path that stays unstable must not keep the flush pending: commit.defer would stay bypassed meanwhile.
+func TestFlushRequestDoesNotWaitForUnstablePaths(t *testing.T) {
 	t.Parallel()
 	runner := makeWorker(t)
 
@@ -142,19 +144,38 @@ func TestFlushRequestWaitsForUnstablePaths(t *testing.T) {
 	}
 
 	err = runner.completeFlushRequest()
-	if err != nil || !runner.forceCommit {
-		t.Fatal("incomplete flush reported complete", err)
+	if err != nil || runner.forceCommit || len(runner.unstable) != 1 {
+		t.Fatal("flush waited for an unstable path, or forgot it", err, runner.unstable)
 	}
 
 	_, err = os.Stat(filepath.Join(runner.cfg.Runtime, runner.name+flushRequestSuffix))
-	if err != nil {
-		t.Fatal("pending request disappeared", err)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("completed request kept", err)
+	}
+}
+
+// Each retry of a path that stays unstable is a full reconciliation: the delay doubles up to the interval.
+func TestUnstableRetriesBackOff(t *testing.T) {
+	t.Parallel()
+	runner := makeWorker(t)
+	runner.cfg.Watch.Reconcile.Interval = 3 * time.Minute
+
+	delays := make([]time.Duration, 0, 4)
+
+	for range 4 {
+		runner.scanningUnstable = map[string]struct{}{"/pending": {}}
+		runner.finishUnstableScan()
+		delays = append(delays, runner.unstableDelay)
 	}
 
-	clear(runner.unstable)
+	if !slices.Equal(delays, []time.Duration{time.Minute, 2 * time.Minute, 3 * time.Minute, 3 * time.Minute}) {
+		t.Fatal("unexpected retry delays", delays)
+	}
 
-	err = runner.completeFlushRequest()
-	if err != nil || runner.forceCommit {
-		t.Fatal("completed flush remained pending", err)
+	runner.scanningUnstable = map[string]struct{}{}
+	runner.finishUnstableScan()
+
+	if runner.unstableDelay != 0 || !runner.unstableRetry.IsZero() {
+		t.Fatal("stable paths kept a retry", runner.unstableDelay, runner.unstableRetry)
 	}
 }
