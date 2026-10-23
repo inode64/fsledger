@@ -45,10 +45,10 @@ A configured file replaces standard error for daemon logs and is opened in
 append mode. Missing parent directories are created with mode 0700 and new
 files with mode 0600, subject to umask. Existing file permissions are retained.
 The destination must be a regular file. Symlinks, special files and symlink
-parents are rejected. Overlap with storage or runtime is a configuration error.
-A selected source containing the log file is skipped in its entirety and
-reported
-in skipped_sources.
+parents are rejected. Overlap with storage, runtime or a literal source path is
+a configuration error. A pattern match, or a source whose symlinked parent
+resolves onto the log file, is skipped in its entirety and reported in
+skipped_sources.
 An open failure aborts startup. Check only inspects the path and creates
 nothing.
 There is no built-in rotation. Restart after renaming a log to reopen its path;
