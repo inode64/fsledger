@@ -142,7 +142,7 @@ func TestScanSkipsEntriesBelowParentReplacedAfterListing(t *testing.T) {
 			scanner := NewScanner(1, 2)
 			directory, parent := replacedParent(t, replace)
 			jobs := make(chan string, 2)
-			walk := scanWalk{matcher: matcher, jobs: jobs, directories: true}
+			walk := scanWalk{matcher: matcher, jobs: jobs, deep: new([]string), directories: true}
 
 			err = scanner.walkChildren(t.Context(), directory, parent, walk)
 			if err != nil {

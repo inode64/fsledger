@@ -24,7 +24,8 @@ see paths in
 .PP
 Files changing during observation are retried up to three times. Persistently
 unstable paths retain their previous valid copies while other changes can be
-committed. Pending paths appear in the status field unstable_paths and are
+committed. Directories whose path reaches PATH_MAX are never walked and are
+reported as unstable too. Pending paths appear in the status field unstable_paths and are
 retried
 by a reconciliation scheduled after one minute, even if periodic reconciliation
 is disabled; while they stay unstable the delay doubles up to
