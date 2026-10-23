@@ -13,6 +13,7 @@ import (
 
 	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/resource"
+	"github.com/inode64/fsledger/internal/watcher"
 )
 
 func TestSiblingCreateDoesNotInstallRecursiveWatches(t *testing.T) {
@@ -56,17 +57,11 @@ func TestSiblingCreateDoesNotInstallRecursiveWatches(t *testing.T) {
 	}
 }
 
-// A directory removed between the walk listing it and its watch installation is not coverage loss.
+// A directory removed between the walk listing it and its watch installation is not coverage loss; a watch
+// that cannot be installed on a directory still there is.
 func TestVanishedDirectoryIsNotCoverageLoss(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
-
-	file := filepath.Join(parent, "file")
-
-	err := os.WriteFile(file, nil, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	matcher, err := exclude.New()
 	if err != nil {
@@ -79,7 +74,6 @@ func TestVanishedDirectoryIsNotCoverageLoss(t *testing.T) {
 	}
 	defer resource.Close(detector)
 
-	// Any directory the walk could have opened; the names fail before its identity matters.
 	opened, err := os.Open(parent) //nolint:gosec // The test's own temporary directory.
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +85,13 @@ func TestVanishedDirectoryIsNotCoverageLoss(t *testing.T) {
 		t.Fatal("vanished directory reported as watch failure", err)
 	}
 
-	err = detector.watchDirectory(filepath.Join(file, "child"), int(opened.Fd()))
+	// A closed instance refuses every watch, as an exhausted max_user_watches would.
+	err = detector.native.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = detector.watchDirectory(parent, int(opened.Fd()))
 	if err == nil || errors.Is(err, filepath.SkipDir) {
 		t.Fatal("real watch failure was hidden", err)
 	}
@@ -134,7 +134,7 @@ func TestMisdirectedWatchIsRemoved(t *testing.T) {
 		t.Fatal("watch on another directory than the opened one was kept", err, detector.native.WatchList())
 	}
 
-	if _, watched := detector.directories.Get(listed); watched {
+	if _, watched := detector.directories.get(listed); watched {
 		t.Fatal("misdirected watch recorded")
 	}
 }
@@ -165,7 +165,7 @@ func TestDirectoryWatchesDropsOnlyRenamedTree(t *testing.T) {
 		t.Fatal("unexpected watches removed", removed)
 	}
 
-	if _, kept := watches.Get("/source/other"); !kept || len(watches.Subtree("/")) != 1 {
+	if _, kept := watches.get("/source/other"); !kept || len(watches.names.Subtree("/")) != 1 {
 		t.Fatal("unrelated watch was dropped", watches)
 	}
 }
@@ -188,7 +188,7 @@ func TestDirectoryWatchesForgetsStaleKernelEntries(t *testing.T) {
 		t.Fatal("watch removal failure was lost", err)
 	}
 
-	if len(watches.Subtree("/")) != 0 {
+	if len(watches.names.Subtree("/")) != 0 {
 		t.Fatal("stale watch bookkeeping was retained", watches)
 	}
 }
@@ -209,15 +209,15 @@ func TestDirectoryWatchesIgnoreInvalidatedDescriptors(t *testing.T) {
 		t.Fatal("invalidated descriptor reported as coverage loss", err)
 	}
 
-	if len(watches.Subtree("/")) != 0 {
+	if len(watches.names.Subtree("/")) != 0 {
 		t.Fatal("stale watch bookkeeping was retained", watches)
 	}
 }
 
 func watchesOf(paths ...string) *directoryWatches {
 	watches := &directoryWatches{}
-	for _, path := range paths {
-		watches.Set(path, directoryIdentity{})
+	for index, path := range paths {
+		watches.set(path, watcher.DirectoryIdentity{Device: 0, Inode: uint64(index + 1), Birth: 0})
 	}
 
 	return watches
@@ -272,9 +272,10 @@ func TestSwappedWatchedNameDoesNotPanic(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The name no longer holds the opened directory: the visit is stale and changes nothing.
 	err = detector.watchDirectory(listed, int(opened[listed].Fd()))
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, filepath.SkipDir) {
+		t.Fatal("stale visit not skipped", err)
 	}
 
 	err = detector.dropTree(listed)
@@ -284,5 +285,53 @@ func TestSwappedWatchedNameDoesNotPanic(t *testing.T) {
 
 	if !slices.Contains(detector.native.WatchList(), other) {
 		t.Fatal("the other directory lost its watch")
+	}
+}
+
+// A restore walk's visit with a descriptor opened before the reader handled a replacement must leave the
+// reader's watch for the new directory alone.
+func TestStaleWalkVisitKeepsNewerWatch(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	name := filepath.Join(root, "n")
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector, err := New(root, matcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(detector)
+
+	err = os.Mkdir(name, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stale, err := os.Open(name) //nolint:gosec // The test's own temporary directory.
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(stale)
+
+	err = os.Rename(name, filepath.Join(root, "old"))
+	if err == nil {
+		err = os.Mkdir(name, 0o700)
+	}
+
+	if err == nil {
+		err = detector.addTree(name)
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = detector.watchDirectory(name, int(stale.Fd()))
+	if !errors.Is(err, filepath.SkipDir) || !slices.Contains(detector.native.WatchList(), name) {
+		t.Fatal("stale visit removed the newer watch", err, detector.native.WatchList())
 	}
 }
