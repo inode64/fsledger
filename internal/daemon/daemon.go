@@ -105,6 +105,9 @@ type worker struct {
 	forceReconcile bool
 	contaminated   bool
 	sourcesPending bool
+	// gitStatusCurrent holds while no worker operation has touched the mirror since the last git status:
+	// nothing else writes it.
+	gitStatusCurrent bool
 }
 
 // Run starts repository workers and waits for bounded graceful shutdown. Sources are resolved here and
