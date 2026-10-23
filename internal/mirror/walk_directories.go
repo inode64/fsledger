@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/inode64/fsledger/internal/filehandle"
 	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/resource"
 )
@@ -13,7 +14,8 @@ import (
 // are being copied: resolving both from their roots for every file dominated cached reconciliations. The
 // source directory is the anchored descriptor the first entry copied since the walk last entered it opened;
 // a subdirectory replaces it, and the next sibling anchors its parent again. No symlink is ever followed,
-// but a directory renamed between those points is not tracked across them.
+// and the descriptor serves only while the kernel still names its directory with the path: one moved away,
+// such as into an excluded directory or out of the source, is anchored again from the root.
 type walkDirectories struct {
 	mirrorRoot *os.Root
 	source     string
@@ -34,6 +36,14 @@ func (cache *walkDirectories) close() {
 	}
 }
 
+// sourceStill reports whether the kept source directory is still the one its path names: procfs names a
+// descriptor's directory by its current location, which has no symlinks.
+func (cache *walkDirectories) sourceStill() bool {
+	current, err := filehandle.DescriptorPath(cache.sourceFD)
+
+	return err == nil && current == cache.source
+}
+
 func (cache *walkDirectories) forgetMirror() {
 	if cache.mirrorRoot != nil {
 		resource.Close(cache.mirrorRoot)
@@ -46,7 +56,7 @@ func (s *Sync) sourceParent(path string) (int, string, func(), error) {
 	cache := s.walkDirectories
 	directory := filepath.Dir(path)
 
-	if cache != nil && cache.sourceFD >= 0 && cache.source == directory {
+	if cache != nil && cache.sourceFD >= 0 && cache.source == directory && cache.sourceStill() {
 		return cache.sourceFD, filepath.Base(path), func() {}, nil
 	}
 
