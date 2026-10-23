@@ -183,11 +183,12 @@ func (w *Watcher) watchTree() error {
 // addTree walks without following symlinks, even one swapped in meanwhile. Another filesystem mounted below
 // the root, without a detector of its own, is a boundary that reconciliation covers.
 func (w *Watcher) addTree(path string) error {
-	err := watcher.WalkDirectories(path, func(name string) bool {
-		return w.matcher.MatchEntry(name) || w.mounts.boundary(w.path, name)
-	}, w.watchDirectory)
+	return fault.Wrap("install recursive watches", watcher.WalkDirectories(path, w.unwatched, w.watchDirectory))
+}
 
-	return fault.Wrap("install recursive watches", err)
+// unwatched prunes excluded directories and other filesystems mounted below the root.
+func (w *Watcher) unwatched(name string) bool {
+	return w.matcher.MatchEntry(name) || w.mounts.boundary(w.path, name)
 }
 
 // watchDirectory watches name, which the walk opened as directory. A name already watched for that same
@@ -358,16 +359,35 @@ func (w *Watcher) restoreCoverage() {
 		watched[name] = true
 	}
 
+	var forgotten []string
+
 	for name := range w.directories.All() {
 		if !watched[name] {
-			w.directories.Delete(name)
+			forgotten = append(forgotten, name)
 		}
 	}
 
-	if !w.matcher.Match(w.path) {
-		err = w.addTree(w.path)
+	for _, name := range forgotten {
+		w.directories.Delete(name)
 	}
+
 	w.coverage.Unlock()
+
+	// The lock is taken per directory: held for the whole walk, it would stop the reader, which takes it for
+	// every created or removed name, and overflow the queues again.
+	if !w.matcher.Match(w.path) {
+		err = watcher.WalkDirectories(w.path, func(name string) bool {
+			w.coverage.Lock()
+			defer w.coverage.Unlock()
+
+			return w.unwatched(name)
+		}, func(name string, directory int) error {
+			w.coverage.Lock()
+			defer w.coverage.Unlock()
+
+			return w.watchDirectory(name, directory)
+		})
+	}
 
 	if err == nil && w.lossEpoch.Load() == epoch {
 		w.coverageLost.Store(false)
@@ -387,15 +407,31 @@ func (w *Watcher) handle(native fsnotify.Event) {
 	w.queue.Send(raw)
 }
 
+// maintainCoverage takes the coverage lock only for names that may change watches: writes, and creations of
+// anything but a directory, go straight through. A directory replacing such a name later has its own Create.
 func (w *Watcher) maintainCoverage(native fsnotify.Event) {
+	removed := native.Has(fsnotify.Remove) || native.Has(fsnotify.Rename)
+
+	created := false
+
+	if native.Has(fsnotify.Create) {
+		var stat unix.Stat_t
+
+		created = unix.Lstat(native.Name, &stat) == nil && stat.Mode&unix.S_IFMT == unix.S_IFDIR
+	}
+
+	if !removed && !created {
+		return
+	}
+
 	w.coverage.Lock()
 	defer w.coverage.Unlock()
 
-	if native.Has(fsnotify.Remove) || native.Has(fsnotify.Rename) {
+	if removed {
 		w.reportCoverageError(w.dropTree(native.Name))
 	}
 
-	if native.Has(fsnotify.Create) {
+	if created {
 		w.reportCoverageError(w.addTree(native.Name))
 	}
 }
