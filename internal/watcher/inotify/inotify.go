@@ -198,9 +198,8 @@ func (w *Watcher) addTree(path string) error {
 }
 
 // noteDeep records directories left unwatched because their paths reach PATH_MAX; reconciliation covers
-// them up to that bound and reports the rest as unstable paths. Only a walk of the root can tell that none
-// remain, and only if no other walk found one since it began: marks is the count of such findings when it
-// started.
+// them. Only a walk of the root can tell that none remain, and only if no other walk found one since it
+// began: marks is the count of such findings when it started.
 func (w *Watcher) noteDeep(path string, deep bool, marks uint64) {
 	switch {
 	case deep:

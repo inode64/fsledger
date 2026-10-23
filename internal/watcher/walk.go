@@ -18,8 +18,7 @@ import (
 // it points to. skip prunes a directory before it is opened. visit receives each opened directory and may
 // return fs.SkipDir. A directory gone or replaced meanwhile is skipped: its parent reports the change.
 // Directories whose path reaches PATH_MAX are not walked, and the result reports them: every level holds a
-// descriptor, and such paths cannot be named in events anyway. Reconciliation scans up to the same bound and
-// reports what lies beyond as unstable paths.
+// descriptor, and such paths cannot be named in events anyway. Reconciliation still scans them.
 func WalkDirectories(root string, skip func(string) bool, visit func(path string, directory int) error) (bool, error) {
 	if len(root) >= unix.PathMax {
 		return true, nil
