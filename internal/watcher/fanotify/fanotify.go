@@ -1,5 +1,5 @@
 // Package fanotify implements Linux notification groups directly with x/sys/unix.
-// Basic FD events provide attribution; inotify supplies namespace changes in V1.
+// Every mode attributes writes; the fid and dfid_name modes also report creations, deletions and renames.
 package fanotify
 
 import (
@@ -36,7 +36,7 @@ const (
 	notificationMask = unix.FAN_CLOSE_WRITE | unix.FAN_MODIFY | unix.FAN_EVENT_ON_CHILD
 )
 
-// Watcher owns a basic-FD fanotify group with optional PIDFD records.
+// Watcher owns one fanotify group in fd, fid or dfid_name mode, with optional PIDFD records.
 type Watcher struct {
 	cancel       context.CancelFunc
 	coverageDone chan struct{}

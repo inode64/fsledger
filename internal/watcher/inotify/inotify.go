@@ -309,6 +309,7 @@ func operation(operationCode fsnotify.Op) string {
 	case operationCode.Has(fsnotify.Chmod):
 		return event.Attrib
 	default:
-		return "UNKNOWN"
+		// fsnotify delivers no event without an operation; a write is the most general change.
+		return event.Write
 	}
 }
