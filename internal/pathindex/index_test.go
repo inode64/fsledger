@@ -32,3 +32,30 @@ func TestSubtreesRespectComponentsAndArbitraryBytes(t *testing.T) {
 		t.Fatal(value, ok)
 	}
 }
+
+func TestAllVisitsPathsInOrder(t *testing.T) {
+	t.Parallel()
+
+	var index pathindex.Index[int]
+	for range index.All() {
+		t.Fatal("empty index visited a path")
+	}
+
+	for path, value := range map[string]int{"/c": 2, "/b/y": 1, "/b": 0} {
+		index.Set(path, value)
+	}
+
+	var paths []string
+
+	for path, value := range index.All() {
+		if want, _ := index.Get(path); value != want {
+			t.Fatal(path, value)
+		}
+
+		paths = append(paths, path)
+	}
+
+	if !reflect.DeepEqual(paths, []string{"/b", "/b/y", "/c"}) {
+		t.Fatal(paths)
+	}
+}

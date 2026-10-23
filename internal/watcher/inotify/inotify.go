@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/inode64/fsledger/internal/pathindex"
 	"github.com/inode64/fsledger/internal/pathutil"
 
 	"github.com/inode64/fsledger/internal/fault"
@@ -57,7 +58,7 @@ func New(path string, matcher *exclude.Matcher) (*Watcher, error) {
 	return &Watcher{
 		native:      native,
 		path:        path,
-		directories: make(directoryWatches),
+		directories: directoryWatches{},
 		matcher:     matcher,
 		queue:       watcher.NewQueue(watcher.QueueSize),
 		done:        make(chan struct{}),
@@ -215,25 +216,22 @@ func (w *Watcher) dropTree(path string) error {
 	return fault.Wrap("remove stale recursive watches", w.directories.dropTree(path, w.native.Remove))
 }
 
-type directoryWatches map[string]struct{}
+// directoryWatches finds a removed tree's watches without scanning every watched directory.
+type directoryWatches struct{ pathindex.Index[struct{}] }
 
-func (directories directoryWatches) add(path string) { directories[path] = struct{}{} }
+func (directories *directoryWatches) add(path string) { directories.Set(path, struct{}{}) }
 
-func (directories directoryWatches) dropTree(path string, remove func(string) error) error {
+func (directories *directoryWatches) dropTree(path string, remove func(string) error) error {
 	var failure error
 
-	for directory := range directories {
-		if !pathutil.Contains(path, directory) {
-			continue
-		}
-
+	for directory := range directories.Subtree(path) {
 		err := remove(directory)
 		if err != nil && !staleWatch(err) {
 			failure = errors.Join(failure, err)
 		}
-
-		delete(directories, directory)
 	}
+
+	directories.DeleteSubtree(path)
 
 	return failure
 }

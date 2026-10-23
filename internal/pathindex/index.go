@@ -3,6 +3,7 @@ package pathindex
 
 import (
 	"cmp"
+	"iter"
 	"path/filepath"
 	"strings"
 
@@ -42,6 +43,21 @@ func (index *Index[V]) Get(path string) (V, bool) {
 func (index *Index[V]) Delete(path string) {
 	if index.tree != nil {
 		index.tree.Delete(path)
+	}
+}
+
+// All visits every indexed path in order; the index must not change during the visit.
+func (index *Index[V]) All() iter.Seq2[string, V] {
+	return func(yield func(string, V) bool) {
+		if index.tree == nil {
+			return
+		}
+
+		for key, value := range index.tree.Ascend(btreemap.Min[string](), btreemap.Max[string]()) {
+			if !yield(key, value) {
+				return
+			}
+		}
 	}
 }
 

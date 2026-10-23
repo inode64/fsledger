@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/pathindex"
 	"github.com/inode64/fsledger/internal/pathutil"
 	"github.com/inode64/fsledger/internal/resource"
 	"github.com/inode64/fsledger/internal/watcher"
@@ -30,25 +31,36 @@ func (w *Watcher) Covers(path string) bool {
 
 	parent := filepath.Dir(path)
 
-	value, found := w.marks.Load(parent)
-	if !found {
-		return false
-	}
+	identity, found := w.markedIdentity(parent)
 
-	identity, valid := value.(directoryIdentity)
-	if !valid {
-		return false
-	}
+	return found && matchesDirectory(parent, identity)
+}
 
-	return matchesDirectory(parent, identity)
+func (w *Watcher) markedIdentity(path string) (directoryIdentity, bool) {
+	w.marksMutex.Lock()
+	defer w.marksMutex.Unlock()
+
+	return w.marks.Get(path)
+}
+
+func (w *Watcher) rememberMark(path string, identity directoryIdentity) {
+	w.marksMutex.Lock()
+	defer w.marksMutex.Unlock()
+
+	w.marks.Set(path, identity)
+}
+
+func (w *Watcher) clearMarks() {
+	w.marksMutex.Lock()
+	defer w.marksMutex.Unlock()
+
+	w.marks = pathindex.Index[directoryIdentity]{}
 }
 
 func (w *Watcher) mark(path string) error {
 	if !w.coverageLost.Load() {
-		if value, found := w.marks.Load(path); found {
-			if identity, valid := value.(directoryIdentity); valid && matchesDirectory(path, identity) {
-				return nil
-			}
+		if identity, found := w.markedIdentity(path); found && matchesDirectory(path, identity) {
+			return nil
 		}
 	}
 
@@ -75,7 +87,7 @@ func (w *Watcher) mark(path string) error {
 		return fault.Wrap("mark directory", err)
 	}
 
-	w.marks.Store(path, directoryIdentity{device: stat.Dev, inode: stat.Ino})
+	w.rememberMark(path, directoryIdentity{device: stat.Dev, inode: stat.Ino})
 
 	return nil
 }
@@ -90,13 +102,10 @@ func (w *Watcher) forgetMarks(path string) {
 		return
 	}
 
-	w.marks.Range(func(key, _ any) bool {
-		if name, valid := key.(string); valid && pathutil.Contains(path, name) {
-			w.marks.Delete(key)
-		}
+	w.marksMutex.Lock()
+	defer w.marksMutex.Unlock()
 
-		return true
-	})
+	w.marks.DeleteSubtree(path)
 }
 
 func (w *Watcher) resetMarks() error {
@@ -107,7 +116,7 @@ func (w *Watcher) resetMarks() error {
 		}
 	}
 
-	w.marks.Clear()
+	w.clearMarks()
 
 	return nil
 }
