@@ -231,3 +231,53 @@ func TestRepositoryStartupFailureLeavesOthersRunning(t *testing.T) {
 		t.Fatal("the failed repository was not reported", err)
 	}
 }
+
+// A repository whose start failed, as with a lock a CLI command held, starts once the cause is gone.
+func TestFailedRepositoryStartsWhenRetried(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cfg := pollingCatalogConfig(
+		t,
+		root,
+		filepath.Join(root, "a"),
+		filepath.Join(root, "extra"),
+		filepath.Join(root, "b"),
+	)
+
+	lock, err := resource.LockDirectory(cfg.RepositoryPath("sourceB"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+
+	go func() { done <- daemon.Run(ctx, cfg, slog.New(slog.DiscardHandler)) }()
+
+	// Both repositories start together: once sourceA runs, sourceB has met its lock.
+	waitForFile(t, filepath.Join(cfg.Runtime, "sourceA.json"))
+	resource.Close(lock)
+	waitForFile(t, filepath.Join(cfg.Runtime, "sourceB.json"))
+
+	cancel()
+
+	err = <-done
+	if err != nil {
+		t.Fatal("a recovered repository was reported as failed", err)
+	}
+}
+
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		_, err := os.Stat(path)
+		if err == nil {
+			return
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("never appeared:", path, err)
+		}
+	}
+}

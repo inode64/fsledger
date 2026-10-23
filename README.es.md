@@ -562,7 +562,10 @@ fsledger flush --repository system
 `check --effective` muestra la configuración resuelta sin credenciales. `status` reúne
 repositorios, detectores, escaneos, cambios pendientes y publicación Git. `flush` solicita
 de forma asíncrona procesar los cambios Git aplazados; consulta después `status` para
-comprobar el resultado. Añade `-c RUTA` a los comandos si usas otro archivo principal.
+comprobar el resultado. Durante una reconciliación larga, `status` indica que el repositorio
+está ocupado, no detenido. Un repositorio que falla se reintenta automáticamente mientras los
+demás siguen funcionando. Las opciones que un comando no usa, como `--repository` con
+`status`, se rechazan. Añade `-c RUTA` a los comandos si usas otro archivo principal.
 
 Con el daemon detenido puedes previsualizar un informe pendiente, sin consumirlo,
 llamar a la IA ni enviar correo:
