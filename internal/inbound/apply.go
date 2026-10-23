@@ -221,7 +221,8 @@ func openAnchoredParent(root Root, path string, create bool) (int, string, error
 		return -1, "", err
 	}
 
-	fd, err := unix.Openat(parent, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	// Pinned like every parent below it, so all of them are synced through SyncDirectory.
+	fd, err := unix.Openat(parent, name, integrity.DirectoryFlags, 0)
 	resource.FD(parent)
 
 	if err != nil {
@@ -268,7 +269,7 @@ func clearTemporary(parent int, name string) error {
 		return fault.Wrap("remove incoming temporary", err)
 	}
 
-	return fault.Wrap("sync incoming temporary removal", unix.Fsync(parent))
+	return fault.Wrap("sync incoming temporary removal", integrity.SyncDirectory(parent))
 }
 
 func removeTemporary(parent int, name string) {
