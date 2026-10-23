@@ -300,15 +300,16 @@ func (w *worker) run(ctx context.Context, initial bool) error {
 	stopped := context.AfterFunc(ctx, func() { w.stopRequested.Store(time.Now().UnixNano()) })
 	defer stopped()
 
-	// Event delivery is enabled before snapshotting to close the startup gap. Shutdown closes the watchers.
-	// Forwarding starts with them: the detectors' bounded queues would overflow during the first reconciliation.
-	w.startWatchers(ctx)
-	w.startForwarding(ctx)
-
+	// Validated before any watcher starts: returning afterwards would leave them and their forwarders running.
 	err := w.prepareScanSchedule(time.Now())
 	if err != nil {
 		return err
 	}
+
+	// Event delivery is enabled before snapshotting to close the startup gap. Shutdown closes the watchers.
+	// Forwarding starts with them: the detectors' bounded queues would overflow during the first reconciliation.
+	w.startWatchers(ctx)
+	w.startForwarding(ctx)
 
 	// Journal recovery is mandatory work, independent of optional startup scans.
 	if !w.cfg.Watch.Reconcile.OnStart && !w.incomingActive() {
