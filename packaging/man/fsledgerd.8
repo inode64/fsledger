@@ -105,7 +105,8 @@ sources.
 0 on clean shutdown, help or version; 1 on configuration, startup or runtime
 error. A repository that fails is logged as "repository stopped" and retried
 after one second, then after doubling delays up to five minutes, while the others
-keep running; fsledger status shows it without a current snapshot meanwhile. The
+keep running; a run that lasted five minutes or more starts again from one second.
+fsledger status shows it without a current snapshot meanwhile. The
 daemon exits with 1 at shutdown if a repository was still failing.
 .SH SEE ALSO
 .BR fsledger (1),
