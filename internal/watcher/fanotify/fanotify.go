@@ -20,6 +20,7 @@ import (
 	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/filehandle"
+	"github.com/inode64/fsledger/internal/pathindex"
 	"github.com/inode64/fsledger/internal/pathutil"
 	"github.com/inode64/fsledger/internal/resource"
 	"github.com/inode64/fsledger/internal/watcher"
@@ -37,17 +38,19 @@ const (
 
 // Watcher owns a basic-FD fanotify group with optional PIDFD records.
 type Watcher struct {
-	cancel        context.CancelFunc
-	coverageDone  chan struct{}
-	refreshPaths  chan string
-	refreshAll    chan struct{}
-	done          chan struct{}
-	handles       *filehandle.Resolver
-	matcher       *exclude.Matcher
-	queue         *watcher.Queue
-	marks         sync.Map
+	cancel       context.CancelFunc
+	coverageDone chan struct{}
+	refreshPaths chan string
+	refreshAll   chan struct{}
+	done         chan struct{}
+	handles      *filehandle.Resolver
+	matcher      *exclude.Matcher
+	queue        *watcher.Queue
+	// marks is shared by the reader, coverage refreshes and Covers.
+	marks         pathindex.Index[directoryIdentity]
 	mode          string
 	path          string
+	marksMutex    sync.Mutex
 	coverageEpoch uint64
 	mask          uint64
 	// device is the root's filesystem, the one the handle anchor resolves; marks never leave it.
@@ -347,16 +350,20 @@ func (w *Watcher) finishCoverageRefresh(epoch uint64, verified map[string]bool) 
 		w.requestCoverageRefresh()
 	}
 
-	w.marks.Range(func(key, value any) bool {
-		path, valid := key.(string)
+	w.marksMutex.Lock()
+	defer w.marksMutex.Unlock()
 
-		identity, known := value.(directoryIdentity)
-		if !valid || !known || (!verified[path] && !matchesDirectory(path, identity)) {
-			w.marks.Delete(key)
+	var stale []string
+
+	for path, identity := range w.marks.All() {
+		if !verified[path] && !matchesDirectory(path, identity) {
+			stale = append(stale, path)
 		}
+	}
 
-		return true
-	})
+	for _, path := range stale {
+		w.marks.Delete(path)
+	}
 }
 
 func (w *Watcher) loss(reason string) {

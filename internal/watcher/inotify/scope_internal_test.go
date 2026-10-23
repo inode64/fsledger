@@ -98,11 +98,7 @@ func TestDirectoryWatchesDropsOnlyRenamedTree(t *testing.T) {
 		nested  = "/source/old/nested"
 	)
 
-	watches := directoryWatches{
-		oldTree:         {},
-		nested:          {},
-		"/source/other": {},
-	}
+	watches := watchesOf(oldTree, nested, "/source/other")
 	removed := make([]string, 0, 2)
 
 	err := watches.dropTree(oldTree, func(path string) error {
@@ -120,7 +116,7 @@ func TestDirectoryWatchesDropsOnlyRenamedTree(t *testing.T) {
 		t.Fatal("unexpected watches removed", removed)
 	}
 
-	if _, kept := watches["/source/other"]; !kept || len(watches) != 1 {
+	if _, kept := watches.Get("/source/other"); !kept || len(watches.Subtree("/")) != 1 {
 		t.Fatal("unrelated watch was dropped", watches)
 	}
 }
@@ -130,7 +126,7 @@ func TestDirectoryWatchesForgetsStaleKernelEntries(t *testing.T) {
 
 	const oldTree = "/source/old"
 
-	watches := directoryWatches{oldTree: {}, "/source/old/nested": {}}
+	watches := watchesOf(oldTree, "/source/old/nested")
 
 	err := watches.dropTree(oldTree, func(path string) error {
 		if path == oldTree {
@@ -143,7 +139,7 @@ func TestDirectoryWatchesForgetsStaleKernelEntries(t *testing.T) {
 		t.Fatal("watch removal failure was lost", err)
 	}
 
-	if len(watches) != 0 {
+	if len(watches.Subtree("/")) != 0 {
 		t.Fatal("stale watch bookkeeping was retained", watches)
 	}
 }
@@ -155,7 +151,7 @@ func TestDirectoryWatchesIgnoreInvalidatedDescriptors(t *testing.T) {
 
 	const oldTree = "/etc/pve/nodes/old"
 
-	watches := directoryWatches{oldTree: {}, "/etc/pve/nodes/old/lxc": {}}
+	watches := watchesOf(oldTree, "/etc/pve/nodes/old/lxc")
 
 	err := watches.dropTree(oldTree, func(string) error {
 		return fmt.Errorf("inotify_rm_watch: %w", unix.EINVAL)
@@ -164,7 +160,16 @@ func TestDirectoryWatchesIgnoreInvalidatedDescriptors(t *testing.T) {
 		t.Fatal("invalidated descriptor reported as coverage loss", err)
 	}
 
-	if len(watches) != 0 {
+	if len(watches.Subtree("/")) != 0 {
 		t.Fatal("stale watch bookkeeping was retained", watches)
 	}
+}
+
+func watchesOf(paths ...string) *directoryWatches {
+	watches := &directoryWatches{}
+	for _, path := range paths {
+		watches.add(path)
+	}
+
+	return watches
 }

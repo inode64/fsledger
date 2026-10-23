@@ -63,11 +63,11 @@ func TestVerifiedMarksAreReusedAndLossCanRecover(t *testing.T) {
 	detector.matcher = matcher
 	detector.queue = watcher.NewQueue(1)
 	detector.path = root
-	detector.marks.Store(root, directoryIdentity{device: stat.Dev, inode: stat.Ino})
-	detector.marks.Store(filepath.Join(root, "vanished"), directoryIdentity{device: stat.Dev, inode: stat.Ino})
+	detector.rememberMark(root, directoryIdentity{device: stat.Dev, inode: stat.Ino})
+	detector.rememberMark(filepath.Join(root, "vanished"), directoryIdentity{device: stat.Dev, inode: stat.Ino})
 	detector.refreshCoverage()
 
-	if _, exists := detector.marks.Load(filepath.Join(root, "vanished")); exists {
+	if _, exists := detector.markedIdentity(filepath.Join(root, "vanished")); exists {
 		t.Fatal("refresh retained a vanished mark")
 	}
 
@@ -324,7 +324,7 @@ func TestHealthyNameCoverageAvoidsFullPeriodicWalk(t *testing.T) {
 	detector.mode = ModeDFIDName
 	detector.path = root
 	detector.queue = watcher.NewQueue(1)
-	detector.marks.Store(root, directoryIdentity{device: stat.Dev, inode: stat.Ino})
+	detector.rememberMark(root, directoryIdentity{device: stat.Dev, inode: stat.Ino})
 
 	now := time.Now()
 	if detector.needsCoverageRefresh(now, now.Add(-coverageRefreshInterval)) {

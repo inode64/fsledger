@@ -44,7 +44,7 @@ func TestRootParentRemovalIsCanonical(t *testing.T) {
 		t.Fatal("root removal was dropped")
 	}
 
-	if len(detector.directories) != 0 {
+	if len(detector.directories.Subtree("/")) != 0 {
 		t.Fatal("stale root watches were retained", detector.directories)
 	}
 }
@@ -77,7 +77,7 @@ func TestRootParentCreationRestoresCoverage(t *testing.T) {
 		t.Fatal("lost root recreation coverage", got)
 	}
 
-	if _, watched := detector.directories[root]; !watched || len(detector.directories) != 2 {
+	if _, watched := detector.directories.Get(root); !watched || len(detector.directories.Subtree("/")) != 2 {
 		t.Fatal("root watch recorded under a non-canonical path", detector.directories)
 	}
 }

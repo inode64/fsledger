@@ -90,7 +90,7 @@ func rememberedTree(t *testing.T, root string, directories ...string) *Watcher {
 
 		// The whole fixture lives on the root's filesystem.
 		detector.device = stat.Dev
-		detector.marks.Store(directory, directoryIdentity{device: stat.Dev, inode: stat.Ino})
+		detector.rememberMark(directory, directoryIdentity{device: stat.Dev, inode: stat.Ino})
 	}
 
 	return detector

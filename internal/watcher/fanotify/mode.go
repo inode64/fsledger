@@ -67,7 +67,7 @@ func (w *Watcher) tryMode(mode, pidfd uint) error {
 	w.pidfd = pidfd != 0
 	w.mask = notificationMask
 	// Remembered marks belong to a group: a new group starts with none, or it would never be marked.
-	w.marks.Clear()
+	w.clearMarks()
 
 	w.mode = ModeFD
 	if mode != 0 {

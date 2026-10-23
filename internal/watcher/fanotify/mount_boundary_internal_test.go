@@ -37,7 +37,7 @@ func TestFilesystemMountedBelowRootIsABoundary(t *testing.T) {
 		t.Fatal("a filesystem mounted below the root was reported as lost coverage")
 	}
 
-	if _, marked := detector.marks.Load(mounted); marked || detector.Covers(filepath.Join(mounted, "file")) {
+	if _, marked := detector.markedIdentity(mounted); marked || detector.Covers(filepath.Join(mounted, "file")) {
 		t.Fatal("marks crossed into another filesystem")
 	}
 
@@ -69,7 +69,7 @@ func TestFilesystemReplacingRootLosesCoverage(t *testing.T) {
 	root := t.TempDir()
 
 	detector := rememberedTree(t, root)
-	detector.marks.Clear()
+	detector.clearMarks()
 	detector.device++
 
 	err := detector.markTree(root, nil)
