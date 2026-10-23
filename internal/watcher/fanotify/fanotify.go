@@ -287,6 +287,9 @@ func (w *Watcher) walkTree(path string, verified map[string]bool) (bool, bool, e
 	return skipped, limited, fault.Wrap("install fanotify marks", err)
 }
 
+// pidfdBacklog bounds the pidfds one group keeps queued, far below its queue size.
+const pidfdBacklog = 256
+
 const (
 	coverageRefreshInterval = 30 * time.Second
 	coverageSweepInterval   = 10 * time.Minute
@@ -500,6 +503,14 @@ func (w *Watcher) handle(record []byte, metadata int) error {
 	pidfd, reaped, err := readPIDFD(record[metadata:])
 	if err != nil {
 		return err
+	}
+
+	// A queued pidfd stays open until the worker resolves its process: with every group's queue full, they
+	// would exhaust the daemon's descriptors. Past pidfdBacklog the process must predate the event instead.
+	if pidfd != nil && len(w.queue.Channel) >= pidfdBacklog {
+		resource.OptionalFile(pidfd)
+
+		pidfd = nil
 	}
 
 	if record[4] != unix.FANOTIFY_METADATA_VERSION {
