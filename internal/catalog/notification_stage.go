@@ -256,11 +256,10 @@ func (staged *stagedChange) netChange(policy config.Integrity) (Detail, error) {
 		current = *staged.After
 	}
 
-	fields := differences(previous, current, staged.Before != nil, staged.After != nil, policy)
-	if previous.Type == integrity.TypeRegular && previous.Hash == "" {
-		// Computing a hash for the new version cannot verify the old content.
-		fields = slices.DeleteFunc(fields, func(field string) bool { return field == fieldHash })
-	}
+	fields := verifiedFields(
+		previous,
+		differences(previous, current, staged.Before != nil, staged.After != nil, policy),
+	)
 
 	if len(fields) == 0 && !hasUnverifiedContent(previous, current) {
 		return Detail{}, nil
