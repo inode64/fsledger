@@ -168,8 +168,9 @@ func (detector *limitedDetector) MarkLimitReached() bool { return detector.limit
 func TestMarkLimitIsAdvisedNotLost(t *testing.T) {
 	t.Parallel()
 	runner := makeWorker(t)
+	// A repository has a group per root or mounted boundary: one below the limit must not hide another.
 	detector := &limitedDetector{Queue: watcher.NewQueue(1), limited: true}
-	runner.watchers = []watcher.Watcher{detector}
+	runner.watchers = []watcher.Watcher{detector, &limitedDetector{Queue: watcher.NewQueue(1), limited: false}}
 
 	runner.checkLosses()
 
