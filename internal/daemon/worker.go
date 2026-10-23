@@ -16,9 +16,6 @@ import (
 )
 
 func (w *worker) loop(ctx context.Context) error {
-	// Forwarding is lightweight; saturation is sticky even if the event queue is full.
-	w.startForwarding(ctx)
-
 	tick := time.NewTicker(min(w.cfg.Commit.Debounce, schedulingInterval))
 	defer tick.Stop()
 
