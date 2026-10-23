@@ -238,6 +238,8 @@ func (w *worker) checkLosses() {
 		w.loseAttribution(lossMessage("event loss or watcher coverage loss", w.queue.LossReason()))
 	}
 
+	markLimit := false
+
 	for _, detector := range w.watchers {
 		if requester, ok := detector.(interface{ ReconciliationPending() bool }); ok &&
 			requester.ReconciliationPending() {
@@ -253,14 +255,17 @@ func (w *worker) checkLosses() {
 			w.loseAttribution(lossMessage(detector.Name()+" event loss or coverage loss", reason))
 		}
 
-		// Not a loss: periodic reconciliation covers the unmarked directories, without attribution.
-		if limited, ok := detector.(interface{ MarkLimitReached() bool }); ok {
-			if limited.MarkLimitReached() {
-				w.advise(fanotifyMarkLimit)
-			} else {
-				w.withdraw(fanotifyMarkLimit)
-			}
+		if limited, ok := detector.(interface{ MarkLimitReached() bool }); ok && limited.MarkLimitReached() {
+			markLimit = true
 		}
+	}
+
+	// Not a loss: periodic reconciliation covers the unmarked directories, without attribution. Any
+	// detector at the limit keeps the advisory.
+	if markLimit {
+		w.advise(fanotifyMarkLimit)
+	} else {
+		w.withdraw(fanotifyMarkLimit)
 	}
 }
 
