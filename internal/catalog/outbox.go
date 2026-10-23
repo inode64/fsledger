@@ -108,6 +108,17 @@ func numberKey(prefix string, value int64) []byte {
 	return binary.BigEndian.AppendUint64([]byte(prefix), uint64(value))
 }
 
+func decodeDelivery(data []byte) (Delivery, error) {
+	var delivery Delivery
+
+	err := json.Unmarshal(data, &delivery)
+	if err != nil {
+		return Delivery{}, fault.Wrap("decode delivery", err)
+	}
+
+	return delivery, nil
+}
+
 // keyNumber decodes the number numberKey appended after a prefix.
 //
 //nolint:gosec // The bits are the signed value numberKey encoded.
@@ -253,11 +264,9 @@ func (store *Store) Due(ctx context.Context) ([]Delivery, error) {
 			return err
 		}
 
-		var delivery Delivery
-
-		err = json.Unmarshal(data, &delivery)
+		delivery, err := decodeDelivery(data)
 		if err != nil {
-			return fault.Wrap("decode delivery", err)
+			return err
 		}
 
 		deliveries = append(deliveries, delivery)
@@ -303,11 +312,9 @@ func (store *Store) RetryExhausted(ctx context.Context) (int, error) {
 	kept := int64(0)
 
 	err := store.iterate(ctx, outboxPrefix, func(_, data []byte) error {
-		var delivery Delivery
-
-		err := json.Unmarshal(data, &delivery)
+		delivery, err := decodeDelivery(data)
 		if err != nil {
-			return fault.Wrap("decode delivery", err)
+			return err
 		}
 
 		if !delivery.Exhausted {
@@ -377,11 +384,9 @@ func (store *Store) ProgressMany(ctx context.Context, identifiers []int64, progr
 			continue
 		}
 
-		var delivery Delivery
-
-		err = json.Unmarshal(data, &delivery)
+		delivery, err := decodeDelivery(data)
 		if err != nil {
-			return fault.Wrap("decode delivery", err)
+			return err
 		}
 
 		delivery.Progress = progress
@@ -430,11 +435,9 @@ func (store *Store) updateDeliveries(
 			continue
 		}
 
-		var delivery Delivery
-
-		err = json.Unmarshal(data, &delivery)
+		delivery, err := decodeDelivery(data)
 		if err != nil {
-			return 0, fault.Wrap("decode delivery", err)
+			return 0, err
 		}
 
 		transaction.remove(deliveryDue(delivery))
@@ -501,11 +504,9 @@ func (store *Store) DiscardPending(ctx context.Context) (int, error) {
 	count := 0
 
 	err := store.iterate(ctx, outboxPrefix, func(_, data []byte) error {
-		var delivery Delivery
-
-		err := json.Unmarshal(data, &delivery)
+		delivery, err := decodeDelivery(data)
 		if err != nil {
-			return fault.Wrap("decode delivery", err)
+			return err
 		}
 
 		count++
