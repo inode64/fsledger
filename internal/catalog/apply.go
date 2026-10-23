@@ -165,7 +165,7 @@ func (store *Store) applyOne(
 	if changed {
 		err = store.announceChange(ctx, transaction, record, &compared, identifier, actor)
 	} else {
-		err = store.refreshStagedObservation(transaction, record, &compared, identifier)
+		err = refreshStagedObservation(transaction, record, &compared, identifier)
 	}
 
 	if err != nil {

@@ -97,21 +97,30 @@ func observeRecords(t *testing.T, store *Store, identifier string, records ...in
 		}
 	}
 
-	apply := func(operation string) (Result, error) {
-		_, err := store.apply(t.Context(), updates, 1, operation, "test actor")
+	// Production applies inside an operation that publishes its staged changes when it ends.
+	_, err := store.withNotificationOperation(t.Context(), identifier, func(operation string) (Result, error) {
+		_, applyErr := store.apply(t.Context(), updates, 1, operation, "test actor")
 
-		return Result{ID: operation}, err
+		return Result{ID: operation}, applyErr
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// stageRecords applies records inside an operation still in progress: their changes stay staged, as a crash
+// before the operation ends leaves them.
+func stageRecords(t *testing.T, store *Store, identifier string, records ...integrity.Record) {
+	t.Helper()
+
+	updates := make([]mutation, len(records))
+	for index, record := range records {
+		updates[index] = mutation{
+			refreshHash: false, excluded: false, record: record, previous: nil, deleted: record.Type == "",
+		}
 	}
 
-	// Production applies inside an operation that publishes its staged changes; tests that start
-	// one themselves keep it open to inspect the staged state.
-	var err error
-	if store.notificationOperation == "" {
-		_, err = store.withNotificationOperation(t.Context(), identifier, apply)
-	} else {
-		_, err = apply(identifier)
-	}
-
+	_, err := store.apply(t.Context(), updates, 1, identifier, "test actor")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -88,13 +88,13 @@ func (store *Store) enqueueObservedChange(
 
 // Metadata or hash availability can change without a difference in compared
 // fields. A pending notification must still describe the last observed version.
-func (store *Store) refreshStagedObservation(
+func refreshStagedObservation(
 	transaction *transaction,
 	record integrity.Record,
 	compared *comparison,
 	identifier string,
 ) error {
-	if store.notificationOperation != identifier || bytes.Equal(compared.oldData, compared.currentData) {
+	if bytes.Equal(compared.oldData, compared.currentData) {
 		return nil
 	}
 
@@ -126,17 +126,6 @@ func (staged *stagedChange) observe(record integrity.Record, exists bool, actor 
 	staged.Observed = observed
 }
 
-func (store *Store) startNotificationOperation(ctx context.Context, identifier string) error {
-	err := store.finishStagedChanges(ctx)
-	if err != nil {
-		return err
-	}
-
-	store.notificationOperation = identifier
-
-	return nil
-}
-
 // The caller holds store.operation throughout inventory updates and publication.
 func (store *Store) withNotificationOperation(
 	ctx context.Context,
@@ -145,11 +134,11 @@ func (store *Store) withNotificationOperation(
 ) (Result, error) {
 	result := observationResult(identifier)
 
-	err := store.startNotificationOperation(ctx, result.ID)
+	// Changes a crash left staged belong to an earlier operation: they are published first.
+	err := store.finishStagedChanges(ctx)
 	if err != nil {
 		return result, err
 	}
-	defer func() { store.notificationOperation = "" }()
 
 	result, err = observe(result.ID)
 
