@@ -189,6 +189,67 @@ func TestApplyRejectsConcurrentLocalChange(t *testing.T) {
 	assertContent(t, filepath.Join(state.source, "a"), "edited after partial import")
 }
 
+// removedParentPlan prepares an incoming deletion or modification of nested/c, then removes nested locally.
+func removedParentPlan(t *testing.T, deletion bool) (fixture, *inbound.Plan) {
+	t.Helper()
+	state := newFixture(t)
+	write(t, filepath.Join(state.source, "nested", "c"), "initial")
+	write(t, state.archived(filepath.Join("nested", "c")), "initial")
+
+	var err error
+
+	state.base, err = state.repository.Commit(t.Context(), "Nested snapshot")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if deletion {
+		err = os.Remove(state.archived(filepath.Join("nested", "c")))
+		if err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		write(t, state.archived(filepath.Join("nested", "c")), "remote")
+	}
+
+	plan, err := state.prepare(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.RemoveAll(filepath.Join(state.source, "nested"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return state, plan
+}
+
+func TestApplyCompletesDeletionBelowRemovedParent(t *testing.T) {
+	t.Parallel()
+	state, plan := removedParentPlan(t, true)
+
+	err := plan.Apply(t.Context(), state.repository, func() error { return nil })
+	if err != nil || plan.Done != len(plan.Changes) {
+		t.Fatal("deletion below a removed parent did not complete", plan.Done, err)
+	}
+}
+
+func TestApplyRejectsModificationBelowRemovedParent(t *testing.T) {
+	t.Parallel()
+	state, plan := removedParentPlan(t, false)
+
+	err := plan.Apply(t.Context(), state.repository, func() error { return nil })
+	if !errors.Is(err, inbound.ErrConflict) {
+		t.Fatal("modification below a removed parent is not a conflict", err)
+	}
+
+	_, err = os.Lstat(filepath.Join(state.source, "nested"))
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("conflicting modification recreated its parent", err)
+	}
+}
+
 func TestApplyRejectsReplacedRoot(t *testing.T) {
 	t.Parallel()
 	state := newFixture(t)
