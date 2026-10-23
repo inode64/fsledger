@@ -130,11 +130,11 @@ func matchesDirectory(path string, identity directoryIdentity) bool {
 		identity.inode == stat.Ino
 }
 
-// PollingRequired remains true while coverage is unverified, the reader has stopped, or another filesystem
-// below the root is left unmarked: as for a nested mount without a usable detector at startup, reconciliation
-// covers it.
+// PollingRequired remains true while coverage is unverified, the reader has stopped, or directories below
+// the root are left unmarked, on another filesystem or beyond the mark limit: as for a nested mount without a
+// usable detector at startup, reconciliation covers them.
 func (w *Watcher) PollingRequired() bool {
-	return w.unmarkedFilesystem.Load() || watcher.PollingRequired(w.done, &w.coverageLost)
+	return w.unmarked.Load() || watcher.PollingRequired(w.done, &w.coverageLost)
 }
 
 func (w *Watcher) needsCoverageRefresh(now, lastSweep time.Time) bool {

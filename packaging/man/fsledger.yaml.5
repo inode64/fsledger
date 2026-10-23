@@ -62,7 +62,9 @@ Capability failures fall back to supported detection.
 Periodic reconciliation, default true. Remote filesystems may force it on, as
 may a filesystem mounted below a source after startup, which neither fanotify
 nor inotify follows; inotify reconciles the directory when it is mounted or
-unmounted.
+unmounted. So do directories beyond fanotify's per-user mark limit
+(fs.fanotify.max_user_marks), which applies when the daemon lacks
+CAP_SYS_ADMIN; status then carries an advisory.
 .TP
 .B watch.reconcile.interval
 Positive Go duration, default 5m. Example units: ms, s, m, h.

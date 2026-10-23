@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -151,5 +152,23 @@ func TestStatusSnapshotDoesNotFollowExistingLinks(t *testing.T) {
 	info, err := os.Lstat(filepath.Join(root, "repo.json"))
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 		t.Fatal(info, err)
+	}
+}
+
+// limitedDetector is a fanotify group whose last walk of the root hit the mark limit.
+type limitedDetector struct{ queuedDetector }
+
+func (*limitedDetector) MarkLimitReached() bool { return true }
+
+// Directories beyond the mark limit are a lasting advisory, not a coverage loss to recover from.
+func TestMarkLimitIsAdvisedNotLost(t *testing.T) {
+	t.Parallel()
+	runner := makeWorker(t)
+	runner.watchers = []watcher.Watcher{&limitedDetector{queuedDetector{Queue: watcher.NewQueue(1)}}}
+
+	runner.checkLosses()
+
+	if runner.contaminated || runner.pendingError || !slices.Contains(runner.status.Warnings, fanotifyMarkLimit) {
+		t.Fatal("mark limit reported as loss or not advised", runner.status.Warnings)
 	}
 }
