@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -197,33 +196,12 @@ func Open(
 }
 
 func checkDirectory(path string) error {
-	err := inspectDirectory(path)
+	err := config.CheckDirectory("catalog", path)
 	if err != nil {
 		return err
 	}
-	// #nosec G703 -- inspectDirectory rejects every existing symlink or non-directory component.
+	// #nosec G703 -- CheckDirectory rejects a catalog path through a symlink or a non-directory.
 	return fault.Wrap("create catalog directory", os.MkdirAll(path, 0o700))
-}
-
-func inspectDirectory(path string) error {
-	// Check every existing component before MkdirAll; do not follow catalog symlinks.
-	for part := filepath.Clean(path); ; part = filepath.Dir(part) {
-		// #nosec G703 -- Lstat inspects configured ancestors without following links or reading file contents.
-		info, err := os.Lstat(part)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fault.Wrap("inspect catalog directory", err)
-		}
-
-		if err == nil && !info.IsDir() {
-			return fault.New("catalog and its parents must be directories, not symlinks or files")
-		}
-
-		if filepath.Dir(part) == part {
-			break
-		}
-	}
-
-	return nil
 }
 
 // BindDestinations freezes routing identity when a delivery is enqueued.

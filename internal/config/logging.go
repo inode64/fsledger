@@ -62,7 +62,7 @@ func (c *Config) validateLogging() error {
 
 // CheckLogPath inspects existing parents and the destination without creating files.
 func CheckLogPath(path string) error {
-	parentErr := checkDirectory("log directory", filepath.Dir(path))
+	parentErr := CheckDirectory("log directory", filepath.Dir(path))
 	if parentErr != nil {
 		return parentErr
 	}

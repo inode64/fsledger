@@ -6,6 +6,7 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 
+	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/resource"
 )
@@ -13,7 +14,7 @@ import (
 // ReadReport opens an existing catalog read-only, without initializing inventory or consuming evidence.
 // Pebble's exclusive lock requires the owning daemon to be stopped.
 func ReadReport(ctx context.Context, path, repository, host string) (Message, error) {
-	err := inspectDirectory(path)
+	err := config.CheckDirectory("catalog", path)
 	if err != nil {
 		return Message{}, err
 	}
