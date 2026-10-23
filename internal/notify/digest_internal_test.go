@@ -75,7 +75,7 @@ func checkIndivisibleDigest(t *testing.T, body string) {
 		t.Fatal("message was rendered repeatedly or its failure was swallowed", renders, err)
 	}
 
-	if body == "{{.MissingField}}" && err.Error() != "notification body execution failed" {
+	if body == "{{.MissingField}}" && !strings.Contains(err.Error(), "render notification body: template") {
 		t.Fatal("template error was hidden", err)
 	}
 }
