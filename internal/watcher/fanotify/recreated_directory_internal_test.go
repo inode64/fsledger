@@ -62,6 +62,43 @@ func TestRecreatedDirectoryWithReusedInodeIsMarkedAgain(t *testing.T) {
 	}
 }
 
+// A filesystem unmounted and mounted again brings back the same directory identities, but the kernel destroyed
+// their marks: a remount reported below the root must mark them again rather than trust what it remembers.
+func TestRemountedDirectoryIsMarkedAgain(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested")
+
+	err := os.Mkdir(nested, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector := rememberedTree(t, root, nested)
+
+	detector.Remount(t.TempDir())
+
+	if len(detector.refreshPaths) != 0 || !detector.Covers(filepath.Join(nested, "file")) {
+		t.Fatal("a remount outside the root changed its coverage")
+	}
+
+	detector.Remount(nested)
+
+	if detector.Covers(filepath.Join(nested, "file")) || !detector.Covers(filepath.Join(root, "file")) {
+		t.Fatal("the remounted directory kept its remembered coverage, or its parent lost its own")
+	}
+
+	select {
+	case path := <-detector.refreshPaths:
+		// The rootless watcher fails any fanotify_mark: an error proves that the directory is marked again.
+		if path != nested || detector.markTree(path, nil) == nil {
+			t.Fatal("the remounted directory was not marked again:", path)
+		}
+	default:
+		t.Fatal("the remounted directory did not request marks")
+	}
+}
+
 // rememberedTree returns a rootless watcher that remembers the current identity of each directory.
 func rememberedTree(t *testing.T, root string, directories ...string) *Watcher {
 	t.Helper()

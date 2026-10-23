@@ -119,6 +119,18 @@ func (w *Watcher) forgetMarks(path string) {
 	w.marks.DeleteSubtree(path)
 }
 
+// Remount marks path again from scratch after the mount table changed there, as inotify's mount follower
+// reports: no mark sees a mount or an unmount, the kernel destroyed the marks of an unmounted filesystem, and
+// one mounted again may bring back the remembered directory identities.
+func (w *Watcher) Remount(path string) {
+	if !pathutil.Contains(w.path, path) {
+		return
+	}
+
+	w.forgetMarks(path)
+	w.requestTree(path)
+}
+
 func (w *Watcher) resetMarks() error {
 	if w.fd >= 0 {
 		err := unix.FanotifyMark(w.fd, unix.FAN_MARK_FLUSH, 0, unix.AT_FDCWD, "")

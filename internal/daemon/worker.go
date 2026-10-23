@@ -193,6 +193,8 @@ func (w *worker) transfer(ctx context.Context, detector watcher.Watcher) {
 		case <-ctx.Done():
 			return
 		case raw := <-detector.Events():
+			w.remarkRemounted(*raw)
+
 			if w.nativeCovers(*raw) {
 				resource.OptionalFile(raw.PIDFD)
 
