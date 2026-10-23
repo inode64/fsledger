@@ -489,7 +489,8 @@ func (sender *Sender) deliverDigest(
 
 		digest, rendered = sender.digestChunk(target.notifier, digest)
 
-		ledger := outboxLedger(ctx, store, digest.Deliveries)
+		// Progress and confirmation must outlive a stop arriving after the send, or a restart sends it again.
+		ledger := outboxLedger(context.WithoutCancel(ctx), store, digest.Deliveries)
 		if rendered != nil {
 			delay, sendErr = sender.deliver(ctx, target.notifier, *rendered, ledger)
 		} else {
@@ -499,11 +500,16 @@ func (sender *Sender) deliverDigest(
 		sendErr = fault.New("destination removed or changed")
 	}
 
+	// A send the stop interrupted is not a failed attempt: the restart retries it.
+	if sendErr != nil && ctx.Err() != nil {
+		return fault.Wrap("delivery cancelled", ctx.Err())
+	}
+
 	if sendErr != nil && !errors.Is(sendErr, errLocalRateLimit) {
 		logger.Warn("notification delivery deferred", "destination", digest.Destination, "error", sendErr)
 	}
 
-	exhausted, err := finishDeliveries(ctx, store, digest.Deliveries, delay, sendErr)
+	exhausted, err := finishDeliveries(context.WithoutCancel(ctx), store, digest.Deliveries, delay, sendErr)
 	if err != nil {
 		return err
 	}

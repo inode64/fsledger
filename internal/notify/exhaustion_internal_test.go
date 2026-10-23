@@ -3,6 +3,7 @@ package notify
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -139,4 +140,36 @@ func waitForOutbox(t *testing.T, store *catalog.Store) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// cancelAfterSend accepts every request, then stops the daemon before the sender confirms it.
+type cancelAfterSend struct{ cancel context.CancelFunc }
+
+func (transport cancelAfterSend) RoundTrip(request *http.Request) (*http.Response, error) {
+	transport.cancel()
+
+	//nolint:exhaustruct_v5 // The sender reads only the status, headers and body.
+	return &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{}, Request: request,
+		Body: io.NopCloser(strings.NewReader("ok")),
+	}, nil
+}
+
+// A delivery accepted while the daemon stops must be confirmed, or the restart sends it again.
+func TestDeliveryAcceptedDuringStopIsNotSentAgain(t *testing.T) {
+	t.Parallel()
+
+	notifiers := map[string]config.Notifier{schedulingSink: sinkNotifier("https://hooks.example/sink", "")}
+	store := partsOutbox(t, "", notifiers[schedulingSink])
+	ctx, cancel := context.WithCancel(t.Context())
+
+	sender := New(nil)
+	sender.HTTP.Transport = cancelAfterSend{cancel: cancel}
+
+	err := sender.deliverPending(ctx, store, destinations(notifiers), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertOutbox(t, store, 0, 0)
 }
