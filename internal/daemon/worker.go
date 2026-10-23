@@ -223,8 +223,17 @@ func (w *worker) resolveProcess(ctx context.Context, raw event.Raw) event.Raw {
 func (w *worker) checkLosses() {
 	// Events dropped while the worker was busy, typically reconciling, are observed again without an actor:
 	// that downgrades any pending actor of the same path, and avoids another full reconciliation. No Audit
-	// record matches a reconciliation, so none can lend these paths an actor.
-	for _, path := range w.queue.Dropped() {
+	// record matches a reconciliation, so none can lend these paths an actor. The events queued before a
+	// drop are older and go first: read later, one would replace its path's marker and take the newer bytes.
+	// Only this worker reads the queue, so all of them are still queued.
+	dropped := w.queue.Dropped()
+	if len(dropped) > 0 {
+		for range len(w.queue.Channel) {
+			w.accept(*<-w.queue.Channel)
+		}
+	}
+
+	for _, path := range dropped {
 		w.accept(event.Raw{
 			Path:      path,
 			Operation: event.Reconciliation,
