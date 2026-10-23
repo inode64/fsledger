@@ -9,6 +9,6 @@ import (
 
 // ResolveAt enriches a historical observation only if the current process predates it.
 // The extra second accounts for /proc/stat's whole-second boot timestamp.
-func (provider Provider) ResolveAt(ctx context.Context, raw event.Raw, observedAt time.Time) event.Actor {
-	return provider.resolve(ctx, raw, &observedAt)
+func ResolveAt(ctx context.Context, raw event.Raw, observedAt time.Time) event.Actor {
+	return resolve(ctx, raw, &observedAt)
 }

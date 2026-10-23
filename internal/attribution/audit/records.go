@@ -190,7 +190,7 @@ func recordedActor(value *aucoalesce.Event) (event.Actor, error) {
 
 // liveStartTime identifies the recorded process only while it still runs with the recorded identity.
 func liveStartTime(value *aucoalesce.Event, actor event.Actor) uint64 {
-	live := (procattr.Provider{}).ResolveAt(context.Background(), event.Raw{PID: actor.PID}, value.Timestamp)
+	live := procattr.ResolveAt(context.Background(), event.Raw{PID: actor.PID}, value.Timestamp)
 	if live.Known && live.UserKnown && live.UID == actor.UID && live.EUID == actor.EUID &&
 		live.Executable == actor.Executable {
 		return live.StartTime
