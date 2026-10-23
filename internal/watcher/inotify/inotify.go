@@ -190,11 +190,32 @@ func (w *Watcher) addTree(path string) error {
 	return fault.Wrap("install recursive watches", err)
 }
 
-// watchDirectory watches name, which the walk opened as directory. inotify resolves name again and follows
-// its symlinks, so a watch that landed elsewhere, through a symlink swapped in meanwhile, is removed. A
-// directory removed meanwhile has nothing left to watch: its parent's watch reports the removal, so ENOENT
-// is not coverage loss and must not taint attribution.
+// watchDirectory watches name, which the walk opened as directory. A name already watched for that same
+// directory is left alone: adding it again after a symlink swap would make fsnotify keep a dangling entry,
+// and removing that entry panics. inotify resolves name again and follows its symlinks, so a watch that landed
+// elsewhere meanwhile is removed. A directory removed meanwhile has nothing left to watch: its parent's watch
+// reports the removal, so ENOENT is not coverage loss and must not taint attribution.
 func (w *Watcher) watchDirectory(name string, directory int) error {
+	var opened unix.Stat_t
+	if unix.Fstat(directory, &opened) != nil {
+		return fs.SkipDir
+	}
+
+	identity := directoryIdentity{device: opened.Dev, inode: opened.Ino}
+
+	watched, known := w.directories.Get(name)
+	if known && watched == identity {
+		return nil
+	}
+
+	// The name now holds another directory: its registration still names the old one consistently.
+	if known {
+		err := w.forget(name)
+		if err != nil {
+			return err
+		}
+	}
+
 	err := w.native.Add(name)
 	if errors.Is(err, os.ErrNotExist) {
 		return fs.SkipDir
@@ -204,9 +225,8 @@ func (w *Watcher) watchDirectory(name string, directory int) error {
 		return fmt.Errorf("watch %s: %w", name, err)
 	}
 
-	var opened, watched unix.Stat_t
-	if unix.Fstat(directory, &opened) != nil || unix.Stat(name, &watched) != nil ||
-		opened.Dev != watched.Dev || opened.Ino != watched.Ino {
+	var resolved unix.Stat_t
+	if unix.Stat(name, &resolved) != nil || (directoryIdentity{device: resolved.Dev, inode: resolved.Ino}) != identity {
 		removeErr := w.native.Remove(name)
 		if removeErr != nil && !staleWatch(removeErr) {
 			return fmt.Errorf("remove misdirected watch %s: %w", name, removeErr)
@@ -215,7 +235,19 @@ func (w *Watcher) watchDirectory(name string, directory int) error {
 		return fs.SkipDir
 	}
 
-	w.directories.add(name)
+	w.directories.Set(name, identity)
+
+	return nil
+}
+
+// forget removes one watch and its bookkeeping, not its subtree.
+func (w *Watcher) forget(name string) error {
+	w.directories.Delete(name)
+
+	err := w.native.Remove(name)
+	if err != nil && !staleWatch(err) {
+		return fmt.Errorf("remove replaced watch %s: %w", name, err)
+	}
 
 	return nil
 }
@@ -226,10 +258,13 @@ func (w *Watcher) dropTree(path string) error {
 	return fault.Wrap("remove stale recursive watches", w.directories.dropTree(path, w.native.Remove))
 }
 
-// directoryWatches finds a removed tree's watches without scanning every watched directory.
-type directoryWatches struct{ pathindex.Index[struct{}] }
+// directoryIdentity is the directory a watch was installed on.
+type directoryIdentity struct{ device, inode uint64 }
 
-func (directories *directoryWatches) add(path string) { directories.Set(path, struct{}{}) }
+// directoryWatches finds a removed tree's watches without scanning every watched directory.
+type directoryWatches struct {
+	pathindex.Index[directoryIdentity]
+}
 
 func (directories *directoryWatches) dropTree(path string, remove func(string) error) error {
 	var failure error
@@ -307,14 +342,28 @@ func (w *Watcher) restoreLoop(ctx context.Context) {
 	}
 }
 
-// restoreCoverage watches directories created during a loss. Add is idempotent for those already watched.
-// A failed walk, or a loss consumed meanwhile, keeps coverage lost.
+// restoreCoverage watches directories created during a loss. Directories deleted during it lost their watches
+// with their inodes, and fsnotify forgot them: the bookkeeping forgets them too, or a recreated directory
+// reusing the inode number would count as watched. A failed walk, or a loss consumed meanwhile, keeps coverage
+// lost.
 func (w *Watcher) restoreCoverage() {
 	epoch := w.lossEpoch.Load()
 
 	var err error
 
 	w.coverage.Lock()
+
+	watched := make(map[string]bool)
+	for _, name := range w.native.WatchList() {
+		watched[name] = true
+	}
+
+	for name := range w.directories.All() {
+		if !watched[name] {
+			w.directories.Delete(name)
+		}
+	}
+
 	if !w.matcher.Match(w.path) {
 		err = w.addTree(w.path)
 	}

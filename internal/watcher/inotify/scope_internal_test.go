@@ -79,12 +79,19 @@ func TestVanishedDirectoryIsNotCoverageLoss(t *testing.T) {
 	}
 	defer resource.Close(detector)
 
-	err = detector.watchDirectory(filepath.Join(parent, "vanished"), -1)
+	// Any directory the walk could have opened; the names fail before its identity matters.
+	opened, err := os.Open(parent) //nolint:gosec // The test's own temporary directory.
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(opened)
+
+	err = detector.watchDirectory(filepath.Join(parent, "vanished"), int(opened.Fd()))
 	if !errors.Is(err, filepath.SkipDir) {
 		t.Fatal("vanished directory reported as watch failure", err)
 	}
 
-	err = detector.watchDirectory(filepath.Join(file, "child"), -1)
+	err = detector.watchDirectory(filepath.Join(file, "child"), int(opened.Fd()))
 	if err == nil || errors.Is(err, filepath.SkipDir) {
 		t.Fatal("real watch failure was hidden", err)
 	}
@@ -210,8 +217,72 @@ func TestDirectoryWatchesIgnoreInvalidatedDescriptors(t *testing.T) {
 func watchesOf(paths ...string) *directoryWatches {
 	watches := &directoryWatches{}
 	for _, path := range paths {
-		watches.add(path)
+		watches.Set(path, directoryIdentity{})
 	}
 
 	return watches
+}
+
+// Watching again a name swapped for a symlink to another watched directory must neither panic in fsnotify
+// nor move the watch.
+func TestSwappedWatchedNameDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	listed, other := filepath.Join(parent, "listed"), filepath.Join(parent, "other")
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector, err := New(parent, matcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(detector)
+
+	opened := make(map[string]*os.File)
+
+	for _, name := range []string{listed, other} {
+		err = os.Mkdir(name, 0o700)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		//nolint:gosec // The test created this directory in its own temporary tree.
+		opened[name], err = os.Open(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Cleanup(func() { resource.Close(opened[name]) })
+
+		err = detector.watchDirectory(name, int(opened[name].Fd()))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	err = os.Rename(listed, filepath.Join(parent, "moved"))
+	if err == nil {
+		err = os.Symlink(other, listed)
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = detector.watchDirectory(listed, int(opened[listed].Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = detector.dropTree(listed)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Contains(detector.native.WatchList(), other) {
+		t.Fatal("the other directory lost its watch")
+	}
 }
