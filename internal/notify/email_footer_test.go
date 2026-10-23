@@ -34,7 +34,7 @@ func assertEmailFooter(t *testing.T, data string) {
 
 	text := strings.ReplaceAll(string(decoded), "\r\n", "\n")
 	signature := "\n\n-- \nFSledger | " + buildinfo.Release() +
-		"\nChange history, file integrity, and intrusion alerts for your Linux servers." +
+		"\nDetect unexpected file changes, investigate incidents, and recover recorded versions on Linux." +
 		"\nhttps://github.com/inode64/fsledger\n"
 
 	if !strings.HasSuffix(text, signature) {
