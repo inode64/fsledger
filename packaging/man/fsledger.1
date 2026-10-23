@@ -163,7 +163,8 @@ attributes are not restored. Only Git objects are read, so the daemon may keep
 running.
 .SH OPTIONS
 Options follow the command and may appear before or after subcommands and
-operands. Use -- to separate operands beginning with a dash.
+operands. Use -- to separate operands beginning with a dash. An option given to
+a command that does not use it is an error.
 .TP
 .BI \-c " configuration"
 Read this YAML file. Default: /etc/fsledger/fsledger.yaml.

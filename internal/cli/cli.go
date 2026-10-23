@@ -59,9 +59,24 @@ func runConfigured(command string, arguments []string, stdout, stderr io.Writer)
 
 	// An unknown command is reported as such, whatever operands follow it.
 	if !slices.Contains(
-		[]string{"check", "doctor", "status", "flush", "run", commandReport, commandOutbox, commandVerify}, command,
+		[]string{
+			commandCheck,
+			"doctor",
+			"status",
+			commandFlush,
+			commandRun,
+			commandReport,
+			commandOutbox,
+			commandVerify,
+		},
+		command,
 	) {
 		return fault.New(fmt.Sprintf("unknown command %q", command))
+	}
+
+	err = misplacedFlag(flags, command)
+	if err != nil {
+		return err
 	}
 
 	if (command == commandReport || command == commandOutbox) && len(operands) > 0 {
@@ -80,6 +95,30 @@ func runConfigured(command string, arguments []string, stdout, stderr io.Writer)
 	return dispatch(stdout, stderr, cfg, command, action, *repository, *debug, *effective)
 }
 
+// misplacedFlag rejects an option given to a command that would ignore it silently.
+func misplacedFlag(flags *flag.FlagSet, command string) error {
+	var err error
+
+	flags.Visit(func(option *flag.Flag) {
+		accepted := true
+
+		switch option.Name {
+		case "debug":
+			accepted = command == commandRun
+		case "effective":
+			accepted = command == commandCheck
+		case "repository":
+			accepted = slices.Contains([]string{commandFlush, commandReport, commandOutbox, commandVerify}, command)
+		}
+
+		if !accepted && err == nil {
+			err = fault.New("--" + option.Name + " is not accepted by " + command)
+		}
+	})
+
+	return err
+}
+
 func dispatch(
 	stdout, stderr io.Writer,
 	cfg *config.Config,
@@ -89,7 +128,7 @@ func dispatch(
 	var err error
 
 	switch command {
-	case "check":
+	case commandCheck:
 		err = checkConfiguration(cfg)
 		if err != nil {
 			return err
@@ -104,7 +143,7 @@ func dispatch(
 		return doctor.Print(stdout, cfg)
 	case "status":
 		return printStatus(stdout, cfg)
-	case "flush":
+	case commandFlush:
 		err = daemon.RequestFlush(cfg, repository)
 		if err != nil {
 			return err
@@ -113,7 +152,7 @@ func dispatch(
 		_, err = fmt.Fprintln(stdout, "Flush requested; check status for completion")
 
 		return fault.Wrap("write flush result", err)
-	case "run":
+	case commandRun:
 		return serve(stderr, cfg, debug)
 	case commandReport:
 		if action != "preview" {
@@ -146,6 +185,9 @@ func checkConfiguration(cfg *config.Config) error {
 }
 
 const (
+	commandCheck   = "check"
+	commandFlush   = "flush"
+	commandRun     = "run"
 	commandReport  = "report"
 	commandRestore = "restore"
 	commandOutbox  = "outbox"

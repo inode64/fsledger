@@ -154,3 +154,19 @@ func TestUnknownCommandWithOperands(t *testing.T) {
 		}
 	}
 }
+
+// An option the command does not read must fail instead of being ignored.
+func TestCommandsRejectOptionsTheyIgnore(t *testing.T) {
+	t.Parallel()
+
+	missing := filepath.Join(t.TempDir(), fixtureMainYaml)
+
+	for _, args := range [][]string{
+		{"status", "--repository", "x"}, {"check", "--debug"}, {verifyCommand, "--effective"},
+	} {
+		err := cli.Run(append(args, "-c", missing), io.Discard, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "is not accepted by "+args[0]) {
+			t.Errorf("%q: %v", args, err)
+		}
+	}
+}
