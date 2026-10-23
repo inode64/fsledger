@@ -48,7 +48,7 @@ func (c *Config) CheckStoragePaths() error {
 			role = "runtime"
 		}
 
-		err := checkDirectory(role, path)
+		err := CheckDirectory(role, path)
 		if err != nil {
 			return err
 		}
@@ -57,9 +57,9 @@ func (c *Config) CheckStoragePaths() error {
 	return nil
 }
 
-// checkDirectory requires the nearest existing component of path to be a real directory without
-// symlinks. Log, storage and runtime share it, so role names which configured location failed.
-func checkDirectory(role, path string) error {
+// CheckDirectory requires the nearest existing component of path to be a real directory without
+// symlinks. Log, storage, runtime and catalogs share it, so role names which location failed.
+func CheckDirectory(role, path string) error {
 	for current := path; ; current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
 		if errors.Is(err, os.ErrNotExist) {
