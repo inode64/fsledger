@@ -84,8 +84,9 @@ func (w *Watcher) Events() <-chan *event.Raw { return w.queue.Channel }
 func (w *Watcher) Dirty() bool {
 	dirty := w.queue.Dirty()
 	if dirty {
-		w.coverageLost.Store(true)
+		// The epoch moves first: a walk ending in between must not clear the flag set for this loss.
 		w.lossEpoch.Add(1)
+		w.coverageLost.Store(true)
 
 		select {
 		case w.rewalk <- struct{}{}:
@@ -120,6 +121,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 
 	ctx, w.cancel = context.WithCancel(ctx)
 	go w.read(ctx)
+	go w.restoreLoop(ctx)
 
 	if w.changes != nil {
 		go w.followMounts(ctx)
@@ -270,9 +272,38 @@ func (w *Watcher) read(ctx context.Context) {
 			}
 
 			w.handle(native)
-		case <-w.rewalk:
-			w.restoreCoverage()
 		}
+	}
+}
+
+// rewalkInterval spaces the walks that follow losses, which usually come in bursts.
+const rewalkInterval = 30 * time.Second
+
+// restoreLoop walks off the reader, which keeps draining events meanwhile: a walk blocking it during the
+// burst that caused the loss would overflow the queues again.
+func (w *Watcher) restoreLoop(ctx context.Context) {
+	var last time.Time
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.rewalk:
+		}
+
+		wait := time.NewTimer(time.Until(last.Add(rewalkInterval)))
+
+		select {
+		case <-ctx.Done():
+			wait.Stop()
+
+			return
+		case <-wait.C:
+		}
+
+		w.restoreCoverage()
+
+		last = time.Now()
 	}
 }
 
