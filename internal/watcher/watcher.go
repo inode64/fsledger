@@ -41,9 +41,10 @@ type Queue struct {
 	// would pin megabytes of idle heap in each of them.
 	Channel chan *event.Raw
 	reason  atomic.Pointer[string]
-	// dropped remembers, up to remember paths, those whose events a full queue dropped.
+	// dropped remembers, up to remember bytes of names, the paths whose events a full queue dropped.
 	dropped   map[string]struct{}
 	remember  int
+	held      int
 	droppedMu sync.Mutex
 	lost      atomic.Bool
 	reconcile atomic.Bool
@@ -53,13 +54,13 @@ type Queue struct {
 func NewQueue(size int) *Queue {
 	return &Queue{
 		Channel: make(chan *event.Raw, size), reason: atomic.Pointer[string]{},
-		dropped: nil, remember: 0, droppedMu: sync.Mutex{},
+		dropped: nil, remember: 0, held: 0, droppedMu: sync.Mutex{},
 		lost: atomic.Bool{}, reconcile: atomic.Bool{},
 	}
 }
 
-// NewRememberingQueue creates a bounded queue that keeps the paths of up to remember dropped events for
-// Dropped; only beyond them is an overflow a loss.
+// NewRememberingQueue creates a bounded queue that keeps, up to remember bytes of names, the paths of
+// dropped events for Dropped; only beyond them is an overflow a loss.
 func NewRememberingQueue(size, remember int) *Queue {
 	queue := NewQueue(size)
 	queue.dropped, queue.remember = make(map[string]struct{}), remember
@@ -101,6 +102,7 @@ func (q *Queue) Dropped() []string {
 
 	paths := slices.Collect(maps.Keys(q.dropped))
 	clear(q.dropped)
+	q.held = 0
 
 	return paths
 }
@@ -137,11 +139,16 @@ func (q *Queue) rememberDropped(paths ...string) bool {
 			continue
 		}
 
-		if _, known := q.dropped[path]; !known && len(q.dropped) >= q.remember {
+		if _, known := q.dropped[path]; known {
+			continue
+		}
+
+		if q.held+len(path) > q.remember {
 			return false
 		}
 
 		q.dropped[path] = struct{}{}
+		q.held += len(path)
 	}
 
 	return true
