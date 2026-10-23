@@ -77,8 +77,10 @@ func (w *worker) checkFlushRequest() error {
 	return nil
 }
 
+// completeFlushRequest ends a flush once a reconciliation committed what it could. Paths still unstable
+// keep their own retries and stay in status: waiting for them would keep commit.defer bypassed.
 func (w *worker) completeFlushRequest() error {
-	if !w.forceCommit || len(w.unstable) > 0 {
+	if !w.forceCommit {
 		return nil
 	}
 

@@ -27,7 +27,8 @@ unstable paths retain their previous valid copies while other changes can be
 committed. Pending paths appear in the status field unstable_paths and are
 retried
 by a reconciliation scheduled after one minute, even if periodic reconciliation
-is disabled. Polling with a scan cron waits for its next configured scan slot
+is disabled; while they stay unstable the delay doubles up to
+watch.reconcile.interval. Polling with a scan cron waits for its next configured scan slot
 instead.
 A full hash scan left incomplete only by unstable paths still counts as that
 full scan for scheduling: its retries and later ordinary scans hash only new or
