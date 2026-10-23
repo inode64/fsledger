@@ -8,6 +8,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
 )
 
 // Absent marks a value that does not exist, such as the previous state of a created file.
@@ -46,24 +48,6 @@ func Size(bytes int64) string {
 
 	return strconv.FormatFloat(value, 'f', 1, 64) + " " + units[unit]
 }
-
-// File type and special bits of st_mode, as defined by POSIX and used by Linux.
-const (
-	typeMask    = 0o170000
-	typeSocket  = 0o140000
-	typeSymlink = 0o120000
-	typeRegular = 0o100000
-	typeBlock   = 0o060000
-	typeDir     = 0o040000
-	typeChar    = 0o020000
-	typeFIFO    = 0o010000
-	setUID      = 0o4000
-	setGID      = 0o2000
-	sticky      = 0o1000
-	ownerExec   = 0o100
-	groupExec   = 0o010
-	otherExec   = 0o001
-)
 
 // Positions of the execute letters in "-rwxrwxrwx".
 const (
@@ -109,28 +93,28 @@ func Mode(mode uint32) string {
 		}
 	}
 
-	special(text, ownerExecIndex, mode&setUID != 0, mode&ownerExec != 0, 's')
-	special(text, groupExecIndex, mode&setGID != 0, mode&groupExec != 0, 's')
-	special(text, otherExecIndex, mode&sticky != 0, mode&otherExec != 0, 't')
+	special(text, ownerExecIndex, mode&unix.S_ISUID != 0, mode&unix.S_IXUSR != 0, 's')
+	special(text, groupExecIndex, mode&unix.S_ISGID != 0, mode&unix.S_IXGRP != 0, 's')
+	special(text, otherExecIndex, mode&unix.S_ISVTX != 0, mode&unix.S_IXOTH != 0, 't')
 
 	return fmt.Sprintf("%s (0x%x)", text, mode)
 }
 
 func typeLetter(mode uint32) byte {
-	switch mode & typeMask {
-	case typeRegular:
+	switch mode & unix.S_IFMT {
+	case unix.S_IFREG:
 		return '-'
-	case typeDir:
+	case unix.S_IFDIR:
 		return 'd'
-	case typeSymlink:
+	case unix.S_IFLNK:
 		return 'l'
-	case typeChar:
+	case unix.S_IFCHR:
 		return 'c'
-	case typeBlock:
+	case unix.S_IFBLK:
 		return 'b'
-	case typeFIFO:
+	case unix.S_IFIFO:
 		return 'p'
-	case typeSocket:
+	case unix.S_IFSOCK:
 		return 's'
 	default:
 		return '?'
