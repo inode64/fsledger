@@ -33,10 +33,9 @@ func readLater(t *testing.T) time.Duration {
 func TestResolveWithoutPIDFDRequiresStartBeforeEvent(t *testing.T) {
 	t.Parallel()
 
-	provider := proc.Provider{}
 	pid := os.Getpid()
 
-	self := provider.Resolve(t.Context(), event.Raw{PID: pid, SinceBoot: readLater(t)})
+	self := proc.Resolve(t.Context(), event.Raw{PID: pid, SinceBoot: readLater(t)})
 	if !self.Known || self.StartTime == 0 {
 		t.Fatalf("process started before the event was not attributed: %+v", self)
 	}
@@ -57,7 +56,7 @@ func TestResolveWithoutPIDFDRequiresStartBeforeEvent(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			actor := provider.Resolve(t.Context(), event.Raw{PID: pid, SinceBoot: test.sinceBoot})
+			actor := proc.Resolve(t.Context(), event.Raw{PID: pid, SinceBoot: test.sinceBoot})
 			if actor.Known != test.known || (!test.known && actor.UnavailableReason == "") {
 				t.Fatalf("event at %v for a start at %v: %+v", test.sinceBoot, started, actor)
 			}
@@ -70,7 +69,7 @@ func TestResolveDoesNotUseReapedWriterPID(t *testing.T) {
 
 	raw := event.Raw{PID: os.Getpid(), SinceBoot: readLater(t), Reaped: true}
 
-	actor := (proc.Provider{}).Resolve(t.Context(), raw)
+	actor := proc.Resolve(t.Context(), raw)
 	if actor.Known || !strings.Contains(actor.UnavailableReason, "FAN_NOPIDFD") {
 		t.Fatalf("reaped writer attributed to the process now holding its PID: %+v", actor)
 	}
@@ -94,7 +93,7 @@ func TestResolveWithPIDFDKeepsLivenessCheck(t *testing.T) {
 	})
 
 	// The pidfd pins the process, so the event's read time is not needed.
-	actor := (proc.Provider{}).Resolve(t.Context(), event.Raw{PID: os.Getpid(), PIDFD: pidfd})
+	actor := proc.Resolve(t.Context(), event.Raw{PID: os.Getpid(), PIDFD: pidfd})
 	if !actor.Known {
 		t.Fatalf("live pidfd process not attributed: %+v", actor)
 	}

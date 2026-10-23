@@ -205,7 +205,7 @@ func (w *worker) transfer(ctx context.Context, detector watcher.Watcher) {
 
 func (w *worker) resolveProcess(ctx context.Context, raw event.Raw) event.Raw {
 	if raw.PID > 0 {
-		raw.Actor = (procattr.Provider{}).Resolve(ctx, raw)
+		raw.Actor = procattr.Resolve(ctx, raw)
 		if !raw.Actor.Known {
 			w.logger.Debug("loss of attribution", "pid", raw.PID, "path", raw.Path,
 				"reason", raw.Actor.UnavailableReason)

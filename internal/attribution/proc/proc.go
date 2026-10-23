@@ -17,16 +17,14 @@ import (
 	"github.com/inode64/fsledger/internal/fault"
 )
 
-// Provider owns no process-global cache, avoiding stale identities after PID reuse.
-type Provider struct{}
-
 // Resolve reads start time before and after enrichment and checks pidfd liveness.
 // Without a pidfd, the process must provably predate the event: its PID may have been reused.
-func (provider Provider) Resolve(ctx context.Context, raw event.Raw) event.Actor {
-	return provider.resolve(ctx, raw, nil)
+// Nothing is cached per process, avoiding stale identities after PID reuse.
+func Resolve(ctx context.Context, raw event.Raw) event.Actor {
+	return resolve(ctx, raw, nil)
 }
 
-func (Provider) resolve(ctx context.Context, raw event.Raw, observedAt *time.Time) event.Actor {
+func resolve(ctx context.Context, raw event.Raw, observedAt *time.Time) event.Actor {
 	if ctx.Err() != nil || raw.PID <= 0 {
 		return event.Actor{}
 	}
