@@ -41,8 +41,10 @@ type Sync struct {
 	cache       pathindex.Index[cachedFile]
 	// directories lists mirror directories created or verified by the running walk; nil outside one.
 	directories *pathindex.Index[struct{}]
-	roots       integrity.RootGuard
-	sources     []string
+	// walkDirectories keeps the running walk's current source and mirror directories; nil outside one.
+	walkDirectories *walkDirectories
+	roots           integrity.RootGuard
+	sources         []string
 	// unsynced lists mirror directories whose entries changed since SyncDirectories last synced them.
 	unsynced pathindex.Index[struct{}]
 	// syncDirectory makes the entries of one mirror directory durable; tests observe it.
@@ -305,6 +307,11 @@ func (s *Sync) removeEntry(relative string) error {
 		s.directories.DeleteSubtree("/" + relative)
 	}
 
+	// The removed entry may be the walk's mirror directory or one of its ancestors.
+	if s.walkDirectories != nil {
+		s.walkDirectories.forgetMirror()
+	}
+
 	s.unsynced.DeleteSubtree("/" + relative)
 	s.touch(relative)
 
@@ -345,11 +352,11 @@ func (s *Sync) realParents(relative string) (bool, error) {
 // Mirror parents follow the anchored source: a source parent replaced by a symlink is missing,
 // and making its mirror counterpart a directory would replace the link mirrored for it.
 func (s *Sync) copy(ctx context.Context, path, relative string, mode copyMode) error {
-	parent, name, err := integrity.OpenParent(path)
+	parent, name, release, err := s.sourceParent(path)
 	if err != nil {
 		return fmt.Errorf("open source parent %s: %w", path, err)
 	}
-	defer resource.FD(parent)
+	defer release()
 
 	err = s.parents(relative)
 	if err != nil {
@@ -579,8 +586,11 @@ func (s *Sync) reconcile(ctx context.Context, roots []string, mode copyMode) err
 
 	seen := make(map[string]bool)
 
-	s.directories = &pathindex.Index[struct{}]{}
-	defer func() { s.directories = nil }()
+	s.directories, s.walkDirectories = &pathindex.Index[struct{}]{}, newWalkDirectories()
+	defer func() {
+		s.walkDirectories.close()
+		s.directories, s.walkDirectories = nil, nil
+	}()
 
 	var failure error
 
