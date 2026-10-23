@@ -190,6 +190,12 @@ func retryRepository(ctx context.Context, logger *slog.Logger, name string, run 
 			return nil
 		}
 
+		if ctx.Err() != nil {
+			logger.Error("repository stopped", "repository", name, "error", err)
+
+			return err
+		}
+
 		delay = doubledDelay(delay, repositoryRetryDelay, maximumRepositoryRetryDelay)
 		logger.Error("repository stopped", "repository", name, "error", err, "retry_in", delay)
 
