@@ -134,7 +134,7 @@ func (workspace *readWorkspace) read(
 	}
 
 	if record.Type == TypeSymlink {
-		record.Target, err = readLink(parent, name)
+		record.Target, err = workspace.readLink(parent, name)
 		if err != nil {
 			return Record{}, err
 		}
@@ -462,13 +462,16 @@ func reuseCopiedHash(source HashSource, algorithm string, record *Record) bool {
 	return ok
 }
 
-func readLink(parent int, name string) ([]byte, error) {
-	target := make([]byte, bufferSize)
+// readLink reads into the reusable buffer and keeps only the target: records stay in batches.
+func (workspace *readWorkspace) readLink(parent int, name string) ([]byte, error) {
+	if workspace.buffer == nil {
+		workspace.buffer = make([]byte, bufferSize)
+	}
 
-	count, err := unix.Readlinkat(parent, name, target)
+	count, err := unix.Readlinkat(parent, name, workspace.buffer)
 	if err != nil {
 		return nil, fault.Wrap("read source symlink", err)
 	}
 
-	return target[:count], nil
+	return bytes.Clone(workspace.buffer[:count]), nil
 }
