@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/resource"
 )
 
@@ -40,7 +41,7 @@ func replacementFixture(t *testing.T, mode fs.FileMode) (*os.Root, int, fs.FileI
 
 	t.Cleanup(func() { resource.Close(root) })
 
-	parent, err := unix.Open(directory, directoryFlags, 0)
+	parent, err := unix.Open(directory, integrity.DirectoryFlags, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

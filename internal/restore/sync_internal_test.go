@@ -7,31 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"golang.org/x/sys/unix"
-
-	"github.com/inode64/fsledger/internal/resource"
 )
-
-func TestSyncDirectoryAcceptsPinnedParent(t *testing.T) {
-	t.Parallel()
-
-	parent, err := unix.Open(t.TempDir(), directoryFlags, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resource.FD(parent)
-
-	// Restores pin parents through O_PATH, which fsync itself refuses.
-	if !errors.Is(unix.Fsync(parent), unix.EBADF) {
-		t.Fatal("fixture parent is not an O_PATH descriptor")
-	}
-
-	err = syncDirectory(parent)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
 
 func TestWriteRegularSyncsParentAfterRename(t *testing.T) {
 	t.Parallel()
