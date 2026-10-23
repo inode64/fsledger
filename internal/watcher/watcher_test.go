@@ -2,6 +2,7 @@ package watcher_test
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/inode64/fsledger/internal/event"
@@ -70,5 +71,33 @@ func TestIdleQueueSlotsHoldPointers(t *testing.T) {
 	slot := reflect.TypeOf(queue.Channel).Elem().Size()
 	if word := reflect.TypeFor[uintptr]().Size(); slot > word {
 		t.Fatalf("an idle queue slot holds %d bytes; want at most %d", slot, word)
+	}
+}
+
+func TestRememberingQueueLosesOnlyBeyondItsLimit(t *testing.T) {
+	t.Parallel()
+
+	queue := watcher.NewRememberingQueue(1, 2)
+	queue.Send(event.Raw{Path: "/queued"})
+	queue.Send(event.Raw{Path: "/a", OldPath: "/b"})
+	queue.Send(event.Raw{Path: "/a"})
+
+	if queue.Dirty() {
+		t.Fatal("remembered drops reported as loss")
+	}
+
+	dropped := queue.Dropped()
+	slices.Sort(dropped)
+
+	if !slices.Equal(dropped, []string{"/a", "/b"}) || len(queue.Dropped()) != 0 {
+		t.Fatal("dropped paths not remembered once", dropped)
+	}
+
+	queue.Send(event.Raw{Path: "/c"})
+	queue.Send(event.Raw{Path: "/d"})
+	queue.Send(event.Raw{Path: "/e"})
+
+	if !queue.Dirty() {
+		t.Fatal("drops beyond the limit were not a loss")
 	}
 }

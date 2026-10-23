@@ -172,3 +172,45 @@ func TestMarkLimitIsAdvisedNotLost(t *testing.T) {
 		t.Fatal("mark limit reported as loss or not advised", runner.status.Warnings)
 	}
 }
+
+// Events a full queue dropped are observed again without an actor, not as a loss forcing a full scan.
+func TestDroppedEventsDowngradeOnlyTheirPaths(t *testing.T) {
+	t.Parallel()
+	runner := makeWorker(t)
+
+	err := runner.reconcile(t.Context(), "initial")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.dirty = false
+	known := event.Actor{
+		Known: true, PID: 7, StartTime: 123, Executable: "/usr/bin/editor", UserKnown: true, UID: 1000, EUID: 1000,
+	}
+	shared, other := writeSource(t, runner, "shared", "edited"), writeSource(t, runner, "other", "edited")
+
+	for _, path := range []string{shared, other} {
+		runner.accept(event.Raw{Path: path, Operation: event.Write, Backend: event.Inotify, Actor: known})
+	}
+
+	queue := watcher.NewRememberingQueue(1, 8)
+	runner.queue = queue
+	// The first event fills the queue; the second is dropped.
+	queue.Send(event.Raw{Path: other, Operation: event.Write, Actor: known})
+	queue.Send(event.Raw{Path: shared, Operation: event.Write, Actor: known})
+
+	runner.checkLosses()
+
+	if runner.contaminated || runner.dirty {
+		t.Fatal("dropped events were treated as a loss")
+	}
+
+	for _, group := range runner.manager.DueWithAttributionDelay(time.Now(), true, 0) {
+		_, hasShared := group.Paths[shared]
+		_, hasOther := group.Paths[other]
+
+		if hasShared && group.Actor.Known || hasOther && !group.Actor.Known {
+			t.Fatalf("dropped event changed the wrong actor: %+v", group)
+		}
+	}
+}
