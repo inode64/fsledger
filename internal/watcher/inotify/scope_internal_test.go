@@ -79,14 +79,56 @@ func TestVanishedDirectoryIsNotCoverageLoss(t *testing.T) {
 	}
 	defer resource.Close(detector)
 
-	err = detector.watchDirectory(filepath.Join(parent, "vanished"))
+	err = detector.watchDirectory(filepath.Join(parent, "vanished"), -1)
 	if !errors.Is(err, filepath.SkipDir) {
 		t.Fatal("vanished directory reported as watch failure", err)
 	}
 
-	err = detector.watchDirectory(filepath.Join(file, "child"))
+	err = detector.watchDirectory(filepath.Join(file, "child"), -1)
 	if err == nil || errors.Is(err, filepath.SkipDir) {
 		t.Fatal("real watch failure was hidden", err)
+	}
+}
+
+// A name that no longer leads to the directory the walk opened, as after a symlink swap, keeps no watch.
+func TestMisdirectedWatchIsRemoved(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+
+	for _, name := range []string{"listed", "elsewhere"} {
+		err := os.Mkdir(filepath.Join(parent, name), 0o700)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector, err := New(parent, matcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(detector)
+
+	//nolint:gosec // The test created this directory in its own temporary tree.
+	opened, err := os.Open(filepath.Join(parent, "elsewhere"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(opened)
+
+	listed := filepath.Join(parent, "listed")
+
+	err = detector.watchDirectory(listed, int(opened.Fd()))
+	if !errors.Is(err, filepath.SkipDir) || slices.Contains(detector.native.WatchList(), listed) {
+		t.Fatal("watch on another directory than the opened one was kept", err, detector.native.WatchList())
+	}
+
+	if _, watched := detector.directories.Get(listed); watched {
+		t.Fatal("misdirected watch recorded")
 	}
 }
 

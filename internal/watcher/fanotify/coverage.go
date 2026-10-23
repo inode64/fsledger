@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/pathindex"
 	"github.com/inode64/fsledger/internal/pathutil"
 	"github.com/inode64/fsledger/internal/resource"
@@ -57,24 +58,39 @@ func (w *Watcher) clearMarks() {
 	w.marks = pathindex.Index[directoryIdentity]{}
 }
 
+// mark opens path without following any symlink, so the mark lands on the directory named under the root.
 func (w *Watcher) mark(path string) error {
-	if !w.coverageLost.Load() {
-		if identity, found := w.markedIdentity(path); found && matchesDirectory(path, identity) {
-			return nil
-		}
-	}
-
-	directory, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	parent, name, err := integrity.OpenParent(path)
 	if err != nil {
 		return fault.Wrap("open directory to mark", err)
 	}
+
+	directory, err := unix.Openat(parent, name, unix.O_PATH|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	resource.FD(parent)
+
+	if err != nil {
+		return fault.Wrap("open directory to mark", err)
+	}
+
 	defer resource.FD(directory)
 
+	return w.markAt(path, directory)
+}
+
+// markAt marks the opened directory, never path itself: path may lead elsewhere by now.
+func (w *Watcher) markAt(path string, directory int) error {
 	var stat unix.Stat_t
 
-	err = unix.Fstat(directory, &stat)
+	err := unix.Fstat(directory, &stat)
 	if err != nil {
 		return fault.Wrap("identify directory to mark", err)
+	}
+
+	identity := directoryIdentity{device: stat.Dev, inode: stat.Ino}
+	if !w.coverageLost.Load() {
+		if remembered, found := w.markedIdentity(path); found && remembered == identity {
+			return nil
+		}
 	}
 
 	// The descriptor about to be marked is checked, so a mount racing the walk cannot slip in.
@@ -87,7 +103,7 @@ func (w *Watcher) mark(path string) error {
 		return fault.Wrap("mark directory", err)
 	}
 
-	w.rememberMark(path, directoryIdentity{device: stat.Dev, inode: stat.Ino})
+	w.rememberMark(path, identity)
 
 	return nil
 }
