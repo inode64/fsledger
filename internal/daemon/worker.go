@@ -220,6 +220,19 @@ func (w *worker) resolveProcess(ctx context.Context, raw event.Raw) event.Raw {
 }
 
 func (w *worker) checkLosses() {
+	// Events dropped while the worker was busy, typically reconciling, are observed again without an actor:
+	// that downgrades any pending actor of the same path, and avoids another full reconciliation. No Audit
+	// record matches a reconciliation, so none can lend these paths an actor.
+	for _, path := range w.queue.Dropped() {
+		w.accept(event.Raw{
+			Path:      path,
+			Operation: event.Reconciliation,
+			Backend:   event.Unknown,
+			Reason:    droppedReason,
+			Time:      time.Now(),
+		})
+	}
+
 	if w.queue.Dirty() {
 		w.loseAttribution(lossMessage("event loss or watcher coverage loss", w.queue.LossReason()))
 	}
@@ -245,6 +258,8 @@ func (w *worker) checkLosses() {
 		}
 	}
 }
+
+const droppedReason = "event queue overflow"
 
 const fanotifyMarkLimit = "fanotify mark limit reached: directories beyond it are covered by periodic " +
 	"reconciliation without attribution; grant CAP_SYS_ADMIN or raise fs.fanotify.max_user_marks"
