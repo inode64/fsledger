@@ -21,6 +21,17 @@ import (
 // ChangeIDTrailer links a commit to the catalog operation that produced it.
 const ChangeIDTrailer = "FSLedger-Change-ID:"
 
+// AppendBeforeTrailer adds a paragraph to a commit message and keeps the change ID trailer last, where Git
+// reads trailers.
+func AppendBeforeTrailer(message, paragraph string) string {
+	body, identifier, found := strings.Cut(message, "\n"+ChangeIDTrailer+" ")
+	if !found {
+		return message + "\n\n" + paragraph
+	}
+
+	return body + "\n\n" + paragraph + "\n\n" + ChangeIDTrailer + " " + identifier
+}
+
 const queryTimeout = 30 * time.Second
 
 // Repository is called only by its owning repository worker.
@@ -162,7 +173,7 @@ func (r *Repository) CommitVersions(ctx context.Context, message string, version
 	// Stdin avoids ARG_MAX for snapshots containing many paths; no shell is used.
 	_, err = r.runInput(
 		ctx,
-		message+"\n\nChanges (paths relative to /):\n"+changes,
+		AppendBeforeTrailer(message, "Changes (paths relative to /):\n"+changes),
 		"commit",
 		"--file=-",
 	)
