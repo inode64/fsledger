@@ -162,3 +162,33 @@ func TestInitRejectsCorruptHEAD(t *testing.T) {
 		t.Fatalf("corrupt HEAD treated as unborn: initial=%v error=%v", initial, err)
 	}
 }
+
+// Git reads trailers only from the last paragraph, after the appended change list.
+func TestChangeIDTrailerStaysLast(t *testing.T) {
+	t.Parallel()
+	repository := &gitrepo.Repository{Path: t.TempDir(), Host: testHost, Timeout: 0}
+
+	_, err := repository.Init(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.WriteFile(filepath.Join(repository.Path, "file"), []byte("one"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	message := gitrepo.AppendBeforeTrailer("update\n"+gitrepo.ChangeIDTrailer+" ID1\n", "summary")
+
+	_, err = repository.Commit(t.Context(), message)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//nolint:gosec // This test uses only its private temporary directory and the current test process.
+	output, err := exec.CommandContext(t.Context(), "git", "-C", repository.Path, "log", "-1",
+		"--format=%(trailers:key="+strings.TrimSuffix(gitrepo.ChangeIDTrailer, ":")+",valueonly)").Output()
+	if err != nil || strings.TrimSpace(string(output)) != "ID1" {
+		t.Fatalf("change ID trailer not found: %q %v", output, err)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/inode64/fsledger/internal/event"
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/filter"
+	gitrepo "github.com/inode64/fsledger/internal/git"
 )
 
 // Bounds superseded deferred blobs to roughly one interval of observations.
@@ -177,5 +178,5 @@ func (w *worker) summarize(ctx context.Context, message string, versions map[str
 		return message
 	}
 
-	return message + "\n\n" + summary
+	return gitrepo.AppendBeforeTrailer(message, summary)
 }

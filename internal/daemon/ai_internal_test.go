@@ -100,6 +100,11 @@ func TestAISummaryUsesMaskedCombinedIndex(t *testing.T) {
 		t.Fatal("lost message evidence", message)
 	}
 
+	trailer := gitOutput(t, runner, "log", "-1", "--format=%(trailers:key=FSLedger-Change-ID,valueonly)")
+	if strings.TrimSpace(trailer) == "" {
+		t.Fatal("summary hid the change ID trailer from Git", message)
+	}
+
 	committed := gitOutput(t, runner, "show", "HEAD:"+strings.TrimPrefix(noise, "/"))
 	if !strings.Contains(committed, "old-secret") {
 		t.Fatal("redaction modified Git content")
