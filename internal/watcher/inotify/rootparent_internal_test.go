@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 
@@ -79,5 +80,41 @@ func TestRootParentCreationRestoresCoverage(t *testing.T) {
 
 	if _, watched := detector.directories.Get(root); !watched || len(detector.directories.Subtree("/")) != 2 {
 		t.Fatal("root watch recorded under a non-canonical path", detector.directories)
+	}
+}
+
+// A consumed loss makes the reader walk the root again: coverage recovers without a restart.
+func TestCoverageRecoversAfterLoss(t *testing.T) {
+	t.Parallel()
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector, err := New(t.TempDir(), matcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(detector)
+
+	err = detector.Start(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector.queue.Send(event.Raw{Dirty: true, Reason: "inotify queue overflow", Backend: event.Inotify})
+
+	if !detector.Dirty() {
+		t.Fatal("loss not reported")
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for detector.PollingRequired() {
+		if time.Now().After(deadline) {
+			t.Fatal("coverage stayed lost after the walk")
+		}
+
+		time.Sleep(10 * time.Millisecond)
 	}
 }

@@ -39,10 +39,13 @@ type Watcher struct {
 	cancel      context.CancelFunc
 	directories directoryWatches
 	// mounts is the last table seen at or below the root; coverage guards it with the watches.
-	mounts       mountStacks
+	mounts mountStacks
+	// rewalk asks the reader to walk the root again after a loss; lossEpoch counts the losses consumed.
+	rewalk       chan struct{}
 	path         string
 	coverage     sync.Mutex
 	once         sync.Once
+	lossEpoch    atomic.Uint64
 	coverageLost atomic.Bool
 	// unwatchedFilesystem reports another filesystem mounted below the root, or a remote one on it.
 	unwatchedFilesystem atomic.Bool
@@ -63,6 +66,7 @@ func New(path string, matcher *exclude.Matcher) (*Watcher, error) {
 		queue:       watcher.NewQueue(watcher.QueueSize),
 		done:        make(chan struct{}),
 		mountsDone:  make(chan struct{}),
+		rewalk:      make(chan struct{}, 1),
 	}, nil
 }
 
@@ -75,11 +79,18 @@ func (w *Watcher) LossReason() string { return w.queue.LossReason() }
 // Events exposes normalized raw notifications.
 func (w *Watcher) Events() <-chan *event.Raw { return w.queue.Channel }
 
-// Dirty consumes overflow/loss of coverage notifications.
+// Dirty consumes overflow/loss of coverage notifications. Directories created during a loss may lack a
+// watch, so the reader walks the root again; until then reconciliation covers them.
 func (w *Watcher) Dirty() bool {
 	dirty := w.queue.Dirty()
 	if dirty {
 		w.coverageLost.Store(true)
+		w.lossEpoch.Add(1)
+
+		select {
+		case w.rewalk <- struct{}{}:
+		default:
+		}
 	}
 
 	return dirty
@@ -262,7 +273,27 @@ func (w *Watcher) read(ctx context.Context) {
 			}
 
 			w.handle(native)
+		case <-w.rewalk:
+			w.restoreCoverage()
 		}
+	}
+}
+
+// restoreCoverage watches directories created during a loss. Add is idempotent for those already watched.
+// A failed walk, or a loss consumed meanwhile, keeps coverage lost.
+func (w *Watcher) restoreCoverage() {
+	epoch := w.lossEpoch.Load()
+
+	var err error
+
+	w.coverage.Lock()
+	if !w.matcher.Match(w.path) {
+		err = w.addTree(w.path)
+	}
+	w.coverage.Unlock()
+
+	if err == nil && w.lossEpoch.Load() == epoch {
+		w.coverageLost.Store(false)
 	}
 }
 
