@@ -128,12 +128,11 @@ func (c *Config) localRemotes() []string {
 	var remotes []string
 
 	for _, name := range c.Names() {
-		repo := c.Repositories[name]
-		if repo.Type != RepositoryGit || !filepath.IsAbs(repo.Storage.Git.Remote) {
+		remote, local := c.pathRemote(name)
+		if !local {
 			continue
 		}
 
-		remote := filepath.Clean(repo.Storage.Git.Remote)
 		remotes = append(remotes, remote)
 
 		resolved, err := filepath.EvalSymlinks(remote)
