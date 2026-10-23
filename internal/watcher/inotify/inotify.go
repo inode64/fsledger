@@ -51,6 +51,8 @@ type Watcher struct {
 	unwatchedFilesystem atomic.Bool
 	// mountsStopped reports a mount follower that failed: no walk restores what it no longer follows.
 	mountsStopped atomic.Bool
+	// deepDirectories reports directories left unwatched because their paths reach PATH_MAX.
+	deepDirectories atomic.Bool
 }
 
 // New allocates an inotify instance; Start installs coverage.
@@ -103,7 +105,8 @@ func (w *Watcher) Dirty() bool {
 // watches cannot follow: another one mounted below the root after Start, as for a nested mount without a usable
 // detector at startup, or a remote one on the root.
 func (w *Watcher) PollingRequired() bool {
-	return w.unwatchedFilesystem.Load() || w.mountsStopped.Load() || watcher.PollingRequired(w.done, &w.coverageLost)
+	return w.unwatchedFilesystem.Load() || w.mountsStopped.Load() || w.deepDirectories.Load() ||
+		watcher.PollingRequired(w.done, &w.coverageLost)
 }
 
 // Start installs watches before beginning the initial reconciliation.
@@ -185,7 +188,18 @@ func (w *Watcher) watchTree() error {
 // addTree walks without following symlinks, even one swapped in meanwhile. Another filesystem mounted below
 // the root, without a detector of its own, is a boundary that reconciliation covers.
 func (w *Watcher) addTree(path string) error {
-	return fault.Wrap("install recursive watches", watcher.WalkDirectories(path, w.unwatched, w.watchDirectory))
+	deep, err := watcher.WalkDirectories(path, w.unwatched, w.watchDirectory)
+	w.noteDeep(path, deep)
+
+	return fault.Wrap("install recursive watches", err)
+}
+
+// noteDeep records directories left unwatched because their paths reach PATH_MAX; reconciliation covers
+// them. Only a walk of the root can tell that none remain.
+func (w *Watcher) noteDeep(path string, deep bool) {
+	if deep || path == w.path {
+		w.deepDirectories.Store(deep)
+	}
 }
 
 // unwatched prunes excluded directories and other filesystems mounted below the root.
@@ -378,7 +392,9 @@ func (w *Watcher) restoreCoverage() {
 	// The lock is taken per directory: held for the whole walk, it would stop the reader, which takes it for
 	// every created or removed name, and overflow the queues again.
 	if !w.matcher.Match(w.path) {
-		err = watcher.WalkDirectories(w.path, func(name string) bool {
+		var deep bool
+
+		deep, err = watcher.WalkDirectories(w.path, func(name string) bool {
 			w.coverage.Lock()
 			defer w.coverage.Unlock()
 
@@ -389,6 +405,8 @@ func (w *Watcher) restoreCoverage() {
 
 			return w.watchDirectory(name, directory)
 		})
+
+		w.noteDeep(w.path, deep)
 	}
 
 	if err == nil && w.lossEpoch.Load() == epoch {

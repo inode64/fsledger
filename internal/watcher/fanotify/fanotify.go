@@ -259,7 +259,7 @@ func markLimit(err error) bool { return errors.Is(err, unix.ENOSPC) || errors.Is
 func (w *Watcher) walkTree(path string, verified map[string]bool) (bool, bool, error) {
 	skipped, limited := false, false
 
-	err := watcher.WalkDirectories(path, w.matcher.MatchEntry, func(name string, directory int) error {
+	deep, err := watcher.WalkDirectories(path, w.matcher.MatchEntry, func(name string, directory int) error {
 		markErr := verify(name, w.markAt(name, directory), verified)
 		// A filesystem mounted below the root after Start is a boundary, like the nested mounts excluded at startup,
 		// but without a watcher of its own: reconciliation covers it. So is a directory beyond the mark limit;
@@ -273,7 +273,8 @@ func (w *Watcher) walkTree(path string, verified map[string]bool) (bool, bool, e
 		return markErr
 	})
 
-	return skipped, limited, fault.Wrap("install fanotify marks", err)
+	// Directories too deep to name stay unmarked, like those on another filesystem.
+	return skipped || deep, limited, fault.Wrap("install fanotify marks", err)
 }
 
 // pidfdBacklog bounds the pidfds one group keeps queued, far below its queue size.
