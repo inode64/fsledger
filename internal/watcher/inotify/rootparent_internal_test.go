@@ -1,6 +1,7 @@
 package inotify
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -150,7 +151,7 @@ func TestStoppedMountFollowerKeepsPolling(t *testing.T) {
 		t.Fatal("a failed follower was not reported")
 	}
 
-	detector.restoreCoverage()
+	detector.restoreCoverage(t.Context())
 
 	if !detector.PollingRequired() {
 		t.Fatal("a walk cleared the failed follower")
@@ -179,6 +180,39 @@ func TestCreationPastPathMaxForcesPolling(t *testing.T) {
 
 	if !detector.PollingRequired() {
 		t.Fatal("a directory past PATH_MAX was left uncovered")
+	}
+}
+
+// Close waits for a running restore walk, which stops at the next directory once the watcher closes.
+func TestRestoreWalkStopsWithItsContext(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	err := os.MkdirAll(filepath.Join(root, "nested"), 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector, err := New(root, matcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(detector)
+
+	detector.coverageLost.Store(true)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	detector.restoreCoverage(ctx)
+
+	if got := detector.native.WatchList(); len(got) != 0 || !detector.coverageLost.Load() {
+		t.Fatal("a cancelled walk went on, or restored coverage:", got)
 	}
 }
 

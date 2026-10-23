@@ -41,8 +41,10 @@ type Watcher struct {
 	// mounts is the last table seen at or below the root; coverage guards it with the watches.
 	mounts mountStacks
 	// rewalk asks restoreLoop to walk the root again after a loss; lossEpoch counts the losses consumed.
-	rewalk       chan struct{}
-	path         string
+	rewalk chan struct{}
+	path   string
+	// workers runs readErrors and restoreLoop, which Close waits for.
+	workers      sync.WaitGroup
 	lossEpoch    atomic.Uint64
 	coverage     sync.Mutex
 	once         sync.Once
@@ -128,8 +130,9 @@ func (w *Watcher) Start(ctx context.Context) error {
 
 	ctx, w.cancel = context.WithCancel(ctx)
 	go w.read(ctx)
-	go w.readErrors()
-	go w.restoreLoop(ctx)
+
+	w.workers.Go(w.readErrors)
+	w.workers.Go(func() { w.restoreLoop(ctx) })
 
 	if w.changes != nil {
 		go w.followMounts(ctx)
@@ -158,6 +161,8 @@ func (w *Watcher) Close() error {
 		if w.cancel != nil {
 			<-w.done
 		}
+
+		w.workers.Wait()
 	})
 
 	return fault.Wrap("close inotify", err)
@@ -406,7 +411,7 @@ func (w *Watcher) restoreLoop(ctx context.Context) {
 		case <-wait.C:
 		}
 
-		w.restoreCoverage()
+		w.restoreCoverage(ctx)
 
 		last = time.Now()
 	}
@@ -414,9 +419,9 @@ func (w *Watcher) restoreLoop(ctx context.Context) {
 
 // restoreCoverage watches directories created during a loss. Directories deleted during it lost their watches
 // with their inodes, and fsnotify forgot them: the bookkeeping forgets them too, or a recreated directory
-// reusing the inode number would count as watched. A failed walk, or a loss consumed meanwhile, keeps coverage
-// lost.
-func (w *Watcher) restoreCoverage() {
+// reusing the inode number would count as watched. A failed walk, one stopped by Close, or a loss consumed
+// meanwhile, keeps coverage lost.
+func (w *Watcher) restoreCoverage(ctx context.Context) {
 	epoch := w.lossEpoch.Load()
 
 	var err error
@@ -455,6 +460,10 @@ func (w *Watcher) restoreCoverage() {
 
 			return w.unwatched(name)
 		}, func(name string, directory int) error {
+			if ctx.Err() != nil {
+				return fault.Wrap("restore watches", ctx.Err())
+			}
+
 			w.coverage.Lock()
 			defer w.coverage.Unlock()
 
