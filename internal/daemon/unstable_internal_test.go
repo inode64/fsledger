@@ -123,6 +123,8 @@ func TestUnstableDoesNotMaskFatalError(t *testing.T) {
 	}
 }
 
+const pendingPath = "/pending"
+
 // A path that stays unstable must not keep the flush pending: commit.defer would stay bypassed meanwhile.
 func TestFlushRequestDoesNotWaitForUnstablePaths(t *testing.T) {
 	t.Parallel()
@@ -138,7 +140,7 @@ func TestFlushRequestDoesNotWaitForUnstablePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = runner.deferUnstable(integrity.UnstablePathsError{"/pending"})
+	err = runner.deferUnstable(integrity.UnstablePathsError{pendingPath})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +165,7 @@ func TestUnstableRetriesBackOff(t *testing.T) {
 	delays := make([]time.Duration, 0, 4)
 
 	for range 4 {
-		runner.scanningUnstable = map[string]struct{}{"/pending": {}}
+		runner.scanningUnstable = map[string]struct{}{pendingPath: {}}
 		runner.finishUnstableScan()
 		delays = append(delays, runner.unstableDelay)
 	}
@@ -177,5 +179,16 @@ func TestUnstableRetriesBackOff(t *testing.T) {
 
 	if runner.unstableDelay != 0 || !runner.unstableRetry.IsZero() {
 		t.Fatal("stable paths kept a retry", runner.unstableDelay, runner.unstableRetry)
+	}
+
+	// A cron schedule leaves the interval unset; the delay must still grow.
+	runner.cfg.Watch.Reconcile.Interval = 0
+	for range 2 {
+		runner.scanningUnstable = map[string]struct{}{pendingPath: {}}
+		runner.finishUnstableScan()
+	}
+
+	if runner.unstableDelay != 2*time.Minute {
+		t.Fatal("scheduled reconciliation kept a fixed retry delay", runner.unstableDelay)
 	}
 }
