@@ -500,6 +500,8 @@ storage:
 
 Configure credentials in SSH or Git. fsledger publishes only the specified branch,
 without force pushes, and retries network failures while continuing to record local changes.
+Each repository needs its own branch: two repositories cannot publish to the same branch
+of one remote URL or path.
 
 If you also want to apply changes from that branch, enable
 `storage.git.bidirectional: true`. Publish the local history first and work from

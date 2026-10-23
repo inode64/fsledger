@@ -84,6 +84,35 @@ func (c *Config) validateLocalRemotes() error {
 	return nil
 }
 
+// validateDistinctRemotes rejects two Git repositories publishing one branch of one URL or path remote:
+// their histories are unrelated, so the remote would reject the second one's pushes forever. A remote
+// name may point anywhere and is not compared.
+func (c *Config) validateDistinctRemotes() error {
+	publishers := make(map[[2]string]string)
+
+	for _, name := range c.Names() {
+		settings := c.Repositories[name].Storage.Git
+		if c.Repositories[name].Type != RepositoryGit || settings.Remote == "" || validObjectName(settings.Remote) {
+			continue
+		}
+
+		remote := settings.Remote
+		if filepath.IsAbs(remote) {
+			remote = filepath.Clean(remote)
+		}
+
+		target := [2]string{remote, settings.Branch}
+		if other, exists := publishers[target]; exists {
+			return fault.New("repositories " + other + " and " + name + " publish to the same Git branch: " +
+				remote + " " + settings.Branch)
+		}
+
+		publishers[target] = name
+	}
+
+	return nil
+}
+
 func validBranch(branch string) bool {
 	if branch == "" || branch == "@" || branch == "HEAD" || strings.HasPrefix(branch, "-") ||
 		strings.HasSuffix(branch, ".") || strings.ContainsAny(branch, ` ~^:?*[\`) {
