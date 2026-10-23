@@ -118,3 +118,37 @@ func TestCoverageRecoversAfterLoss(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// A failed mount follower is not restored by any walk: reconciliation must keep covering mounts.
+func TestStoppedMountFollowerKeepsPolling(t *testing.T) {
+	t.Parallel()
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector, err := New(t.TempDir(), matcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(detector)
+
+	detector.stopFollowing(nil)
+
+	if detector.PollingRequired() {
+		t.Fatal("a closed follower forced polling")
+	}
+
+	detector.stopFollowing(os.ErrDeadlineExceeded)
+
+	if !detector.PollingRequired() || !detector.Dirty() {
+		t.Fatal("a failed follower was not reported")
+	}
+
+	detector.restoreCoverage()
+
+	if !detector.PollingRequired() {
+		t.Fatal("a walk cleared the failed follower")
+	}
+}
