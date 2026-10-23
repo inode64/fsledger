@@ -129,12 +129,7 @@ func (plan *Plan) applyOne(ctx context.Context, objects Objects, index int, chan
 		return conflict("previously applied source changed: " + string(change.Path))
 	}
 
-	equal, err := matches(ctx, objects, actual, change.Before)
-	if err != nil {
-		return err
-	}
-
-	if !equal {
+	if !matches(actual, change.Before) {
 		return conflict("source changed before incoming replacement: " + string(change.Path))
 	}
 

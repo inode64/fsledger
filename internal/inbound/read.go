@@ -3,6 +3,9 @@ package inbound
 import (
 	"bytes"
 	"context"
+	"crypto/sha1" //nolint:gosec // Git names objects of SHA-1 repositories with it.
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -126,18 +129,29 @@ func sameStat(first, second unix.Stat_t) bool {
 		first.Size == second.Size && first.Mtim == second.Mtim && first.Ctim == second.Ctim
 }
 
-func matches(ctx context.Context, objects Objects, actual observed, version Version) (bool, error) {
+// matches compares the bytes on disk with a recorded version by hashing them as Git names a blob, which
+// spares reading the blob through two Git processes.
+func matches(actual observed, version Version) bool {
 	if actual.mode != version.Mode {
-		return false, nil
+		return false
 	}
 
-	if version.Mode == absent {
-		return true, nil
+	return version.Mode == absent || blobID(version.Object, actual.data) == version.Object
+}
+
+// blobID names data as a Git blob in the object format of identifier: SHA-256 or SHA-1. A SHA-1 match would
+// need a second preimage of the recorded version, not just a collision.
+func blobID(identifier string, data []byte) string {
+	object := append([]byte("blob "+strconv.Itoa(len(data))+"\x00"), data...)
+	if len(identifier) == sha256.Size*2 {
+		sum := sha256.Sum256(object)
+
+		return hex.EncodeToString(sum[:])
 	}
 
-	data, err := objects.ReadBlob(ctx, version.Object)
+	sum := sha1.Sum(object) //nolint:gosec // Git's SHA-1 object name, compared against a recorded version.
 
-	return err == nil && bytes.Equal(data, actual.data), err
+	return hex.EncodeToString(sum[:])
 }
 
 func preflight(ctx context.Context, objects Objects, change Change) error {
@@ -162,12 +176,7 @@ func preflight(ctx context.Context, objects Objects, change Change) error {
 		return err
 	}
 
-	equal, err := matches(ctx, objects, actual, change.Before)
-	if err != nil {
-		return err
-	}
-
-	if !equal {
+	if !matches(actual, change.Before) {
 		return conflict("source differs from incoming base: " + string(change.Path))
 	}
 
