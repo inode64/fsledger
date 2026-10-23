@@ -52,7 +52,7 @@ func TestDescriptorEventRecordsReadTimeAndReapedWriter(t *testing.T) {
 
 	detector := new(Watcher)
 
-	detector.queue, detector.matcher = watcher.NewQueue(1), matcher
+	detector.queue, detector.matcher, detector.path = watcher.NewQueue(1), matcher, filepath.Dir(file.Name())
 
 	var before unix.Timespec
 

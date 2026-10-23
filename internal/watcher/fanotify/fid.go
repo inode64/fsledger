@@ -156,8 +156,8 @@ func (w *Watcher) handleFID(data []byte, pid int, pidfd *os.File, reaped bool, m
 	hasOld, hasNew := renameRecords(info)
 	w.updateDirectoryCoverage(path, old, mask, hasOld, hasNew)
 
-	if w.matcher.Match(path) {
-		if old == "" || w.matcher.Match(old) {
+	if w.ignored(path) {
+		if old == "" || w.ignored(old) {
 			resource.OptionalFile(pidfd)
 
 			return nil
@@ -166,7 +166,7 @@ func (w *Watcher) handleFID(data []byte, pid int, pidfd *os.File, reaped bool, m
 		path, old = old, ""
 	}
 
-	if old != "" && w.matcher.Match(old) {
+	if old != "" && w.ignored(old) {
 		old = ""
 	}
 

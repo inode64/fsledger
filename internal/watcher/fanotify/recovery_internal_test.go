@@ -296,7 +296,7 @@ func TestRealDeletedSuffixIsNotDiscarded(t *testing.T) {
 
 	detector := new(Watcher)
 
-	detector.queue, detector.matcher = watcher.NewQueue(1), matcher
+	detector.queue, detector.matcher, detector.path = watcher.NewQueue(1), matcher, filepath.Dir(file.Name())
 
 	err = detector.handleDescriptor(int(file.Fd()), 0, nil, false)
 	if err != nil {
@@ -341,5 +341,30 @@ func TestHealthyNameCoverageAvoidsFullPeriodicWalk(t *testing.T) {
 
 	if !detector.needsCoverageRefresh(now, now.Add(-coverageSweepInterval)) {
 		t.Fatal("bounded cleanup sweep skipped")
+	}
+}
+
+// A file root marks its whole parent: events for its siblings must not reach procfs resolution.
+func TestEventOutsideRootIsDiscarded(t *testing.T) {
+	t.Parallel()
+
+	file, err := os.Create(filepath.Join(t.TempDir(), "sibling"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(file)
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector := new(Watcher)
+	detector.queue, detector.matcher = watcher.NewQueue(1), matcher
+	detector.path = filepath.Join(filepath.Dir(file.Name()), "root")
+
+	err = detector.handleDescriptor(int(file.Fd()), 0, nil, false)
+	if err != nil || len(detector.queue.Channel) != 0 {
+		t.Fatal("event outside the root was queued", err)
 	}
 }
