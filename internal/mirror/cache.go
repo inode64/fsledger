@@ -45,7 +45,7 @@ func (file cachedFile) racy() bool {
 }
 
 func (s *Sync) destinationSignature(relative string) (signature, error) {
-	info, err := s.root.Lstat(relative)
+	info, err := s.mirrorLstat(relative)
 	if err != nil {
 		return signature{}, fault.Wrap("stat mirror cache", err)
 	}
