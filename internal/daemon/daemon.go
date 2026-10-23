@@ -301,7 +301,9 @@ func (w *worker) run(ctx context.Context, initial bool) error {
 	defer stopped()
 
 	// Event delivery is enabled before snapshotting to close the startup gap. Shutdown closes the watchers.
+	// Forwarding starts with them: the detectors' bounded queues would overflow during the first reconciliation.
 	w.startWatchers(ctx)
+	w.startForwarding(ctx)
 
 	err := w.prepareScanSchedule(time.Now())
 	if err != nil {
