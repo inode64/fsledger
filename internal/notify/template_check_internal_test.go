@@ -152,6 +152,14 @@ func parsedTemplate(t *testing.T, subject, body string) config.Template {
 func exampleTemplate(t *testing.T) config.Template {
 	t.Helper()
 
+	subject, body := exampleDefinition(t)
+
+	return parsedTemplate(t, subject, body)
+}
+
+func exampleDefinition(t *testing.T) (string, string) {
+	t.Helper()
+
 	data, err := os.ReadFile("../../examples/templates/change.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -167,5 +175,14 @@ func exampleTemplate(t *testing.T) config.Template {
 		t.Fatal(err)
 	}
 
-	return parsedTemplate(t, definition.Subject, definition.Body)
+	return definition.Subject, definition.Body
+}
+
+// The shipped example presents itself as the built-in template, code legend included.
+func TestExampleTemplateMatchesBuiltin(t *testing.T) {
+	t.Parallel()
+
+	if _, body := exampleDefinition(t); body != defaultBody {
+		t.Fatal("examples/templates/change.yaml body differs from the built-in template")
+	}
 }
