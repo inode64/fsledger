@@ -535,7 +535,7 @@ func (w *Watcher) handleDescriptor(descriptor, pid int, pidfd *os.File, reaped b
 		return err
 	}
 
-	if w.matcher.Match(path) {
+	if w.ignored(path) {
 		resource.OptionalFile(pidfd)
 
 		return nil
@@ -547,6 +547,12 @@ func (w *Watcher) handleDescriptor(descriptor, pid int, pidfd *os.File, reaped b
 	})
 
 	return nil
+}
+
+// ignored drops events outside the root, which a file root's marked parent or a directory moved out of the
+// root still reports, as well as excluded paths: they would cost procfs resolution only to be discarded.
+func (w *Watcher) ignored(path string) bool {
+	return !pathutil.Contains(w.path, path) || w.matcher.Match(path)
 }
 
 func (w *Watcher) markExisting(path string, verified map[string]bool) error {
