@@ -375,3 +375,37 @@ func TestExchangedDirectoriesStayWatched(t *testing.T) {
 		waitEvent(t, detector, filepath.Join(directory, "after"), "")
 	}
 }
+
+// A directory renamed away and back, as `mv d tmp && mv tmp d`, keeps its name and its recorded identity, but
+// fsnotify dropped the watch of the moved directory: the name must be watched again.
+func TestDirectoryRenamedBackStaysWatched(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	directory, moved := filepath.Join(root, "directory"), filepath.Join(root, "moved")
+
+	err := os.Mkdir(directory, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector := startedWatcher(t.Context(), t, root)
+
+	err = errors.Join(os.Rename(directory, moved), os.Rename(moved, directory))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The rename back ends with the Create of the first name; the reader handled every event before it.
+	for back := false; !back; {
+		select {
+		case raw := <-detector.Events():
+			back = raw.Path == directory && raw.Operation == event.Create
+		case <-time.After(3 * time.Second):
+			t.Fatal("no event for the rename back")
+		}
+	}
+
+	writeFile(t, filepath.Join(directory, "after"))
+	waitEvent(t, detector, filepath.Join(directory, "after"), "")
+}
