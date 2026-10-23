@@ -41,8 +41,13 @@ func (session *Session) SummarizeReport(ctx context.Context, items []catalog.Rep
 
 	return session.tryProviders(ctx, func(ctx context.Context, name string) (string, string, error) {
 		text, err := providerSummary(ctx, session.manager.profiles[name], reportInstruction, prompt)
+		if err != nil {
+			return "", "", err
+		}
 
-		return "Resumen generado por IA (" + name + "):\n" + text, "summarized:" + name, err
+		summary, status := summarized(name, text)
+
+		return summary, status, nil
 	})
 }
 
