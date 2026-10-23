@@ -33,6 +33,10 @@ type readWorkspace struct {
 	buffer    []byte
 }
 
+func newReadWorkspace() *readWorkspace {
+	return &readWorkspace{digest: nil, algorithm: "", buffer: make([]byte, bufferSize)}
+}
+
 func (workspace *readWorkspace) hasher(algorithm string) (hash.Hash, error) {
 	if workspace.digest == nil || workspace.algorithm != algorithm {
 		digest, err := Hasher(algorithm)
@@ -41,10 +45,6 @@ func (workspace *readWorkspace) hasher(algorithm string) (hash.Hash, error) {
 		}
 
 		workspace.digest, workspace.algorithm = digest, algorithm
-	}
-
-	if workspace.buffer == nil {
-		workspace.buffer = make([]byte, bufferSize)
 	}
 
 	workspace.digest.Reset()
@@ -459,10 +459,6 @@ func reuseCopiedHash(source HashSource, algorithm string, record *Record) bool {
 
 // readLink reads into the reusable buffer and keeps only the target: records stay in batches.
 func (workspace *readWorkspace) readLink(parent int, name string) ([]byte, error) {
-	if workspace.buffer == nil {
-		workspace.buffer = make([]byte, bufferSize)
-	}
-
 	count, err := unix.Readlinkat(parent, name, workspace.buffer)
 	if err != nil {
 		return nil, fault.Wrap("read source symlink", err)

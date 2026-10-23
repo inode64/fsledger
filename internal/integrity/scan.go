@@ -34,7 +34,7 @@ func NewScanner(workers, concurrent int) *Scanner {
 		roots: RootGuard{},
 	}
 	for range cap(scanner.slots) {
-		scanner.slots <- &readWorkspace{}
+		scanner.slots <- newReadWorkspace()
 	}
 
 	return scanner

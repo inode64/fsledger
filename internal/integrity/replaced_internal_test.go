@@ -59,7 +59,7 @@ func TestHashRetriesRegularFileReplacedBeforeOpening(t *testing.T) {
 			parent, name, before := replacedRegular(t, path, replace)
 			record := fromStat(path, &before)
 
-			err := (&readWorkspace{}).hashFile(t.Context(), parent, name, "sha256", &before, &record)
+			err := newReadWorkspace().hashFile(t.Context(), parent, name, "sha256", &before, &record)
 			if !errors.Is(err, ErrUnstable) || record.Hash != "" {
 				t.Fatalf("replaced source was not retried: %q %v", record.Hash, err)
 			}
