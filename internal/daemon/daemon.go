@@ -37,10 +37,13 @@ const (
 	// The final reconciliation of 50+ repositories shares one scanner and needs about three minutes. It is
 	// measured from the stop request, including any operation grace, so everything ends before the 300 s
 	// that the OpenRC script and the systemd unit wait before SIGKILL.
-	shutdownGrace      = 270 * time.Second
-	eventQueueSize     = 8192
-	droppedPathBytes   = 16 << 20
-	schedulingInterval = 250 * time.Millisecond
+	shutdownGrace  = 270 * time.Second
+	eventQueueSize = 8192
+	// A failed repository is retried after repositoryRetryDelay, doubling up to maximumRepositoryRetryDelay.
+	repositoryRetryDelay        = time.Second
+	maximumRepositoryRetryDelay = 5 * time.Minute
+	droppedPathBytes            = 16 << 20
+	schedulingInterval          = 250 * time.Millisecond
 )
 
 type worker struct {
@@ -145,21 +148,20 @@ func Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	var wait sync.WaitGroup
 	for _, name := range cfg.Names() {
 		wait.Go(func() {
-			err := runRepository(
-				ctx,
-				cfg.ForRepository(name),
-				name,
-				logger,
-				scanner,
-				sender,
-				auditProvider,
-				summaries,
-				matchers[name], roots[name], resolved[name], probe,
-			)
-			// One repository's failure must not stop the others: the daemon fails once every one has stopped.
-			if err != nil && (ctx.Err() == nil || !errors.Is(err, ctx.Err())) {
-				logger.Error("repository stopped", "repository", name, "error", err)
-
+			err := retryRepository(ctx, logger, name, func() error {
+				return runRepository(
+					ctx,
+					cfg.ForRepository(name),
+					name,
+					logger,
+					scanner,
+					sender,
+					auditProvider,
+					summaries,
+					matchers[name], roots[name], resolved[name], probe,
+				)
+			})
+			if err != nil {
 				failures <- fmt.Errorf("repository %s: %w", name, err)
 			}
 		})
@@ -174,6 +176,33 @@ func Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	}
 
 	return result
+}
+
+// retryRepository runs a repository until shutdown. A failure must not stop the others, nor leave this one
+// unmonitored until someone restarts the daemon, as when a CLI command held its lock: it is retried with a
+// doubling delay. The error returned is the failure that shutdown interrupted, if any.
+func retryRepository(ctx context.Context, logger *slog.Logger, name string, run func() error) error {
+	var delay time.Duration
+
+	for {
+		err := run()
+		if err == nil || ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+			return nil
+		}
+
+		delay = doubledDelay(delay, repositoryRetryDelay, maximumRepositoryRetryDelay)
+		logger.Error("repository stopped", "repository", name, "error", err, "retry_in", delay)
+
+		timer := time.NewTimer(delay)
+
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+
+			return err
+		case <-timer.C:
+		}
+	}
 }
 
 func runRepository(

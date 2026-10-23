@@ -547,7 +547,10 @@ fsledger flush --repository system
 `check --effective` shows the resolved configuration without credentials. `status` brings
 together repositories, detectors, scans, pending changes, and Git publication. `flush`
 asynchronously requests processing of deferred Git changes; check `status` afterward
-to confirm the result. Add `-c PATH` to commands if you use a different main configuration file.
+to confirm the result. While a long reconciliation runs, `status` reports the repository as
+busy rather than stopped. A repository that fails is retried automatically while the others
+keep running. Options a command does not use, such as `--repository` with `status`, are
+rejected. Add `-c PATH` to commands if you use a different main configuration file.
 
 With the daemon stopped, you can preview a pending report without consuming it,
 calling AI, or sending email:
