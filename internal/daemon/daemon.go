@@ -150,10 +150,11 @@ func Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 				summaries,
 				matchers[name], roots[name], resolved[name], probe,
 			)
+			// One repository's failure must not stop the others: the daemon fails once every one has stopped.
 			if err != nil && (ctx.Err() == nil || !errors.Is(err, ctx.Err())) {
-				failures <- fmt.Errorf("repository %s: %w", name, err)
+				logger.Error("repository stopped", "repository", name, "error", err)
 
-				cancel()
+				failures <- fmt.Errorf("repository %s: %w", name, err)
 			}
 		})
 	}
