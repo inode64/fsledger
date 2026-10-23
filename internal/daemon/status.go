@@ -90,6 +90,14 @@ func (w *worker) advise(message string) {
 	w.refreshWarnings()
 }
 
+// withdraw drops an advisory whose condition ended.
+func (w *worker) withdraw(message string) {
+	if slices.Contains(w.advisories, message) {
+		w.advisories = slices.DeleteFunc(w.advisories, func(advisory string) bool { return advisory == message })
+		w.refreshWarnings()
+	}
+}
+
 // refreshWarnings rebuilds the published list: advisories first, then the warnings since the last recovery,
 // then the notifications the outbox stopped retrying, which no recovery clears.
 func (w *worker) refreshWarnings() {

@@ -219,6 +219,7 @@ func (w *worker) resolveProcess(ctx context.Context, raw event.Raw) event.Raw {
 	return raw
 }
 
+//nolint:gocognit // Every detector signal is consumed in one pass over the detectors.
 func (w *worker) checkLosses() {
 	// Events dropped while the worker was busy, typically reconciling, are observed again without an actor:
 	// that downgrades any pending actor of the same path, and avoids another full reconciliation. No Audit
@@ -253,8 +254,12 @@ func (w *worker) checkLosses() {
 		}
 
 		// Not a loss: periodic reconciliation covers the unmarked directories, without attribution.
-		if limited, ok := detector.(interface{ MarkLimitReached() bool }); ok && limited.MarkLimitReached() {
-			w.advise(fanotifyMarkLimit)
+		if limited, ok := detector.(interface{ MarkLimitReached() bool }); ok {
+			if limited.MarkLimitReached() {
+				w.advise(fanotifyMarkLimit)
+			} else {
+				w.withdraw(fanotifyMarkLimit)
+			}
 		}
 	}
 }

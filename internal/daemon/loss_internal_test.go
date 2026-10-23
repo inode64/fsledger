@@ -155,21 +155,34 @@ func TestStatusSnapshotDoesNotFollowExistingLinks(t *testing.T) {
 	}
 }
 
-// limitedDetector is a fanotify group whose last walk of the root hit the mark limit.
-type limitedDetector struct{ queuedDetector }
+// limitedDetector is a fanotify group whose last walk of the root hit the mark limit while limited holds.
+type limitedDetector struct {
+	queuedDetector
 
-func (*limitedDetector) MarkLimitReached() bool { return true }
+	limited bool
+}
+
+func (detector *limitedDetector) MarkLimitReached() bool { return detector.limited }
 
 // Directories beyond the mark limit are a lasting advisory, not a coverage loss to recover from.
 func TestMarkLimitIsAdvisedNotLost(t *testing.T) {
 	t.Parallel()
 	runner := makeWorker(t)
-	runner.watchers = []watcher.Watcher{&limitedDetector{queuedDetector{Queue: watcher.NewQueue(1)}}}
+	detector := &limitedDetector{Queue: watcher.NewQueue(1), limited: true}
+	runner.watchers = []watcher.Watcher{detector}
 
 	runner.checkLosses()
 
 	if runner.contaminated || runner.pendingError || !slices.Contains(runner.status.Warnings, fanotifyMarkLimit) {
 		t.Fatal("mark limit reported as loss or not advised", runner.status.Warnings)
+	}
+
+	detector.limited = false
+
+	runner.checkLosses()
+
+	if slices.Contains(runner.status.Warnings, fanotifyMarkLimit) {
+		t.Fatal("advisory outlived the mark limit")
 	}
 }
 
