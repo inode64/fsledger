@@ -178,42 +178,39 @@ func (w *Watcher) watchTree() error {
 	return nil
 }
 
+// addTree walks without following symlinks, even one swapped in meanwhile. Another filesystem mounted below
+// the root, without a detector of its own, is a boundary that reconciliation covers.
 func (w *Watcher) addTree(path string) error {
-	err := filepath.WalkDir(path, func(name string, entry fs.DirEntry, err error) error {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-
-		if err != nil {
-			return err
-		}
-
-		if !entry.IsDir() {
-			return nil
-		}
-
-		// Another filesystem mounted below the root, without a detector of its own, is a boundary that
-		// reconciliation covers.
-		if w.matcher.MatchEntry(name) || w.mounts.boundary(w.path, name) {
-			return filepath.SkipDir
-		}
-
-		return w.watchDirectory(name)
-	})
+	err := watcher.WalkDirectories(path, func(name string) bool {
+		return w.matcher.MatchEntry(name) || w.mounts.boundary(w.path, name)
+	}, w.watchDirectory)
 
 	return fault.Wrap("install recursive watches", err)
 }
 
-// A directory removed after the walk listed it has nothing left to watch: its parent
-// watch reports the removal, so ENOENT is not coverage loss and must not taint attribution.
-func (w *Watcher) watchDirectory(name string) error {
+// watchDirectory watches name, which the walk opened as directory. inotify resolves name again and follows
+// its symlinks, so a watch that landed elsewhere, through a symlink swapped in meanwhile, is removed. A
+// directory removed meanwhile has nothing left to watch: its parent's watch reports the removal, so ENOENT
+// is not coverage loss and must not taint attribution.
+func (w *Watcher) watchDirectory(name string, directory int) error {
 	err := w.native.Add(name)
 	if errors.Is(err, os.ErrNotExist) {
-		return filepath.SkipDir
+		return fs.SkipDir
 	}
 
 	if err != nil {
 		return fmt.Errorf("watch %s: %w", name, err)
+	}
+
+	var opened, watched unix.Stat_t
+	if unix.Fstat(directory, &opened) != nil || unix.Stat(name, &watched) != nil ||
+		opened.Dev != watched.Dev || opened.Ino != watched.Ino {
+		removeErr := w.native.Remove(name)
+		if removeErr != nil && !staleWatch(removeErr) {
+			return fmt.Errorf("remove misdirected watch %s: %w", name, removeErr)
+		}
+
+		return fs.SkipDir
 	}
 
 	w.directories.add(name)

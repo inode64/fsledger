@@ -20,6 +20,7 @@ import (
 	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/filehandle"
+	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/pathindex"
 	"github.com/inode64/fsledger/internal/pathutil"
 	"github.com/inode64/fsledger/internal/resource"
@@ -250,35 +251,19 @@ func (w *Watcher) markTree(path string, verified map[string]bool) error {
 func markLimit(err error) bool { return errors.Is(err, unix.ENOSPC) || errors.Is(err, unix.ENOMEM) }
 
 // walkTree marks the selected directories below path and reports whether it left directories unmarked, and
-// whether the mark limit was the cause.
+// whether the mark limit was the cause. The walk never follows a symlink, even one swapped in meanwhile.
 func (w *Watcher) walkTree(path string, verified map[string]bool) (bool, bool, error) {
 	skipped, limited := false, false
 
-	err := filepath.WalkDir(path, func(name string, entry fs.DirEntry, walkErr error) error {
-		if errors.Is(walkErr, os.ErrNotExist) {
-			return nil
-		}
-
-		if walkErr != nil {
-			return walkErr
-		}
-
-		if !entry.IsDir() {
-			return nil
-		}
-
-		if w.matcher.MatchEntry(name) {
-			return filepath.SkipDir
-		}
-
-		markErr := w.markExisting(name, verified)
+	err := watcher.WalkDirectories(path, w.matcher.MatchEntry, func(name string, directory int) error {
+		markErr := verify(name, w.markAt(name, directory), verified)
 		// A filesystem mounted below the root after Start is a boundary, like the nested mounts excluded at startup,
 		// but without a watcher of its own: reconciliation covers it. So is a directory beyond the mark limit;
 		// treating it as lost coverage would flush and re-mark every 30 seconds. At the root it is lost coverage.
 		if name != w.path && (errors.Is(markErr, errOtherFilesystem) || markLimit(markErr)) {
 			skipped, limited = true, limited || markLimit(markErr)
 
-			return filepath.SkipDir
+			return fs.SkipDir
 		}
 
 		return markErr
@@ -578,13 +563,17 @@ func (w *Watcher) ignored(path string) bool {
 	return !pathutil.Contains(w.path, path) || w.matcher.Match(path)
 }
 
+// markExisting marks a directory unless it is gone or replaced, which its parent's events report.
 func (w *Watcher) markExisting(path string, verified map[string]bool) error {
-	err := w.mark(path)
+	return verify(path, w.mark(path), verified)
+}
+
+func verify(path string, err error, verified map[string]bool) error {
 	if err == nil && verified != nil {
 		verified[path] = true
 	}
 
-	if errors.Is(err, os.ErrNotExist) {
+	if integrity.Missing(err) || errors.Is(err, unix.ELOOP) {
 		return nil
 	}
 
