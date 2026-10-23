@@ -644,8 +644,8 @@ Selection is independent of ia_commit and applies to Git and DB repositories.
 Only selected paths, change kinds, field names and deferred flags are
 sent, never source contents, attribute values or actor commands. The union of
 profile redactions masks complete names before encoding and bounding the input.
-At most 32 observations per part and the smallest selected max_diff_bytes limit
-are sent. AI failures produce deterministic text without delaying local commits;
+At most 32 observations per part are sent, within the smallest selected
+max_diff_bytes and never more than 64 KiB. AI failures produce deterministic text without delaying local commits;
 the five-second deadline and two-request concurrency budget are shared with
 commit summaries. SMTP retries do not call AI again.
 .PP
