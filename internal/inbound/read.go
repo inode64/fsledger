@@ -140,18 +140,22 @@ func matches(actual observed, version Version) bool {
 }
 
 // blobID names data as a Git blob in the object format of identifier: SHA-256 or SHA-1. A SHA-1 match would
-// need a second preimage of the recorded version, not just a collision.
+// need a second preimage of the recorded version, not just a collision. The header and the data are hashed
+// in turn, without copying the data. Hashes never fail to write; an empty name would match nothing.
 func blobID(identifier string, data []byte) string {
-	object := append([]byte("blob "+strconv.Itoa(len(data))+"\x00"), data...)
+	digest := sha1.New() //nolint:gosec // Git's SHA-1 object name, compared against a recorded version.
 	if len(identifier) == sha256.Size*2 {
-		sum := sha256.Sum256(object)
-
-		return hex.EncodeToString(sum[:])
+		digest = sha256.New()
 	}
 
-	sum := sha1.Sum(object) //nolint:gosec // Git's SHA-1 object name, compared against a recorded version.
+	for _, part := range [][]byte{[]byte("blob " + strconv.Itoa(len(data)) + "\x00"), data} {
+		_, err := digest.Write(part)
+		if err != nil {
+			return ""
+		}
+	}
 
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(digest.Sum(nil))
 }
 
 func preflight(ctx context.Context, objects Objects, change Change) error {
