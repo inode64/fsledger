@@ -368,3 +368,20 @@ func TestEventOutsideRootIsDiscarded(t *testing.T) {
 		t.Fatal("event outside the root was queued", err)
 	}
 }
+
+// More new directories than the refresh queue holds, as an archive extraction creates, need a full
+// refresh, not a coverage loss with its flush and full reconciliation.
+func TestRefreshQueueOverflowRequestsFullRefresh(t *testing.T) {
+	t.Parallel()
+
+	detector := new(Watcher)
+	detector.queue = watcher.NewQueue(1)
+	detector.refreshPaths, detector.refreshAll = make(chan string, 1), make(chan struct{}, 1)
+
+	detector.requestTree("/srv/a")
+	detector.requestTree("/srv/b")
+
+	if detector.Dirty() || detector.coverageLost.Load() || len(detector.refreshAll) != 1 {
+		t.Fatal("refresh queue overflow became a coverage loss")
+	}
+}

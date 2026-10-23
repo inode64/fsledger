@@ -389,12 +389,13 @@ func (w *Watcher) requestCoverageRefresh() {
 	}
 }
 
-// requestTree queues a path already selected by updateDirectoryCoverage.
+// requestTree queues a path already selected by updateDirectoryCoverage. A burst of new directories that
+// overflows the queue loses no event: a full refresh marks them, and Covers leaves them to inotify meanwhile.
 func (w *Watcher) requestTree(path string) {
 	select {
 	case w.refreshPaths <- path:
 	default:
-		w.loss("fanotify coverage refresh queue overflow")
+		w.requestCoverageRefresh()
 	}
 }
 
