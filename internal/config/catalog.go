@@ -141,6 +141,7 @@ func (loader *catalogLoader) notifiers(base string, cfg *Config) error {
 
 		var notifier Notifier
 
+		// The YAML error is dropped: it may quote part of a DSN or webhook URL, which carry credentials.
 		err := loader.read(file, &notifier)
 		if err != nil {
 			return fault.New("invalid notifier document: " + file)
