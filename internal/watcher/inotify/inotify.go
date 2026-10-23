@@ -128,6 +128,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 
 	ctx, w.cancel = context.WithCancel(ctx)
 	go w.read(ctx)
+	go w.readErrors()
 	go w.restoreLoop(ctx)
 
 	if w.changes != nil {
@@ -362,12 +363,6 @@ func (w *Watcher) read(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case err, ok := <-w.native.Errors:
-			if !ok {
-				return
-			}
-
-			w.queue.Send(event.Raw{Dirty: true, Reason: err.Error(), Backend: w.Name()})
 		case native, ok := <-w.native.Events:
 			if !ok {
 				return
@@ -375,6 +370,14 @@ func (w *Watcher) read(ctx context.Context) {
 
 			w.handle(native)
 		}
+	}
+}
+
+// readErrors reads fsnotify's unbuffered error channel apart from the reader, until Close closes it: fsnotify
+// reports some errors while holding the lock its Add and Remove take, and the reader calls them.
+func (w *Watcher) readErrors() {
+	for err := range w.native.Errors {
+		w.queue.Send(event.Raw{Dirty: true, Reason: err.Error(), Backend: w.Name()})
 	}
 }
 

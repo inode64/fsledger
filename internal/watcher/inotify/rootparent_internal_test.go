@@ -1,8 +1,10 @@
 package inotify
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -178,4 +180,85 @@ func TestCreationPastPathMaxForcesPolling(t *testing.T) {
 	if !detector.PollingRequired() {
 		t.Fatal("a directory past PATH_MAX was left uncovered")
 	}
+}
+
+// fsnotify reports a watch it fails to remove after a move while holding the lock its Add and Remove take: the
+// error must be read while the reader waits for that lock, or neither ever proceeds.
+func TestErrorsDrainWhileTheReaderWaits(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	moved := filepath.Join(root, "moved")
+
+	err := os.Mkdir(moved, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector := startedWatcher(t.Context(), t, root)
+
+	// The reader waits for the lock with the directory created first; fsnotify reads the move only after the
+	// moved directory is gone, and fails to remove its watch.
+	detector.coverage.Lock()
+	defer detector.coverage.Unlock()
+
+	err = os.Mkdir(filepath.Join(root, "created"), 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fillEvents(t, detector, root)
+
+	err = errors.Join(os.Rename(moved, moved+".old"), os.Remove(moved+".old"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	timeout := time.After(5 * time.Second)
+
+	for removed := false; !removed; {
+		select {
+		case native := <-detector.native.Events:
+			removed = native.Name == moved+".old" && native.Has(fsnotify.Remove)
+		case <-timeout:
+			// Reading the error lets fsnotify, and so the cleanup, go on.
+			select {
+			case err = <-detector.native.Errors:
+				t.Fatal("fsnotify stopped on an error nobody read:", err)
+			default:
+				t.Fatal("no event for the removed directory")
+			}
+		}
+	}
+
+	if !eventually(detector.Dirty) {
+		t.Fatal("the fsnotify error was not reported as a loss")
+	}
+}
+
+// fillEvents creates files under root until fsnotify's channel is full: fsnotify then reads no event meanwhile.
+func fillEvents(t *testing.T, detector *Watcher, root string) {
+	t.Helper()
+
+	for name := range watcher.QueueSize + 1 {
+		writeFile(t, filepath.Join(root, strconv.Itoa(name)))
+	}
+
+	if !eventually(func() bool { return len(detector.native.Events) == cap(detector.native.Events) }) {
+		t.Fatal("fsnotify's channel did not fill")
+	}
+}
+
+// eventually reports whether condition holds within five seconds.
+func eventually(condition func() bool) bool {
+	deadline := time.Now().Add(5 * time.Second)
+	for !condition() {
+		if time.Now().After(deadline) {
+			return false
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+
+	return true
 }
