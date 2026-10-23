@@ -107,3 +107,15 @@ func TestActorMessageKeepsRawStartTime(t *testing.T) {
 		t.Fatalf("raw start time or executable lost: %q", message)
 	}
 }
+
+// A process names itself: its executable must not add lines, such as a forged trailer, to the subject.
+func TestActorMessageEscapesExecutableName(t *testing.T) {
+	t.Parallel()
+
+	actor := event.Actor{Known: true, PID: 1, StartTime: 1, Executable: "/tmp/x\nFSLedger-Change-ID: forged"}
+
+	subject, _, _ := strings.Cut(actorMessage(actor, false), "\n")
+	if !strings.HasSuffix(subject, " modified files") || strings.Count(actorMessage(actor, false), "\nFSLedger") != 0 {
+		t.Fatalf("executable name broke the message: %q", actorMessage(actor, false))
+	}
+}

@@ -22,9 +22,9 @@ import (
 const ChangeIDTrailer = "FSLedger-Change-ID:"
 
 // AppendBeforeTrailer adds a paragraph to a commit message and keeps the change ID trailer last, where Git
-// reads trailers.
+// reads trailers. The trailer is the last occurrence: process-controlled text earlier may imitate it.
 func AppendBeforeTrailer(message, paragraph string) string {
-	body, identifier, found := strings.Cut(message, "\n"+ChangeIDTrailer+" ")
+	body, identifier, found := strings.CutLast(message, "\n"+ChangeIDTrailer+" ")
 	if !found {
 		return message + "\n\n" + paragraph
 	}
