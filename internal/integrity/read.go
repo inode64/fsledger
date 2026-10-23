@@ -83,15 +83,10 @@ func OpenParent(path string) (int, string, error) {
 	}
 
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	for _, part := range parts[:len(parts)-1] {
-		next, openErr := unix.Openat(fd, part, unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		resource.FD(fd)
 
-		if openErr != nil {
-			return -1, "", fault.Wrap("open source parent", openErr)
-		}
-
-		fd = next
+	fd, err = Descend(fd, parts[:len(parts)-1], 0)
+	if err != nil {
+		return -1, "", fault.Wrap("open source parent", err)
 	}
 
 	name := parts[len(parts)-1]
