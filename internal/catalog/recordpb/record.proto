@@ -26,4 +26,7 @@ message Record {
  uint32 mode = 20;
  bool no_atime = 21;
  bool has_btime = 22;
+ // Removed with the baseline: older records may still carry it.
+ reserved 23;
+ reserved "times_in_seconds";
 }
