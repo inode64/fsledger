@@ -141,13 +141,13 @@ func TestUsageErrorsCreateNoState(t *testing.T) {
 	}
 }
 
-// A removed or mistyped command is named as unknown, even when operands follow it.
+// A mistyped command is named as unknown, even when operands follow it.
 func TestUnknownCommandWithOperands(t *testing.T) {
 	t.Parallel()
 
 	missing := filepath.Join(t.TempDir(), fixtureMainYaml)
 
-	for _, args := range [][]string{{"baseline", "init"}, {"changes"}, {"migrate_aide", "db", "repo"}} {
+	for _, args := range [][]string{{"veriffy", "repo"}, {"stauts"}, {"flsh", "extra"}} {
 		err := cli.Run(append(args, "-c", missing), io.Discard, io.Discard)
 		if err == nil || !strings.Contains(err.Error(), `unknown command "`+args[0]+`"`) {
 			t.Errorf("%q: %v", args, err)
