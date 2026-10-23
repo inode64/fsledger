@@ -494,7 +494,11 @@ func (store *Store) DiscardPending(ctx context.Context) (int, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
-	var deliveries []Delivery
+	transaction := store.begin()
+	defer resource.Close(transaction.batch)
+
+	// Removals join the batch while iterating: only their keys are held, never every queued message.
+	count := 0
 
 	err := store.iterate(ctx, outboxPrefix, func(_, data []byte) error {
 		var delivery Delivery
@@ -504,18 +508,8 @@ func (store *Store) DiscardPending(ctx context.Context) (int, error) {
 			return fault.Wrap("decode delivery", err)
 		}
 
-		deliveries = append(deliveries, delivery)
+		count++
 
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	transaction := store.begin()
-	defer resource.Close(transaction.batch)
-
-	for _, delivery := range deliveries {
 		transaction.remove(deliveryDue(delivery))
 
 		if delivery.Message.Event == ReportEvent {
@@ -528,6 +522,11 @@ func (store *Store) DiscardPending(ctx context.Context) (int, error) {
 		if delivery.Exhausted {
 			transaction.state.Stats.ExhaustedNotifications--
 		}
+
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 
 	err = transaction.commit()
@@ -535,7 +534,7 @@ func (store *Store) DiscardPending(ctx context.Context) (int, error) {
 		return 0, err
 	}
 
-	return len(deliveries), nil
+	return count, nil
 }
 
 func (transaction *transaction) acknowledge(delivery Delivery, now time.Time) {
