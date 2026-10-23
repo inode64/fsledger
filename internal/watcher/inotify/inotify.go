@@ -68,7 +68,7 @@ func New(path string, matcher *exclude.Matcher) (*Watcher, error) {
 		return nil, fmt.Errorf("inotify init: %w", err)
 	}
 
-	return &Watcher{
+	detector := &Watcher{
 		native:      native,
 		path:        path,
 		directories: directoryWatches{},
@@ -77,7 +77,12 @@ func New(path string, matcher *exclude.Matcher) (*Watcher, error) {
 		done:        make(chan struct{}),
 		mountsDone:  make(chan struct{}),
 		rewalk:      make(chan struct{}, 1),
-	}, nil
+	}
+
+	// fsnotify may report an error while Start installs the first watches.
+	detector.workers.Go(detector.readErrors)
+
+	return detector, nil
 }
 
 // OnRemount has the mount follower report each directory it watches again after the mount table changed there,
@@ -137,7 +142,6 @@ func (w *Watcher) Start(ctx context.Context) error {
 	ctx, w.cancel = context.WithCancel(ctx)
 	go w.read(ctx)
 
-	w.workers.Go(w.readErrors)
 	w.workers.Go(func() { w.restoreLoop(ctx) })
 
 	if w.changes != nil {
