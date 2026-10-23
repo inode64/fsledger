@@ -20,7 +20,7 @@ func (w *worker) publish(ctx context.Context, now time.Time) {
 
 	err := w.repo.Publish(ctx, settings.Remote, settings.Branch, w.status.LastCommit)
 	if err != nil {
-		w.publishDelay = max(settings.PushInterval, min(w.publishDelay+w.publishDelay, maximumPublishBackoff))
+		w.publishDelay = doubledDelay(w.publishDelay, settings.PushInterval, maximumPublishBackoff)
 		w.publishNext = time.Now().Add(w.publishDelay)
 		w.status.LastPublishError = err.Error()
 		w.logger.Warn("Git publication failed", "error", err)
