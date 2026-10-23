@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -76,26 +75,25 @@ func TestDescendCreatesOnlyWithModeAndRefusesSymlinks(t *testing.T) {
 	}
 }
 
-// A chain reaching PATH_MAX is left unobserved below that point and reported as unstable: walking it would
-// hold a descriptor per level, and its recorded entries must not look deleted.
-func TestScanLeavesPathsPastPathMaxUnstable(t *testing.T) {
-	t.Parallel()
-
+// A deep chain is observed whole without holding a descriptor per level, which would exhaust the daemon's.
+//
+//nolint:paralleltest // It counts the process's open descriptors.
+func TestScanDeepChainHoldsFewDescriptors(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	name := strings.Repeat("d", 250)
+	const levels = 200
 
 	directory, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
-	for level := 0; err == nil && level < 20; level++ {
-		err = unix.Mkdirat(directory, name, 0o700)
+	for level := 0; err == nil && level < levels; level++ {
+		err = unix.Mkdirat(directory, "d", 0o700)
 
 		var next int
 
 		if err == nil {
-			next, err = unix.Openat(directory, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+			next, err = unix.Openat(directory, "d", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 		}
 
 		resource.FD(directory)
@@ -113,17 +111,27 @@ func TestScanLeavesPathsPastPathMaxUnstable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	visited := 0
+	before, peak, visited := openDescriptors(t), 0, 0
 
 	err = integrity.NewScanner(1, 1).ScanPaths(t.Context(), []string{root}, nil, matcher, "sha256", false, true,
 		func(integrity.Record) error {
 			visited++
+			peak = max(peak, openDescriptors(t))
 
 			return nil
 		}, nil)
-
-	paths, failure := integrity.SplitUnstable(err)
-	if failure != nil || len(paths) != 1 || len(paths[0]) < unix.PathMax || visited > unix.PathMax/len(name)+1 {
-		t.Fatal("deep chain walked or not reported", visited, paths, failure)
+	if err != nil || visited != levels+1 || peak-before > levels/4 {
+		t.Fatal("deep chain not observed within a few descriptors", visited, before, peak, err)
 	}
+}
+
+func openDescriptors(t *testing.T) int {
+	t.Helper()
+
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return len(entries)
 }

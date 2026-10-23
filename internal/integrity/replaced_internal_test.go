@@ -142,9 +142,9 @@ func TestScanSkipsEntriesBelowParentReplacedAfterListing(t *testing.T) {
 			scanner := NewScanner(1, 2)
 			directory, parent := replacedParent(t, replace)
 			jobs := make(chan string, 2)
-			walk := scanWalk{matcher: matcher, jobs: jobs, deep: new([]string), directories: true}
+			walk := scanWalk{matcher: matcher, jobs: jobs, directories: true}
 
-			err = scanner.walkChildren(t.Context(), directory, parent, walk)
+			err = walkListed(t.Context(), scanner, directory, parent, walk)
 			if err != nil {
 				t.Fatal("listed entry below a replaced parent failed the walk", err)
 			}
@@ -165,4 +165,16 @@ func TestScanSkipsEntriesBelowParentReplacedAfterListing(t *testing.T) {
 			}
 		})
 	}
+}
+
+// walkListed lists an opened directory and walks its subdirectories, as walk does once the listing ends.
+func walkListed(ctx context.Context, scanner *Scanner, directory *os.File, path string, walk scanWalk) error {
+	subdirectories, err := listChildren(ctx, directory, path, walk)
+	for _, child := range subdirectories {
+		if err == nil {
+			err = scanner.walk(ctx, child, true, walk)
+		}
+	}
+
+	return err
 }

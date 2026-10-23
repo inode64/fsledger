@@ -120,9 +120,7 @@ func (scanner *Scanner) ScanPaths(
 	go func() {
 		defer close(jobs)
 
-		walkDone <- scanner.walkPaths(ctx, paths, scanWalk{
-			matcher: matcher, jobs: jobs, deep: new([]string), directories: directories,
-		})
+		walkDone <- scanner.walkPaths(ctx, paths, scanWalk{matcher: matcher, jobs: jobs, directories: directories})
 	}()
 
 	var workers sync.WaitGroup
@@ -227,11 +225,10 @@ func (scanner *Scanner) checkPaths(roots, paths []string) error {
 	return scanner.CheckRoots(roots)
 }
 
-// scanWalk is shared by every step of one walk. deep collects the directories it leaves unobserved.
+// scanWalk is shared by every step of one walk.
 type scanWalk struct {
 	matcher     *exclude.Matcher
 	jobs        chan<- string
-	deep        *[]string
 	directories bool
 }
 
@@ -249,16 +246,10 @@ func (walk scanWalk) queue(ctx context.Context, path string) error {
 // Directories are queued before they are opened unless the walk leaves them out; a path that turns out
 // not to be a directory is then queued as an ordinary entry. A listed directory whose parent became a file
 // or a symlink since is gone with it, while a requested path below such a parent is rejected.
+//
+//nolint:gocognit // Opening, listing and descending share the error handling of one directory.
 func (scanner *Scanner) walk(ctx context.Context, path string, listed bool, walk scanWalk) error {
 	if walk.matcher.MatchEntry(path) {
-		return nil
-	}
-
-	// Every level holds a descriptor and is resolved from /: past PATH_MAX, a chain built below a source
-	// would exhaust the daemon's descriptors. Such a directory keeps its recorded entries, as an unstable path.
-	if len(path) >= unix.PathMax {
-		*walk.deep = append(*walk.deep, path)
-
 		return nil
 	}
 
@@ -298,43 +289,57 @@ func (scanner *Scanner) walk(ctx context.Context, path string, listed bool, walk
 	}
 
 	directory := os.NewFile(uintptr(fd), path)
-	defer resource.Close(directory)
+	subdirectories, err := listChildren(ctx, directory, path, walk)
+	resource.Close(directory)
 
-	return scanner.walkChildren(ctx, directory, path, walk)
+	// Each directory is closed before its subdirectories are walked: holding one descriptor per level, a
+	// chain built below a source could exhaust the daemon's descriptors.
+	for _, child := range subdirectories {
+		if err != nil {
+			break
+		}
+
+		err = scanner.walk(ctx, child, true, walk)
+	}
+
+	return err
 }
 
-func (scanner *Scanner) walkChildren(ctx context.Context, directory *os.File, path string, walk scanWalk) error {
+// listChildren queues a directory's other entries in bounded batches and returns its subdirectories.
+//
+//nolint:gocognit // One batched listing loop; split, the batch bound and the error paths separate.
+func listChildren(ctx context.Context, directory *os.File, path string, walk scanWalk) ([]string, error) {
+	var subdirectories []string
+
 	for {
 		entries, readErr := directory.ReadDir(directoryBatchSize)
 		for _, entry := range entries {
 			child := filepath.Join(path, entry.Name())
 
-			err := scanner.walkEntry(ctx, child, entry, walk)
+			if entry.IsDir() {
+				subdirectories = append(subdirectories, child)
+
+				continue
+			}
+
+			if walk.matcher.MatchEntry(child) {
+				continue
+			}
+
+			err := walk.queue(ctx, child)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 
 		if errors.Is(readErr, io.EOF) {
-			return nil
+			return subdirectories, nil
 		}
 
 		if readErr != nil {
-			return fault.Wrap("read scan directory", readErr)
+			return nil, fault.Wrap("read scan directory", readErr)
 		}
 	}
-}
-
-func (scanner *Scanner) walkEntry(ctx context.Context, path string, entry os.DirEntry, walk scanWalk) error {
-	if entry.IsDir() {
-		return scanner.walk(ctx, path, true, walk)
-	}
-
-	if walk.matcher.MatchEntry(path) {
-		return nil
-	}
-
-	return walk.queue(ctx, path)
 }
 
 // Admission is independent of file slots: prepare() may observe a file again
@@ -358,10 +363,6 @@ func (scanner *Scanner) walkPaths(ctx context.Context, paths []string, walk scan
 		if err != nil {
 			return err
 		}
-	}
-
-	if len(*walk.deep) > 0 {
-		return UnstablePathsError(*walk.deep)
 	}
 
 	return nil
