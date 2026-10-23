@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -153,8 +154,7 @@ func (w *Watcher) handleFID(data []byte, pid int, pidfd *os.File, reaped bool, m
 		return err
 	}
 
-	hasOld, hasNew := renameRecords(info)
-	w.updateDirectoryCoverage(path, old, mask, hasOld, hasNew)
+	w.updateDirectoryCoverage(path, old, mask, hasOldRecord(info))
 
 	if w.ignored(path) {
 		if old == "" || w.ignored(old) {
@@ -192,37 +192,27 @@ func (w *Watcher) unresolvedFID(mask uint64) {
 	w.transientPath()
 }
 
-func renameRecords(info []pathInfo) (bool, bool) {
-	var oldRecord, newRecord bool
-
-	for _, value := range info {
-		oldRecord = oldRecord || value.kind == unix.FAN_EVENT_INFO_TYPE_OLD_DFID_NAME
-		newRecord = newRecord || value.kind == unix.FAN_EVENT_INFO_TYPE_NEW_DFID_NAME
-	}
-
-	return oldRecord, newRecord
+// hasOldRecord reports a rename's old name, which a one-sided rename out of the marked directories carries alone.
+func hasOldRecord(info []pathInfo) bool {
+	return slices.ContainsFunc(
+		info,
+		func(value pathInfo) bool { return value.kind == unix.FAN_EVENT_INFO_TYPE_OLD_DFID_NAME },
+	)
 }
 
-func (w *Watcher) updateDirectoryCoverage(path, old string, mask uint64, hasOld, hasNew bool) {
+func (w *Watcher) updateDirectoryCoverage(path, old string, mask uint64, hasOld bool) {
 	if mask&unix.FAN_ONDIR == 0 {
 		return
 	}
 
 	w.forgetMarks(departedDirectory(path, old, mask, hasOld))
 
+	// A directory leaving the selection keeps only its own marks: Covers checks identities and accept drops
+	// paths outside the selection, and every selected directory is still marked, so nothing was lost. The
+	// event names its departed path, and observing that missing path removes its descendants' records and
+	// mirror copies: no full reconciliation is needed (WordPress moves each updated plugin into the excluded
+	// upgrade-temp-backup).
 	pathSelected := pathutil.Contains(w.path, path) && !w.matcher.Match(path)
-	oldSelected := old != "" && pathutil.Contains(w.path, old) && !w.matcher.Match(old)
-	leftSelection := mask&unix.FAN_MOVED_FROM != 0 ||
-		mask&unix.FAN_RENAME != 0 && (hasOld && !hasNew || oldSelected && !pathSelected)
-
-	// The departed directory keeps only its own marks: Covers checks identities and accept drops paths outside
-	// the selection, and every selected directory is still marked, so nothing was lost. Only the descendants'
-	// records need a routine reconciliation, as after an unlink (WordPress moves each updated plugin into the
-	// excluded upgrade-temp-backup).
-	if leftSelection {
-		w.transientPath()
-	}
-
 	if pathSelected && mask&(unix.FAN_CREATE|unix.FAN_MOVED_TO|unix.FAN_RENAME) != 0 {
 		w.requestTree(path)
 	}

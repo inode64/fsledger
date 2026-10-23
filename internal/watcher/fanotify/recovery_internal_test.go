@@ -107,7 +107,7 @@ func TestDirectoryCoverageOnlyQueuesSelectedTrees(t *testing.T) {
 	detector.refreshAll = make(chan struct{}, 1)
 
 	for _, path := range []string{filepath.Join(filepath.Dir(root), "outside"), filepath.Join(root, "excluded")} {
-		detector.updateDirectoryCoverage(path, "", unix.FAN_ONDIR|unix.FAN_CREATE, false, false)
+		detector.updateDirectoryCoverage(path, "", unix.FAN_ONDIR|unix.FAN_CREATE, false)
 	}
 
 	if len(detector.refreshPaths) != 0 || detector.coverageLost.Load() || detector.Dirty() {
@@ -115,7 +115,7 @@ func TestDirectoryCoverageOnlyQueuesSelectedTrees(t *testing.T) {
 	}
 
 	selected := filepath.Join(root, "selected")
-	detector.updateDirectoryCoverage(selected, "", unix.FAN_ONDIR|unix.FAN_CREATE, false, false)
+	detector.updateDirectoryCoverage(selected, "", unix.FAN_ONDIR|unix.FAN_CREATE, false)
 
 	select {
 	case path := <-detector.refreshPaths:
@@ -204,7 +204,8 @@ func TestFailedCoverageRefreshWaitsForPeriodicRetry(t *testing.T) {
 // A directory that leaves the selection (to an unmarked parent, an excluded name or, without FAN_RENAME,
 // anywhere) takes only its own marks along: every directory still selected keeps its mark, so no event of the
 // selection was lost. Its descendants' records still need a routine reconciliation, as after an unlink.
-func TestDirectoryLeavingSelectionRequestsReconciliationWithoutLoss(t *testing.T) {
+// The event names the departed directory, whose observation prunes its descendants: no loss, no full scan.
+func TestDirectoryLeavingSelectionNeedsNoReconciliation(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 
@@ -218,15 +219,15 @@ func TestDirectoryLeavingSelectionRequestsReconciliationWithoutLoss(t *testing.T
 	for _, test := range []struct {
 		name, path, old string
 		mask            uint64
-		hasOld, hasNew  bool
+		hasOld          bool
 	}{
-		{"one-sided rename", moved, "", unix.FAN_ONDIR | unix.FAN_RENAME, true, false},
-		{"rename into an excluded name", excluded, moved, unix.FAN_ONDIR | unix.FAN_RENAME, true, true},
+		{"one-sided rename", moved, "", unix.FAN_ONDIR | unix.FAN_RENAME, true},
+		{"rename into an excluded name", excluded, moved, unix.FAN_ONDIR | unix.FAN_RENAME, true},
 		{
 			"rename outside root", filepath.Join(filepath.Dir(root), "outside"), moved,
-			unix.FAN_ONDIR | unix.FAN_RENAME, true, true,
+			unix.FAN_ONDIR | unix.FAN_RENAME, true,
 		},
-		{"moved from without FAN_RENAME", moved, "", unix.FAN_ONDIR | unix.FAN_MOVED_FROM, false, false},
+		{"moved from without FAN_RENAME", moved, "", unix.FAN_ONDIR | unix.FAN_MOVED_FROM, false},
 	} {
 		detector := new(Watcher)
 		detector.path = root
@@ -235,14 +236,14 @@ func TestDirectoryLeavingSelectionRequestsReconciliationWithoutLoss(t *testing.T
 		detector.refreshPaths = make(chan string, 1)
 		detector.refreshAll = make(chan struct{}, 1)
 
-		detector.updateDirectoryCoverage(test.path, test.old, test.mask, test.hasOld, test.hasNew)
+		detector.updateDirectoryCoverage(test.path, test.old, test.mask, test.hasOld)
 
 		if detector.coverageLost.Load() || detector.Dirty() || len(detector.refreshAll) != 0 {
 			t.Fatal(test.name, "reported fanotify coverage loss for the selection it did not leave")
 		}
 
-		if !detector.ReconciliationPending() {
-			t.Fatal(test.name, "left the departed subtree's records unreconciled")
+		if detector.ReconciliationPending() {
+			t.Fatal(test.name, "requested a full reconciliation for a known departed path")
 		}
 	}
 }
