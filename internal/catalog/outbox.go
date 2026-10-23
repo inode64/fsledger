@@ -108,6 +108,11 @@ func numberKey(prefix string, value int64) []byte {
 	return binary.BigEndian.AppendUint64([]byte(prefix), uint64(value))
 }
 
+// keyNumber decodes the number numberKey appended after a prefix.
+//
+//nolint:gosec // The bits are the signed value numberKey encoded.
+func keyNumber(suffix []byte) int64 { return int64(binary.BigEndian.Uint64(suffix)) }
+
 //nolint:gosec // Delivery IDs are allocated as positive signed counters.
 func deliveryDue(delivery Delivery) []byte {
 	return binary.BigEndian.AppendUint64(numberKey(duePrefix, delivery.NextAttempt), uint64(delivery.ID))
