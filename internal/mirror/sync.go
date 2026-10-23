@@ -952,12 +952,12 @@ func (s *Sync) copyToTemporary(ctx context.Context, temp, source *os.File, sig s
 		}
 	}
 
-	modeErr := temp.Chmod(mirrorMode(sig.mode))
-	syncErr := temp.Sync()
+	// A failed copy is discarded: flushing it to disk would only cost an fsync.
+	if copyErr == nil {
+		copyErr = errors.Join(temp.Chmod(mirrorMode(sig.mode)), temp.Sync())
+	}
 
-	closeErr := temp.Close()
-
-	err = errors.Join(copyErr, modeErr, syncErr, closeErr)
+	err = errors.Join(copyErr, temp.Close())
 	if err != nil {
 		return nil, fmt.Errorf("copy source: %w", err)
 	}
