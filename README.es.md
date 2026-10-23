@@ -215,7 +215,8 @@ pendiente. No necesitas un servidor de base de datos adicional.
 ## Requisitos
 
 - **Linux** para ejecutar el daemon y la CLI.
-- **Git 2.28 o posterior** para los repositorios de contenido.
+- **Git 2.36 o posterior** para los repositorios de contenido; las versiones anteriores no
+  sincronizan los commits con el disco.
 - **Go 1.27.3 o posterior y Make** para compilar desde el código fuente. Los binarios
   de producción se construyen sin CGO y no necesitan Go instalado para ejecutarse.
 - Permisos de lectura sobre las fuentes y de escritura sobre las rutas de estado.

@@ -204,7 +204,7 @@ No additional database server is required.
 ## Requirements
 
 - **Linux** to run the daemon and CLI.
-- **Git 2.28 or later** for content repositories.
+- **Git 2.36 or later** for content repositories; older versions do not sync commits to disk.
 - **Go 1.27.3 or later and Make** to build from source. Production binaries are built
   without CGO and do not require Go to be installed at runtime.
 - Read permissions on the sources and write permissions on state directories.
