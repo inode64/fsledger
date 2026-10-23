@@ -63,3 +63,30 @@ func TestCompactRoots(t *testing.T) {
 		}
 	}
 }
+
+func TestContainsComparesComponents(t *testing.T) {
+	t.Parallel()
+
+	const (
+		srv = "/srv"
+		www = srv + "/www"
+	)
+
+	for _, testCase := range []struct {
+		parent, child string
+		want          bool
+	}{
+		{srv, srv, true},
+		{srv, www, true},
+		{srv + "/", www, true},
+		{"/", srv, true},
+		{srv, srv + "x", false},
+		{www, srv, false},
+		{"", srv, false},
+		{"", "", false},
+	} {
+		if got := pathutil.Contains(testCase.parent, testCase.child); got != testCase.want {
+			t.Errorf("Contains(%q, %q) = %v", testCase.parent, testCase.child, got)
+		}
+	}
+}

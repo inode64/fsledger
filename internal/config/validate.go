@@ -337,10 +337,8 @@ func componentsMayMatch(first, second string) bool {
 }
 
 func outsideState(path string, reserved []string) error {
-	for _, state := range reserved {
-		if state != "" && pathutil.Contains(state, path) {
-			return fault.New("source is inside reserved state: " + path)
-		}
+	if pathutil.Within(reserved, path) {
+		return fault.New("source is inside reserved state: " + path)
 	}
 
 	return nil

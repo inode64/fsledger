@@ -149,11 +149,5 @@ func (m *Matcher) Protect(paths ...string) *Matcher {
 }
 
 func (m *Matcher) reserved(path string) bool {
-	for _, reserved := range m.protected {
-		if reserved != "" && pathutil.Contains(reserved, path) {
-			return true
-		}
-	}
-
-	return pathutil.HasGitComponent(path) || pathutil.HasTemporaryComponent(path)
+	return pathutil.Within(m.protected, path) || pathutil.HasGitComponent(path) || pathutil.HasTemporaryComponent(path)
 }

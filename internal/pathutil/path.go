@@ -47,9 +47,16 @@ func HasTemporaryComponent(path string) bool {
 	return false
 }
 
-// Contains compares components of already canonical paths, not textual prefixes.
+// Contains compares components of already canonical paths, not textual prefixes. An empty
+// parent, such as an unset optional path, contains nothing.
 func Contains(parent, child string) bool {
-	return parent == child || strings.HasPrefix(child, strings.TrimSuffix(parent, "/")+"/")
+	if parent == "" || parent == child {
+		return parent != ""
+	}
+
+	parent = strings.TrimSuffix(parent, "/")
+
+	return len(child) > len(parent) && child[len(parent)] == '/' && strings.HasPrefix(child, parent)
 }
 
 // Within reports whether a canonical path belongs to any configured root.
