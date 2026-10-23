@@ -81,6 +81,14 @@ func (stacks mountStacks) unwatched(root string) bool {
 	return false
 }
 
+// stopFollowing reports a failed mount follower; a stop without error is the watcher closing.
+func (w *Watcher) stopFollowing(err error) {
+	if err != nil {
+		w.mountsStopped.Store(true)
+		w.reportCoverageError(err)
+	}
+}
+
 // followMounts reacts to the mounts and unmounts at or below the root, which no watch reports.
 func (w *Watcher) followMounts(ctx context.Context) {
 	defer close(w.mountsDone)
@@ -91,14 +99,14 @@ func (w *Watcher) followMounts(ctx context.Context) {
 	for {
 		changed, err := w.changes.Wait()
 		if err != nil || !changed {
-			w.reportCoverageError(err)
+			w.stopFollowing(err)
 
 			return
 		}
 
 		mounts, err := mountinfo.Read()
 		if err != nil {
-			w.reportCoverageError(err)
+			w.stopFollowing(err)
 
 			return
 		}

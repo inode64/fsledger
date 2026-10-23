@@ -40,15 +40,17 @@ type Watcher struct {
 	directories directoryWatches
 	// mounts is the last table seen at or below the root; coverage guards it with the watches.
 	mounts mountStacks
-	// rewalk asks the reader to walk the root again after a loss; lossEpoch counts the losses consumed.
+	// rewalk asks restoreLoop to walk the root again after a loss; lossEpoch counts the losses consumed.
 	rewalk       chan struct{}
 	path         string
+	lossEpoch    atomic.Uint64
 	coverage     sync.Mutex
 	once         sync.Once
-	lossEpoch    atomic.Uint64
 	coverageLost atomic.Bool
 	// unwatchedFilesystem reports another filesystem mounted below the root, or a remote one on it.
 	unwatchedFilesystem atomic.Bool
+	// mountsStopped reports a mount follower that failed: no walk restores what it no longer follows.
+	mountsStopped atomic.Bool
 }
 
 // New allocates an inotify instance; Start installs coverage.
@@ -101,7 +103,7 @@ func (w *Watcher) Dirty() bool {
 // watches cannot follow: another one mounted below the root after Start, as for a nested mount without a usable
 // detector at startup, or a remote one on the root.
 func (w *Watcher) PollingRequired() bool {
-	return w.unwatchedFilesystem.Load() || watcher.PollingRequired(w.done, &w.coverageLost)
+	return w.unwatchedFilesystem.Load() || w.mountsStopped.Load() || watcher.PollingRequired(w.done, &w.coverageLost)
 }
 
 // Start installs watches before beginning the initial reconciliation.
@@ -391,6 +393,11 @@ func (w *Watcher) restoreCoverage() {
 
 	if err == nil && w.lossEpoch.Load() == epoch {
 		w.coverageLost.Store(false)
+
+		// A loss consumed between the check and the store keeps coverage lost.
+		if w.lossEpoch.Load() != epoch {
+			w.coverageLost.Store(true)
+		}
 	}
 }
 
