@@ -7,6 +7,8 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/cockroachdb/pebble/v2"
+
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/integrity"
@@ -173,9 +175,12 @@ type stagedChangeEntry struct {
 
 // finishStagedChanges publishes bounded batches. Removing a stage record and
 // queuing its delivery share a transaction, including during crash recovery.
+// Each batch resumes after the previous one instead of skipping its tombstones again.
 func (store *Store) finishStagedChanges(ctx context.Context) error {
+	lower := []byte(notificationStagePrefix)
+
 	for {
-		entries, err := store.readStagedChanges(ctx)
+		entries, err := store.readStagedChanges(ctx, lower)
 		if err != nil {
 			return err
 		}
@@ -188,12 +193,17 @@ func (store *Store) finishStagedChanges(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+
+		lower = append(slices.Clone(entries[len(entries)-1].lookup), 0)
 	}
 }
 
-func (store *Store) readStagedChanges(ctx context.Context) ([]stagedChangeEntry, error) {
+func (store *Store) readStagedChanges(ctx context.Context, lower []byte) ([]stagedChangeEntry, error) {
+	options := &pebble.IterOptions{}
+	options.LowerBound, options.UpperBound = lower, upper(notificationStagePrefix)
+
 	entries := make([]stagedChangeEntry, 0, transactionBatchSize)
-	err := store.iterate(ctx, notificationStagePrefix, func(path, data []byte) error {
+	err := store.iterateRange(ctx, notificationStagePrefix, options, func(path, data []byte) error {
 		if len(entries) == transactionBatchSize {
 			return errStop
 		}
