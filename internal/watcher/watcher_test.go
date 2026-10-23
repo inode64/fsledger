@@ -77,7 +77,8 @@ func TestIdleQueueSlotsHoldPointers(t *testing.T) {
 func TestRememberingQueueLosesOnlyBeyondItsLimit(t *testing.T) {
 	t.Parallel()
 
-	queue := watcher.NewRememberingQueue(1, len("/a/b"))
+	// Room for exactly two of the short names below, each charged its map entry.
+	queue := watcher.NewRememberingQueue(1, 2*(2+64))
 	queue.Send(event.Raw{Path: "/queued"})
 	queue.Send(event.Raw{Path: "/a", OldPath: "/b"})
 	queue.Send(event.Raw{Path: "/a"})

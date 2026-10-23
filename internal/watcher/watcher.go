@@ -16,6 +16,9 @@ import (
 // QueueSize bounds each native detector independently.
 const QueueSize = 4096
 
+// droppedEntryCost approximates a remembered path's map entry and string header beyond its bytes.
+const droppedEntryCost = 64
+
 // Watcher owns kernel resources until Close is called.
 type Watcher interface {
 	Start(ctx context.Context) error
@@ -41,7 +44,7 @@ type Queue struct {
 	// would pin megabytes of idle heap in each of them.
 	Channel chan *event.Raw
 	reason  atomic.Pointer[string]
-	// dropped remembers, up to remember bytes of names, the paths whose events a full queue dropped.
+	// dropped remembers, up to remember bytes, the paths whose events a full queue dropped.
 	dropped   map[string]struct{}
 	remember  int
 	held      int
@@ -59,8 +62,8 @@ func NewQueue(size int) *Queue {
 	}
 }
 
-// NewRememberingQueue creates a bounded queue that keeps, up to remember bytes of names, the paths of
-// dropped events for Dropped; only beyond them is an overflow a loss.
+// NewRememberingQueue creates a bounded queue that keeps, up to about remember bytes, the paths of dropped
+// events for Dropped; only beyond them is an overflow a loss.
 func NewRememberingQueue(size, remember int) *Queue {
 	queue := NewQueue(size)
 	queue.dropped, queue.remember = make(map[string]struct{}), remember
@@ -143,12 +146,14 @@ func (q *Queue) rememberDropped(paths ...string) bool {
 			continue
 		}
 
-		if q.held+len(path) > q.remember {
+		// Short names cost mostly their map entry: each one is charged a fixed overhead too.
+		cost := len(path) + droppedEntryCost
+		if q.held+cost > q.remember {
 			return false
 		}
 
 		q.dropped[path] = struct{}{}
-		q.held += len(path)
+		q.held += cost
 	}
 
 	return true
