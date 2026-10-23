@@ -98,13 +98,13 @@ func checkStagedRoutingRestart(t *testing.T, scenario string) {
 	store.Notifications.Use = []string{fixtureDestinationFirst}
 	store.versions = map[string]string{fixtureDestinationFirst: originalVersion}
 
-	err := store.startNotificationOperation(t.Context(), "update")
+	err := store.finishStagedChanges(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	record.Mode = 0o700
-	observeRecords(t, store, "update", record)
+	stageRecords(t, store, "update", record)
 	policy, notifications := store.policy, store.Notifications
 	resource.Close(store)
 	store.database = nil
@@ -124,7 +124,7 @@ func checkStagedRoutingRestart(t *testing.T, scenario string) {
 
 	reopened.versions = map[string]string{fixtureDestinationFirst: "new-version"}
 
-	err = reopened.startNotificationOperation(t.Context(), "next-update")
+	err = reopened.finishStagedChanges(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,13 +149,13 @@ func observeStagedChange(t *testing.T, store *Store, original integrity.Record, 
 	observeRecords(t, store, "initial", original)
 	store.Notifications.Use = []string{fixtureDestinationFirst}
 
-	err := store.startNotificationOperation(t.Context(), "update")
+	err := store.finishStagedChanges(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	for _, changed := range changes {
-		observeRecords(t, store, "update", changed)
+		stageRecords(t, store, "update", changed)
 	}
 
 	return finishStagedDetail(t, store)

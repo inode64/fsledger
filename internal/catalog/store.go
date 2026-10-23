@@ -94,24 +94,23 @@ func (shared *sharedCache) release() {
 // Store serializes writes per repository; scans share a separate operation lock.
 // Its integrity settings are fixed at Open; a change requires closing and reopening the store.
 type Store struct {
-	reportCalendar        *reportclock.Schedule
-	now                   func() time.Time
-	ignore                *filter.Matcher
-	copiedHashes          integrity.HashSource
-	database              *pebble.DB
-	versions              map[string]string
-	windows               map[string]notificationWindow
-	reportHead            string
-	notificationOperation string
-	Repository            string
-	Host                  string
-	policy                config.Integrity
-	reports               config.Reports
-	Notifications         config.Notifications
-	state                 diskState
-	mutex                 sync.Mutex
-	operation             sync.Mutex
-	scanActive            bool
+	reportCalendar *reportclock.Schedule
+	now            func() time.Time
+	ignore         *filter.Matcher
+	copiedHashes   integrity.HashSource
+	database       *pebble.DB
+	versions       map[string]string
+	windows        map[string]notificationWindow
+	reportHead     string
+	Repository     string
+	Host           string
+	policy         config.Integrity
+	reports        config.Reports
+	Notifications  config.Notifications
+	state          diskState
+	mutex          sync.Mutex
+	operation      sync.Mutex
+	scanActive     bool
 }
 
 // Stats describes live state, never cumulative change history. ExhaustedNotifications counts the pending

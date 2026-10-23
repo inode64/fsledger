@@ -71,7 +71,7 @@ func TestCancelledNotificationOperationRecoversCommittedChangesOnce(t *testing.T
 
 		return Result{ID: operationID}, errors.Join(applyErr, ctx.Err())
 	})
-	if !errors.Is(err, context.Canceled) || store.notificationOperation != "" {
+	if !errors.Is(err, context.Canceled) {
 		t.Fatal("cancelled operation was not released", err)
 	}
 

@@ -29,7 +29,7 @@ func TestRecreatedFilesInOneOperationNotifyNetModifications(t *testing.T) {
 
 	store.Notifications.Use = []string{fixtureDestinationFirst}
 
-	err := store.startNotificationOperation(t.Context(), identifier)
+	err := store.finishStagedChanges(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,8 +41,6 @@ func TestRecreatedFilesInOneOperationNotifyNetModifications(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	store.notificationOperation = ""
 
 	deliveries, err := store.Due(t.Context())
 	if err != nil {
@@ -80,21 +78,19 @@ func TestStagedChangesRetainRealAdditionsAndDeletions(t *testing.T) {
 
 	store.Notifications.Use = []string{fixtureDestinationFirst}
 
-	err := store.startNotificationOperation(t.Context(), identifier)
+	err := store.finishStagedChanges(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	observeRecords(t, store, identifier, integrity.Record{Path: before.Path}, integrity.Record{Path: unchanged.Path})
-	observeRecords(t, store, identifier, unchanged,
+	stageRecords(t, store, identifier, integrity.Record{Path: before.Path}, integrity.Record{Path: unchanged.Path})
+	stageRecords(t, store, identifier, unchanged,
 		integrity.Record{Path: []byte("/created"), Type: fixtureRegular, Mode: 0o600})
 
 	err = store.finishStagedChanges(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	store.notificationOperation = ""
 
 	deliveries, err := store.Due(t.Context())
 	if err != nil {
@@ -141,15 +137,15 @@ func TestStagedChangeSurvivesRestartBeforeNotification(t *testing.T) {
 
 	store.Notifications.Use = []string{fixtureDestinationFirst}
 
-	err = store.startNotificationOperation(t.Context(), identifier)
+	err = store.finishStagedChanges(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	observeRecords(t, store, identifier, integrity.Record{Path: before.Path})
+	stageRecords(t, store, identifier, integrity.Record{Path: before.Path})
 	after := before
 	after.Hash = strings.Repeat("b", sha256.Size*2)
-	observeRecords(t, store, identifier, after)
+	stageRecords(t, store, identifier, after)
 
 	err = store.Close()
 	if err != nil {
@@ -164,7 +160,7 @@ func TestStagedChangeSurvivesRestartBeforeNotification(t *testing.T) {
 	}
 	defer resource.Close(reopened)
 
-	err = reopened.startNotificationOperation(t.Context(), "next-update")
+	err = reopened.finishStagedChanges(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,6 +195,6 @@ func applyRecordsInBatches(t *testing.T, store *Store, identifier string, record
 
 	for start := 0; start < len(records); start += transactionBatchSize {
 		end := min(start+transactionBatchSize, len(records))
-		observeRecords(t, store, identifier, records[start:end]...)
+		stageRecords(t, store, identifier, records[start:end]...)
 	}
 }
