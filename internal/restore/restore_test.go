@@ -18,7 +18,9 @@ import (
 const (
 	prefix     = "etc/ssh"
 	configName = "sshd_config"
-	configBody = "archived config\n"
+	// globalHeader is the name git archive gives its pax global header.
+	globalHeader = "pax_global_header"
+	configBody   = "archived config\n"
 )
 
 type entry struct {
@@ -59,9 +61,9 @@ func buildTar(t *testing.T, entries ...entry) *tar.Reader {
 
 	writer := tar.NewWriter(&buffer)
 
-	//nolint:exhaustruct_v5 // Git only sets the commit comment on its global header.
+	//nolint:exhaustruct_v5 // Git only sets its name and the commit comment on its global header.
 	err := writer.WriteHeader(&tar.Header{
-		Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": "deadbeef"},
+		Name: globalHeader, Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": "deadbeef"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -319,6 +321,27 @@ func TestApplySingleEntryUsesName(t *testing.T) {
 
 	if readFile(t, destination) != configBody {
 		t.Fatal("single entry was not written under the requested name")
+	}
+}
+
+// git archive names its global header pax_global_header, like an archived root entry of that name could be.
+func TestApplyRestoresEntryNamedLikeTheGlobalHeader(t *testing.T) {
+	t.Parallel()
+
+	destination := filepath.Join(t.TempDir(), "restored")
+
+	var output bytes.Buffer
+
+	single := options(restore.Off, destination, &output)
+	single.Prefix = globalHeader
+
+	summary, err := restore.Apply(t.Context(), buildTar(t, file(globalHeader, configBody)), single)
+	if err != nil || summary != (restore.Summary{Restored: 1, Skipped: 0, Failed: 0}) {
+		t.Fatal(summary, output.String(), err)
+	}
+
+	if readFile(t, destination) != configBody {
+		t.Fatal("entry named like the global header was not restored")
 	}
 }
 
