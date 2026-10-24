@@ -265,7 +265,8 @@ func TestRetiredNestedFilesystemIsForgotten(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(runner.status.UnmountedPaths) != 0 || len(runner.catalog.Mounts()) != 0 {
+	// The filesystem holding TMPDIR may be recorded too, when it is a mount point of its own.
+	if len(runner.status.UnmountedPaths) != 0 || slices.Contains(runner.catalog.Mounts(), nested) {
 		t.Fatal("a retired nested filesystem was kept", runner.status.UnmountedPaths, runner.catalog.Mounts())
 	}
 }
