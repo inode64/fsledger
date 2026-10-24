@@ -430,7 +430,8 @@ or
 HTTPS URL; SCP-style user@host:path syntax is not accepted.
 A path remote of a Git repository must lie outside storage and runtime state and
 must not overlap any repository's sources: every push would otherwise change
-what is watched.
+what is watched. Pushes and fetches use the path its trusted links resolve to;
+a link another user owns fails publication and fetching instead of steering them.
 Credentials belong in SSH or Git credential configuration, never the remote URL.
 Two Git repositories cannot publish to the same branch of one URL or path remote:
 their histories are unrelated. Remote names are not compared.

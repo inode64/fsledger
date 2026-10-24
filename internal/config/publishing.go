@@ -12,6 +12,21 @@ import (
 
 const httpsScheme = "https"
 
+// GitRemote returns the remote Git pushes to and fetches from. A path remote is resolved through trusted
+// links only, like a source: Git follows its links as root, so one another user owns could steer every
+// push and fetch anywhere, and its target would escape the check that keeps remotes out of sources.
+func GitRemote(remote string) (string, error) { return gitRemote(remote, trustedOwner) }
+
+func gitRemote(remote string, trusted func(uid uint32) bool) (string, error) {
+	if !filepath.IsAbs(remote) {
+		return remote, nil
+	}
+
+	resolved, err := resolveParent(filepath.Clean(remote)+"/.", trusted)
+
+	return resolved, fault.Wrap("resolve Git remote", err)
+}
+
 func (c *Config) validatePublishing() error {
 	settings := c.Storage.Git
 	if !validBranch(settings.Branch) {

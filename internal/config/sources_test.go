@@ -371,3 +371,32 @@ func TestResolveSourcesFollowsOnlyTrustedRemoteLinks(t *testing.T) {
 		t.Fatalf("untrusted remote link redirected the sources: %+v", sources)
 	}
 }
+
+// Git follows a path remote's links as root: a link another user owns must stop publication and fetching,
+// not steer them, and its target escapes the check that keeps remotes out of sources.
+func TestGitRemoteFollowsOnlyTrustedLinks(t *testing.T) {
+	t.Parallel()
+
+	tree := sourceTree(t, "remote/repo.git/HEAD")
+	link := filepath.Join(tree, "repo.git")
+
+	err := os.Symlink(filepath.Join(tree, "remote", "repo.git"), link)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resolved, err := config.GitRemote(link)
+	if err != nil || resolved != filepath.Join(tree, "remote", "repo.git") {
+		t.Fatal("trusted remote link not resolved", resolved, err)
+	}
+
+	_, err = config.GitRemoteTrusting(link, func(uint32) bool { return false })
+	if err == nil || !strings.Contains(err.Error(), "untrusted symlink") {
+		t.Fatal("untrusted remote link followed", err)
+	}
+
+	resolved, err = config.GitRemote("origin")
+	if err != nil || resolved != "origin" {
+		t.Fatal("remote name changed", resolved, err)
+	}
+}
