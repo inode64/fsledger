@@ -36,12 +36,13 @@ func (w *worker) waitForMounts(ctx context.Context) error {
 
 // recordMounts refreshes the recordable mount points that hold a root or are mounted inside one and are not
 // excluded. A point stays recorded while it relates to a root, even unmounted; a nested one whose directory is
-// gone as well was retired with its volume. The catalog keeps the points across restarts. Without a mount
-// table it fails while points are recorded: none of them can be told mounted.
+// gone as well was retired with its volume. The catalog keeps the points across restarts. Each point is
+// reached first, which mounts an expired automount again. Without a mount table it fails while points are
+// recorded: none of them can be told mounted.
 func (w *worker) recordMounts(ctx context.Context) error {
-	table, err := w.readMounts()
+	missing, table, err := integrity.MissingMounts(w.mounts)
 	if err != nil && len(w.mounts) > 0 {
-		return fmt.Errorf("%w: %w", errFilesystemMissing, err)
+		return fmt.Errorf("cannot tell whether the recorded filesystems are mounted, so the repository waits: %w", err)
 	}
 
 	if err != nil {
@@ -51,7 +52,9 @@ func (w *worker) recordMounts(ctx context.Context) error {
 	}
 
 	recorded := w.mergeMounts(table)
-	unmounted := mountinfo.Unmounted(recorded, table)
+	unmounted := slices.DeleteFunc(slices.Clone(recorded), func(point string) bool {
+		return !slices.Contains(missing, point)
+	})
 
 	for _, point := range unmounted {
 		if !slices.Contains(w.status.UnmountedPaths, point) {
@@ -116,37 +119,6 @@ func (w *worker) rebindMounted(table []mountinfo.Mount, waiting []string) {
 	w.sourcesPending, w.dirty, w.contaminated = true, true, true
 }
 
-// readMounts reads the mount table once the recorded points it shows unmounted were reached, as a walk would:
-// that mounts again an automounted filesystem whose idle mount expired.
-func (w *worker) readMounts() ([]mountinfo.Mount, error) {
-	table, err := mountinfo.Read()
-	if err != nil {
-		return nil, err
-	}
-
-	reached := false
-
-	for _, point := range mountinfo.Unmounted(w.mounts, table) {
-		if !remoteMount(point, table) && integrity.ReachMount(point) == nil {
-			reached = true
-		}
-	}
-
-	if !reached {
-		return table, nil
-	}
-
-	return mountinfo.Read()
-}
-
-// remoteMount reports a path on a remote filesystem. Nothing there is probed: an unreachable server would
-// block the worker.
-func remoteMount(path string, table []mountinfo.Mount) bool {
-	holding := mountinfo.Resolve(path, table)
-
-	return len(holding) > 0 && holding[0].Remote()
-}
-
 // restoreMounts takes the points the catalog recorded before a restart, before anything walks a root: a
 // source found on an empty mount point waits instead of being recorded as an empty tree.
 func (w *worker) restoreMounts() {
@@ -157,11 +129,16 @@ func (w *worker) restoreMounts() {
 	}
 }
 
-// lostMounts lists the recorded mount points that nothing is mounted at now, every one without a mount table.
+// lostMounts lists the recorded mount points that nothing is mounted at now, every one without a mount table,
+// which recordMounts reports.
 func (w *worker) lostMounts() []string {
-	lost, err := mountinfo.UnmountedNow(w.mounts)
+	if len(w.mounts) == 0 {
+		return nil
+	}
+
+	lost, _, err := integrity.MissingMounts(w.mounts)
 	if err != nil {
-		w.logger.Warn("mount discovery failed; every recorded mount point counts as lost", "error", err)
+		w.logger.Debug("mount discovery failed; every recorded mount point counts as lost", "error", err)
 	}
 
 	return lost
@@ -205,7 +182,7 @@ func (w *worker) retired(point string, table []mountinfo.Mount) bool {
 		}
 	}
 
-	if remoteMount(point, table) {
+	if mountinfo.OnRemote(point, table) {
 		return false
 	}
 

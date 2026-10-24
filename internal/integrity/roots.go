@@ -90,7 +90,11 @@ func (guard *RootGuard) Check(roots []string) error {
 // CheckMounts fails while a recorded mount point has no filesystem mounted, or the mount table cannot tell:
 // its tree would read as empty, so nothing may be deleted or pruned.
 func CheckMounts(points []string) error {
-	missing, err := MissingMounts(points)
+	if len(points) == 0 {
+		return nil
+	}
+
+	missing, _, err := MissingMounts(points)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
@@ -103,16 +107,41 @@ func CheckMounts(points []string) error {
 }
 
 // MissingMounts lists the recorded mount points with no filesystem mounted once each was reached, as a walk
-// reaches it: an automount that failed reads as an empty directory there, though the automounter's own entry
-// stays mounted. Without a mount table it lists every point, and the error says why.
-func MissingMounts(points []string) ([]string, error) {
-	unreachable := slices.DeleteFunc(slices.Clone(points), func(point string) bool { return ReachMount(point) == nil })
+// reaches it, which mounts an automounted filesystem: one unreachable, or left with its directory or the
+// automounter's entry. Nothing on a remote filesystem is reached. It returns the mount table it judged by;
+// without one it lists every point, and the error says why.
+func MissingMounts(points []string) ([]string, []mountinfo.Mount, error) {
+	table, err := mountinfo.Read()
+	if err != nil {
+		return slices.Clone(points), nil, err
+	}
 
-	unmounted, err := mountinfo.UnmountedNow(points)
+	var unreachable []string
+
+	reread := false
+
+	for _, point := range points {
+		if mountinfo.OnRemote(point, table) {
+			continue
+		}
+
+		if ReachMount(point) != nil {
+			unreachable = append(unreachable, point)
+		} else if !mountinfo.Mounted(point, table) {
+			reread = true
+		}
+	}
+
+	if reread {
+		table, err = mountinfo.Read()
+		if err != nil {
+			return slices.Clone(points), nil, err
+		}
+	}
 
 	return slices.DeleteFunc(slices.Clone(points), func(point string) bool {
-		return !slices.Contains(unreachable, point) && !slices.Contains(unmounted, point)
-	}), err
+		return !slices.Contains(unreachable, point) && mountinfo.Mounted(point, table)
+	}), table, nil
 }
 
 // ReachMount opens a mount point as a walk does, without following symlinks, which mounts an automounted

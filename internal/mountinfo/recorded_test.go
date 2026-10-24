@@ -80,25 +80,10 @@ func TestRecordableSkipsVolatileAndUserMountsAndSelfBinds(t *testing.T) {
 	}
 }
 
-// Any filesystem at a recorded point means it is mounted, whatever its device or fsid: a renamed disk or an
-// automounter's own entry must not hold the repository back.
-func TestUnmountedListsThePointsNothingIsMountedAt(t *testing.T) {
-	t.Parallel()
-
-	table := []mountinfo.Mount{
-		{Point: sharePoint, Type: typeNFS, Device: "0:41", Source: "server:/a", Root: "/", ID: 2, Parent: 1},
-		{Point: "/srv/auto", Type: "autofs", Device: "0:42", Source: "systemd-1", Root: "/", ID: 3, Parent: 1},
-	}
-
-	unmounted := mountinfo.Unmounted([]string{sharePoint, "/srv/auto", "/srv/gone"}, table)
-	if len(unmounted) != 1 || unmounted[0] != "/srv/gone" {
-		t.Fatal("wrong unmounted points", unmounted)
-	}
-}
-
-// Only the visible mount at a point counts, and not when it shows the directory it covers: systemd binds a
-// ReadWritePaths directory onto itself in the service's namespace, and a host mount propagated later is
-// tucked beneath that bind, so the daemon still sees the empty directory.
+// Only the visible mount at a point counts, whatever its device, and not when it shows the directory it covers:
+// systemd binds a ReadWritePaths directory onto itself in the service's namespace, and a host mount propagated
+// later is tucked beneath that bind, so the daemon still sees the empty directory. Nor does an automounter's
+// own entry, which reaching the point replaces with what it serves.
 func TestMountedJudgesTheVisibleMountAtThePoint(t *testing.T) {
 	t.Parallel()
 
@@ -151,7 +136,7 @@ func TestMountedJudgesTheVisibleMountAtThePoint(t *testing.T) {
 		{"a directory bound onto itself", []mountinfo.Mount{root, self}, false},
 		{"a volume", []mountinfo.Mount{root, volume}, true},
 		{"a volume tucked beneath a self-bind", []mountinfo.Mount{root, tucked, volume}, false},
-		{"an automounter", []mountinfo.Mount{root, automount}, true},
+		{"an automounter", []mountinfo.Mount{root, automount}, false},
 		{"a share over its automounter", []mountinfo.Mount{root, automount, share}, true},
 	} {
 		if mountinfo.Mounted(point, test.table) != test.want {
@@ -160,14 +145,16 @@ func TestMountedJudgesTheVisibleMountAtThePoint(t *testing.T) {
 	}
 }
 
-// The mount table read now tells which points nothing is mounted at.
-func TestUnmountedNowListsThePointsNothingIsMountedAt(t *testing.T) {
+// Nothing on a remote filesystem may be probed, below its mount point too.
+func TestOnRemoteFindsTheFilesystemHoldingAPath(t *testing.T) {
 	t.Parallel()
 
-	directory := t.TempDir()
+	table := []mountinfo.Mount{
+		{Point: "/", Type: typeExt4, Device: diskDevice, Source: diskSource, Root: "/", ID: 1},
+		{Point: sharePoint, Type: typeNFS, Device: "0:41", Source: "server:/a", Root: "/", ID: 2, Parent: 1},
+	}
 
-	unmounted, err := mountinfo.UnmountedNow([]string{"/", directory})
-	if err != nil || len(unmounted) != 1 || unmounted[0] != directory {
-		t.Fatal("wrong unmounted points", unmounted, err)
+	if !mountinfo.OnRemote(sharePoint+"/data", table) || mountinfo.OnRemote("/srv/local", table) {
+		t.Fatal("wrong remote judgement")
 	}
 }

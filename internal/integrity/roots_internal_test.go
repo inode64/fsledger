@@ -240,3 +240,15 @@ func TestReachMountNeverFollowsSymlinks(t *testing.T) {
 		}
 	}
 }
+
+// A recorded point with nothing but its directory is missing, and the mount table judged by comes back.
+func TestMissingMountsListsThePointsNothingIsMountedAt(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	missing, table, err := MissingMounts([]string{"/", directory})
+	if err != nil || len(table) == 0 || len(missing) != 1 || missing[0] != directory {
+		t.Fatal("wrong missing points", missing, len(table), err)
+	}
+}

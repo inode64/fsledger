@@ -122,7 +122,7 @@ func settleUnmounted(
 		return !mountinfo.Related(point, trees, matcher.Match)
 	})
 
-	unmounted, err := integrity.MissingMounts(related)
+	unmounted, _, err := integrity.MissingMounts(related)
 	if err != nil {
 		return nil, err
 	}
