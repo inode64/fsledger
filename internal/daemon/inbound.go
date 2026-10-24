@@ -28,7 +28,8 @@ func (w *worker) syncRemote(ctx context.Context, now time.Time) {
 		return
 	}
 
-	if now.Before(w.fetchNext) {
+	// An incoming change below a missing filesystem would land on its empty mount point: it waits too.
+	if now.Before(w.fetchNext) || len(w.status.UnmountedPaths) > 0 {
 		if w.status.SyncBlocked == "" && w.status.SyncConflict == "" {
 			w.publish(ctx, now)
 		}
@@ -214,8 +215,7 @@ func (w *worker) prepareIncoming(ctx context.Context, base, target string) error
 	err = w.scanner.Do(ctx, func() error {
 		var prepareErr error
 
-		// A change below a tree set aside would land on its empty mount point; it waits for the filesystem.
-		plan, prepareErr = inbound.Prepare(ctx, w.repo, w.liveRoots(), w.matcher, base, target, policy, differences)
+		plan, prepareErr = inbound.Prepare(ctx, w.repo, w.roots, w.matcher, base, target, policy, differences)
 
 		return prepareErr
 	})

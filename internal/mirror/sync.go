@@ -20,7 +20,6 @@ import (
 
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/integrity"
-	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/resource"
 
 	"golang.org/x/sys/unix"
@@ -44,16 +43,14 @@ type Sync struct {
 	directories *pathindex.Index[struct{}]
 	// walkDirectories keeps the running walk's current source and mirror directories; nil outside one.
 	walkDirectories *walkDirectories
+	roots           integrity.RootGuard
 	sources         []string
-	// mounts records the filesystems holding or inside the sources; see RememberMounts.
-	mounts []mountinfo.Record
-	// walkKept lists the paths the running walk sets aside; nil outside one.
-	walkKept []string
+	// mounts are the recorded mount points holding or inside the sources; see RememberMounts.
+	mounts []string
 	// unsynced lists mirror directories whose entries changed since SyncDirectories last synced them.
 	unsynced pathindex.Index[struct{}]
 	// syncDirectory makes the entries of one mirror directory durable; tests observe it.
 	syncDirectory func(*os.Root, string) error
-	roots         integrity.RootGuard
 	// compareBuffer is reused by serialized comparisons and grows to at most two chunks.
 	compareBuffer []byte
 }
@@ -131,9 +128,9 @@ func (s *Sync) RebindSources(sources []string) {
 	}
 }
 
-// RememberMounts records the filesystems that hold or lie inside the sources: while one is not mounted, the
-// copies at and below it are neither walked nor removed.
-func (s *Sync) RememberMounts(mounts []mountinfo.Record) { s.mounts = slices.Clone(mounts) }
+// RememberMounts records the mount points that hold or lie inside the sources: a walk that finds one
+// unmounted prunes nothing.
+func (s *Sync) RememberMounts(mounts []string) { s.mounts = slices.Clone(mounts) }
 
 // Close releases the mirror directory descriptor.
 func (s *Sync) Close() error { return fault.Wrap("close mirror", s.root.Close()) }
@@ -141,10 +138,8 @@ func (s *Sync) Close() error { return fault.Wrap("close mirror", s.root.Close())
 // RefreshContext forces a copy within the caller's operation deadline. Callers refreshing a batch of
 // paths call SyncDirectories before committing them, so each touched directory is synced only once.
 func (s *Sync) RefreshContext(ctx context.Context, path string) error {
-	kept := s.kept()
-
-	err := s.checkLive(kept)
-	if err != nil || pathutil.Within(kept, path) {
+	err := s.roots.Check(s.sources)
+	if err != nil {
 		return err
 	}
 
@@ -188,14 +183,6 @@ func (s *Sync) SyncDirectories() error {
 	}
 
 	return failure
-}
-
-// kept lists the paths set aside while their recorded filesystem is not mounted.
-func (s *Sync) kept() []string { return mountinfo.Kept(s.mounts, s.sources) }
-
-// checkLive guards the sources that are not set aside; those are not walked, so they need no guard.
-func (s *Sync) checkLive(kept []string) error {
-	return s.roots.Check(pathutil.Outside(s.sources, kept))
 }
 
 // syncDirectory reopens a mirror directory readable through the anchored root to sync its entries.
@@ -309,10 +296,8 @@ func (s *Sync) parents(relative string) error {
 
 func (s *Sync) remove(path string) error {
 	// A disappearance during copying must not prune a source lost with its filesystem.
-	kept := s.kept()
-
-	err := s.checkLive(kept)
-	if err != nil || pathutil.Within(kept, path) {
+	err := s.roots.Check(s.sources)
+	if err != nil {
 		return err
 	}
 
@@ -610,38 +595,35 @@ func (s *Sync) reconcile(ctx context.Context, roots []string, mode copyMode) err
 		return fault.Wrap("mirror cancelled", err)
 	}
 
-	// A tree lost with its filesystem is neither walked, where its empty mount point would be copied, nor
-	// pruned; neither is one lost during the walk.
-	kept := s.kept()
-
-	err = s.checkLive(kept)
+	err = s.roots.Check(s.sources)
 	if err != nil {
 		return err
 	}
 
 	seen := make(map[string]bool)
 
-	s.directories, s.walkDirectories, s.walkKept = &pathindex.Index[struct{}]{}, newWalkDirectories(), kept
+	s.directories, s.walkDirectories = &pathindex.Index[struct{}]{}, newWalkDirectories()
 	defer func() {
 		s.walkDirectories.close()
-		s.directories, s.walkDirectories, s.walkKept = nil, nil, nil
+		s.directories, s.walkDirectories = nil, nil
 	}()
 
 	var failure error
 
-	for _, source := range pathutil.Outside(roots, kept) {
+	for _, source := range roots {
 		walkErr := s.walkSource(ctx, source, mode, seen)
 		failure = errors.Join(failure, walkErr)
 	}
 
 	unstable, fatal := integrity.SplitUnstable(failure)
 
-	err = errors.Join(ctx.Err(), s.checkLive(kept))
+	// A recorded filesystem unmounted during the walk left an empty mount point: prune nothing then.
+	err = errors.Join(ctx.Err(), s.roots.Check(s.sources), integrity.CheckMounts(s.mounts))
 	if err != nil || fatal != nil {
 		return errors.Join(err, failure)
 	}
 
-	return errors.Join(failure, s.prune(ctx, roots, seen, append(append(unstable, kept...), s.kept()...)))
+	return errors.Join(failure, s.prune(ctx, roots, seen, unstable))
 }
 
 // sourceWalk is shared by every step of one source walk; failure collects the unstable copies.
@@ -670,7 +652,7 @@ func (s *Sync) walkEntry(ctx context.Context, walk *sourceWalk, path string, dir
 		return fault.Wrap("walk cancelled", err)
 	}
 
-	if s.walkExcluded(path, walk.source) || pathutil.Within(s.walkKept, path) {
+	if s.walkExcluded(path, walk.source) {
 		return nil
 	}
 

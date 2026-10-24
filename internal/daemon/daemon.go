@@ -28,7 +28,6 @@ import (
 	"github.com/inode64/fsledger/internal/grouping"
 	"github.com/inode64/fsledger/internal/inbound"
 	"github.com/inode64/fsledger/internal/mirror"
-	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/watcher"
 	"github.com/inode64/fsledger/internal/watcher/fanotify"
 )
@@ -81,10 +80,8 @@ type worker struct {
 	errorReasons     []string
 	advisories       []string
 	roots            []string
-	// mounts are the records of the filesystems holding or inside the roots, and kept the paths set aside
-	// while theirs is not mounted; see recordMounts.
-	mounts        []mountinfo.Record
-	kept          []string
+	// mounts are the recorded mount points holding or inside the roots; see recordMounts.
+	mounts        []string
 	nextRoots     []string
 	returnedRoots []string
 	status        Status

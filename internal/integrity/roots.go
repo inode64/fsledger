@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"golang.org/x/sys/unix"
@@ -25,9 +26,8 @@ type RootGuard struct {
 }
 
 type rootIdentity struct {
-	// record is the filesystem mounted at the point holding the root (for a file root, its parent) when it
-	// was pinned.
-	record    mountinfo.Record
+	// point is the mount point holding the root (for a file root, its parent) when it was pinned.
+	point     string
 	device    uint64
 	mount     uint64
 	directory bool
@@ -65,7 +65,7 @@ func (guard *RootGuard) Check(roots []string) error {
 		changed := known && (expected.device != current.device ||
 			(expected.mount != 0 && expected.mount != current.mount))
 		if known && !changed {
-			current.record = expected.record
+			current.point = expected.point
 		} else {
 			// One table serves every root this call pins or rechecks.
 			if !read {
@@ -73,7 +73,7 @@ func (guard *RootGuard) Check(roots []string) error {
 				read = true
 			}
 
-			current.record = pinnedRecord(root, current.directory, mounts, readErr)
+			current.point = mountPoint(root, current.directory, mounts, readErr)
 
 			if changed && !remounted(expected, current, mounts, readErr) {
 				return fmt.Errorf("%w: filesystem changed at %s", ErrUnavailable, root)
@@ -86,27 +86,47 @@ func (guard *RootGuard) Check(roots []string) error {
 	return nil
 }
 
-// pinnedRecord describes the filesystem at the deepest mount point holding a root, or its parent for a file
-// root; empty without a mount table, which leaves a remount unrecognized.
-func pinnedRecord(root string, directory bool, mounts []mountinfo.Mount, err error) mountinfo.Record {
+// CheckMounts fails while a recorded mount point has no filesystem mounted: its tree would read as empty, so
+// nothing may be deleted or pruned. Without a mount table every point counts as unmounted.
+func CheckMounts(points []string) error {
+	if len(points) == 0 {
+		return nil
+	}
+
+	table, err := mountinfo.Read()
+	if err != nil {
+		table = nil
+	}
+
+	unmounted := mountinfo.Unmounted(points, table)
+	if len(unmounted) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%w: filesystem not mounted at %s", ErrUnavailable, strings.Join(unmounted, ", "))
+}
+
+// mountPoint is the deepest mount point holding a root, or its parent for a file root; "" without a mount
+// table, which leaves a remount unrecognized.
+func mountPoint(root string, directory bool, mounts []mountinfo.Mount, err error) string {
 	if !directory {
 		root = filepath.Dir(root)
 	}
 
 	resolved := mountinfo.Resolve(root, mounts)
 	if err != nil || len(resolved) == 0 || !pathutil.Contains(resolved[0].Point, root) {
-		return mountinfo.Record{Point: "", Type: "", Root: "", Source: "", FSID: 0}
+		return ""
 	}
 
-	return mountinfo.Describe(resolved[0])
+	return resolved[0].Point
 }
 
-// remounted recognizes the pinned filesystem mounted again at its point, the same source although the
-// kernel gives the new mount another ID. Another filesystem mounted there, or stacked over it, hides the
-// recorded tree: its contents must not be recorded as the source's.
+// remounted recognizes a filesystem mounted again at the point the root was pinned on, which the kernel
+// gives another ID: the daemon waits while a recorded point is unmounted, so a filesystem there now is the
+// source. One that left its point mid-operation leaves the root on another, and is rejected.
 func remounted(expected, current rootIdentity, mounts []mountinfo.Mount, err error) bool {
-	return err == nil && expected.record.Point != "" && current.record.Point == expected.record.Point &&
-		expected.record.Mounted(mounts)
+	return err == nil && expected.point != "" && current.point == expected.point &&
+		mountinfo.Mounted(expected.point, mounts)
 }
 
 func inspectRoot(path string, expected rootIdentity, known bool) (rootIdentity, error) {
@@ -179,8 +199,7 @@ func identify(path string) (rootIdentity, error) {
 	}
 
 	return rootIdentity{
-		record: mountinfo.Record{Point: "", Type: "", Root: "", Source: "", FSID: 0},
-		device: stat.Dev, mount: mount, directory: stat.Mode&unix.S_IFMT == unix.S_IFDIR,
+		point: "", device: stat.Dev, mount: mount, directory: stat.Mode&unix.S_IFMT == unix.S_IFDIR,
 	}, nil
 }
 

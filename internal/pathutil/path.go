@@ -70,19 +70,6 @@ func Within(roots []string, path string) bool {
 	return false
 }
 
-// Outside returns the paths that no root contains, in their order.
-func Outside(paths, roots []string) []string {
-	var outside []string
-
-	for _, path := range paths {
-		if !Within(roots, path) {
-			outside = append(outside, path)
-		}
-	}
-
-	return outside
-}
-
 // CompactRoots sorts canonical roots and removes duplicates and roots covered by an ancestor.
 func CompactRoots(paths []string) []string {
 	if len(paths) == 0 {

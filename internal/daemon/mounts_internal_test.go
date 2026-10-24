@@ -10,7 +10,6 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/event"
 	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/mirror"
@@ -85,7 +84,8 @@ func keptTree(t *testing.T, runner *worker, entries int64, path string) {
 }
 
 // Unmounting a filesystem mounted inside a source loses its tree with it rather than deleting it: the
-// catalog, the mirror and the history keep it, status lists it, and the rest of the source carries on.
+// repository waits, the catalog, the mirror and the history keep the tree, status lists the mount point, and
+// the repository resumes once it is mounted again.
 func TestKernelUnmountedNestedFilesystemKeepsItsTree(t *testing.T) {
 	t.Parallel()
 
@@ -112,35 +112,27 @@ func TestKernelUnmountedNestedFilesystemKeepsItsTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = runner.reconcile(t.Context(), "unmounted")
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	waited(t, runner, runner.reconcile(t.Context(), "unmounted"), nested)
 	keptTree(t, runner, stats.Entries, file)
-
-	if !slices.Equal(runner.status.UnmountedPaths, []string{nested}) {
-		t.Fatal("status does not list the unmounted filesystem", runner.status.UnmountedPaths)
-	}
 
 	mountNested(t, data, nested)
 
 	err = runner.reconcile(t.Context(), "mounted again")
 	if err != nil || len(runner.status.UnmountedPaths) != 0 {
-		t.Fatal("the filesystem mounted again stayed retained", runner.status.UnmountedPaths, err)
+		t.Fatal("the repository still waits for the filesystem mounted again", runner.status.UnmountedPaths, err)
 	}
 
 	keptTree(t, runner, stats.Entries, file)
 }
 
-// lostRecords records plain directories as mount points: none is in the mount table, as after an unmount.
-func lostRecords(points ...string) []mountinfo.Record {
-	records := make([]mountinfo.Record, 0, len(points))
-	for _, point := range points {
-		records = append(records, mountinfo.Record{Point: point, Type: "ext4", Root: "/", Source: "/dev/sdb1", FSID: 0})
-	}
+// waited fails unless the operation waited for the filesystem at point and status lists it. A plain
+// directory recorded as a mount point stands for one that is no longer mounted.
+func waited(t *testing.T, runner *worker, err error, point string) {
+	t.Helper()
 
-	return records
+	if !errors.Is(err, errFilesystemMissing) || !slices.Equal(runner.status.UnmountedPaths, []string{point}) {
+		t.Fatal("the repository did not wait for the missing filesystem", runner.status.UnmountedPaths, err)
+	}
 }
 
 // restart drops what the process pinned, as a new daemon starts with only the catalog's records.
@@ -159,19 +151,13 @@ func restart(t *testing.T, runner *worker) {
 }
 
 // After a restart with the source's filesystem unmounted, the source found is its empty mount point: the
-// recorded mount point sets it aside instead of recording its tree as deleted, while another source keeps
-// recording. A plain directory recorded as a mount point stands for one that is no longer mounted.
+// recorded mount point makes the repository wait instead of recording the tree as deleted.
 func TestRestartOnAnUnmountedSourceKeepsItsTree(t *testing.T) {
 	t.Parallel()
 
 	runner := makeWorker(t)
 	file := writeSource(t, runner, "file", "kept")
-	source, other := runner.roots[0], t.TempDir()
-
-	runner.updateSources(config.Sources{Roots: []string{source, other}, Missing: nil, Skipped: nil, Incomplete: false})
-	runner.applySources(t.Context())
-
-	defer runner.stopWatching()
+	source := runner.roots[0]
 
 	err := runner.reconcile(t.Context(), "mounted")
 	if err != nil {
@@ -183,28 +169,18 @@ func TestRestartOnAnUnmountedSourceKeepsItsTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = errors.Join(runner.catalog.RememberMounts(t.Context(), lostRecords(source)), os.Remove(file))
+	err = errors.Join(runner.catalog.RememberMounts(t.Context(), []string{source}), os.Remove(file))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	restart(t, runner)
-
-	err = os.WriteFile(filepath.Join(other, "added"), []byte("added"), 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = runner.reconcile(t.Context(), "restarted")
-	if err != nil || !slices.Equal(runner.status.UnmountedPaths, []string{source}) {
-		t.Fatal("the source on an unmounted filesystem was not set aside", runner.status.UnmountedPaths, err)
-	}
-
-	keptTree(t, runner, stats.Entries+1, file)
+	waited(t, runner, runner.reconcile(t.Context(), "restarted"), source)
+	keptTree(t, runner, stats.Entries, file)
 }
 
 // A source below a recorded mount point that is no longer mounted is missing after a restart: it was lost
-// with its filesystem, so startup keeps it unavailable, set aside, instead of pruning its tree.
+// with its filesystem, so startup keeps it and the repository waits instead of pruning its tree.
 func TestRestartKeepsASourceMissingBelowAnUnmountedMountPoint(t *testing.T) {
 	t.Parallel()
 
@@ -223,7 +199,7 @@ func TestRestartKeepsASourceMissingBelowAnUnmountedMountPoint(t *testing.T) {
 	}
 
 	err = errors.Join(
-		runner.catalog.RememberMounts(t.Context(), lostRecords(filepath.Dir(source))),
+		runner.catalog.RememberMounts(t.Context(), []string{filepath.Dir(source)}),
 		os.RemoveAll(source),
 	)
 	if err != nil {
@@ -240,11 +216,7 @@ func TestRestartKeepsASourceMissingBelowAnUnmountedMountPoint(t *testing.T) {
 		t.Fatal("the lost source was not kept", runner.roots, runner.status.UnavailableSources, err)
 	}
 
-	err = runner.reconcile(t.Context(), "restarted")
-	if err != nil {
-		t.Fatal("the lost source was not set aside", err)
-	}
-
+	waited(t, runner, runner.reconcile(t.Context(), "restarted"), filepath.Dir(source))
 	keptTree(t, runner, stats.Entries, file)
 }
 
@@ -261,7 +233,7 @@ func TestKernelUnmountedVolatileFilesystemIsNotKept(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if slices.Contains(mountinfo.Points(runner.mounts), nested) {
+	if slices.Contains(runner.mounts, nested) {
 		t.Fatal("a tmpfs was recorded", runner.mounts)
 	}
 }
@@ -279,7 +251,7 @@ func TestRetiredNestedFilesystemIsForgotten(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runner.mounts = lostRecords(nested)
+	runner.mounts = []string{nested}
 	runner.recordMounts(t.Context())
 
 	if !slices.Equal(runner.status.UnmountedPaths, []string{nested}) {
@@ -299,7 +271,7 @@ func TestRetiredNestedFilesystemIsForgotten(t *testing.T) {
 }
 
 // An event queued before an unmount finds its path missing because it went with the filesystem, not because
-// it was deleted: the catalog, the mirror and the history keep it.
+// it was deleted: the commit waits, and the catalog, the mirror and the history keep the path.
 func TestEventBelowAnUnmountedFilesystemDeletesNothing(t *testing.T) {
 	t.Parallel()
 
@@ -323,19 +295,19 @@ func TestEventBelowAnUnmountedFilesystemDeletesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runner.mounts = lostRecords(nested)
+	runner.mounts = []string{nested}
 
 	err = os.Remove(file)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	commitEvent(t, runner, file, event.Actor{})
+	waited(t, runner, commitGroup(t, runner, file), nested)
 	keptTree(t, runner, stats.Entries, file)
 }
 
 // A filesystem mounted after the last reconciliation is recorded by the next commit, so its unmount before
-// the following reconciliation does not delete its tree.
+// the following reconciliation makes the repository wait instead of deleting its tree.
 func TestKernelMountBetweenReconciliationsIsRecorded(t *testing.T) {
 	t.Parallel()
 
@@ -363,6 +335,56 @@ func TestKernelMountBetweenReconciliationsIsRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	commitEvent(t, runner, file, event.Actor{})
+	waited(t, runner, commitGroup(t, runner, file), nested)
+	keptTree(t, runner, stats.Entries, file)
+}
+
+// commitGroup commits one event for path, as the flush loop does, and returns the commit's error.
+func commitGroup(t *testing.T, runner *worker, path string) error {
+	t.Helper()
+
+	group := event.Group{Actor: event.Actor{}, Paths: map[string]event.Raw{path: {Path: path}}}
+
+	return runner.commit(t.Context(), group)
+}
+
+// A source that is itself a mount point waits while unmounted, after a restart too, and its empty mount
+// point is not pinned meanwhile: once the filesystem is mounted again the repository resumes instead of
+// reporting it changed.
+func TestKernelUnmountedSourceResumesWhenMountedAgain(t *testing.T) {
+	t.Parallel()
+
+	runner := makeWorker(t)
+	source, data := runner.roots[0], t.TempDir()
+	mountNested(t, data, source)
+	persistentMount(t, source)
+
+	file := writeSource(t, runner, "file", "kept")
+
+	err := runner.reconcile(t.Context(), "mounted")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := runner.catalog.Stats(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = unix.Unmount(source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	restart(t, runner)
+	waited(t, runner, runner.reconcile(t.Context(), "unmounted"), source)
+
+	mountNested(t, data, source)
+
+	err = runner.reconcile(t.Context(), "mounted again")
+	if err != nil {
+		t.Fatal("the source mounted again did not resume", err)
+	}
+
 	keptTree(t, runner, stats.Entries, file)
 }

@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -11,12 +13,27 @@ import (
 	"github.com/inode64/fsledger/internal/pathutil"
 )
 
-// recordMounts refreshes, before a reconciliation checks the roots, the record of each filesystem that holds
-// a root or is mounted inside one and is not excluded, unless it is volatile or a directory bound onto
-// itself. A record stays while it still relates to a root, even unmounted: its tree was lost with its
-// filesystem, not deleted, so the catalog and the mirror keep it until the same filesystem is mounted again
-// or leaves the selection. A nested one whose mount point is gone too was retired with it. The catalog keeps
-// the records across restarts.
+// errFilesystemMissing makes a repository wait while a recorded filesystem is not mounted.
+var errFilesystemMissing = errors.New("recorded filesystem not mounted")
+
+// waitForMounts records the mount points and fails while nothing is mounted at one of them. Nothing of the
+// repository is analysed meanwhile: the tree of a missing filesystem would read as deleted. The failure
+// takes the usual path, an error notice and retries, and the recovery follows once it is mounted again.
+func (w *worker) waitForMounts(ctx context.Context) error {
+	w.recordMounts(ctx)
+
+	if len(w.status.UnmountedPaths) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%w at %s; the repository waits for it", errFilesystemMissing,
+		strings.Join(w.status.UnmountedPaths, ", "))
+}
+
+// recordMounts refreshes the mount points that hold a root or are mounted inside one and are not excluded,
+// unless their filesystem is volatile or a directory bound onto itself. A point stays recorded while it
+// relates to a root, even unmounted; a nested one whose directory is gone as well was retired with its
+// volume. The catalog keeps the points across restarts.
 func (w *worker) recordMounts(ctx context.Context) {
 	table, err := mountinfo.Read()
 	if err != nil {
@@ -30,52 +47,39 @@ func (w *worker) recordMounts(ctx context.Context) {
 
 	for _, point := range unmounted {
 		if !slices.Contains(w.status.UnmountedPaths, point) {
-			w.logger.Warn("filesystem no longer mounted; its recorded tree is kept", "path", point)
+			w.logger.Warn("recorded filesystem not mounted; the repository waits for it", "path", point)
 		}
 	}
 
 	for _, point := range w.status.UnmountedPaths {
 		if !slices.Contains(unmounted, point) {
-			w.logger.Info("recorded filesystem mounted again", "path", point)
+			w.logger.Info("recorded filesystem mounted again; the repository resumes", "path", point)
 		}
 	}
 
-	kept := mountinfo.Lost(recorded, w.roots, table)
-	w.restoreReturned(pathutil.Outside(w.kept, kept))
-	w.mounts, w.kept, w.status.UnmountedPaths = recorded, kept, unmounted
+	w.mounts, w.status.UnmountedPaths = recorded, unmounted
 
 	err = w.catalog.RememberMounts(ctx, recorded)
 	if err != nil {
 		w.logger.Warn("cannot record mount points", "error", err)
 	}
 
-	w.shareMounts()
+	if w.mirror != nil {
+		w.mirror.RememberMounts(recorded)
+	}
 }
 
-// restoreReturned takes back what a filesystem mounted again holds: a root re-pins its filesystem and
-// drops its copy signatures, and a reconciliation verifies the tree soon.
-func (w *worker) restoreReturned(returned []string) {
-	if len(returned) == 0 {
-		return
-	}
-
-	roots := slices.DeleteFunc(
-		slices.Clone(returned),
-		func(path string) bool { return !slices.Contains(w.roots, path) },
-	)
-	w.scanner.ForgetRoots(roots)
+// restoreMounts takes the points the catalog recorded before a restart, before anything walks a root: a
+// source found on an empty mount point waits instead of being recorded as an empty tree.
+func (w *worker) restoreMounts() {
+	w.mounts = w.catalog.Mounts()
 
 	if w.mirror != nil {
-		w.mirror.RebindSources(roots)
+		w.mirror.RememberMounts(w.mounts)
 	}
-
-	w.dirty = true
 }
 
-// liveRoots are the roots that are not set aside while their filesystem is not mounted.
-func (w *worker) liveRoots() []string { return pathutil.Outside(w.roots, w.kept) }
-
-// lostMounts lists the recorded mount points whose filesystem is not mounted now.
+// lostMounts lists the recorded mount points that nothing is mounted at now.
 func (w *worker) lostMounts() []string {
 	if len(w.mounts) == 0 {
 		return nil
@@ -83,69 +87,57 @@ func (w *worker) lostMounts() []string {
 
 	table, err := mountinfo.Read()
 	if err != nil {
-		return mountinfo.Points(w.mounts)
+		return slices.Clone(w.mounts)
 	}
 
 	return mountinfo.Unmounted(w.mounts, table)
 }
 
-// mergeMounts keeps the records that still relate to a root and were not retired, and adds the recordable
-// filesystems now holding a root or mounted inside one. A point keeps its first record: another filesystem
-// mounted there later is not the one recorded.
-func (w *worker) mergeMounts(table []mountinfo.Mount) []mountinfo.Record {
-	recorded := slices.DeleteFunc(slices.Clone(w.mounts), func(record mountinfo.Record) bool {
-		return !w.relatedMount(record.Point) || w.retired(record, table)
+// mergeMounts keeps the points that still relate to a root and were not retired, and adds the recordable
+// mounts now holding a root or inside one.
+func (w *worker) mergeMounts(table []mountinfo.Mount) []string {
+	recorded := slices.DeleteFunc(slices.Clone(w.mounts), func(point string) bool {
+		return !w.relatedMount(point) || w.retired(point, table)
 	})
 
 	for _, root := range w.roots {
 		for _, mount := range mountinfo.Resolve(root, table) {
-			if mount.Point == "/" || !w.relatedMount(mount.Point) || !mountinfo.Recordable(mount, table) ||
-				slices.Contains(mountinfo.Points(recorded), mount.Point) {
-				continue
+			if mount.Point != "/" && !slices.Contains(recorded, mount.Point) && w.relatedMount(mount.Point) &&
+				mountinfo.Recordable(mount, table) {
+				recorded = append(recorded, mount.Point)
 			}
-
-			recorded = append(recorded, mountinfo.Describe(mount))
 		}
 	}
 
-	slices.SortFunc(recorded, func(a, b mountinfo.Record) int { return strings.Compare(a.Point, b.Point) })
+	slices.Sort(recorded)
 
 	return recorded
 }
 
-// retired reports an unmounted nested filesystem whose mount point is gone as well, as when a volume is
-// decommissioned: nothing will be mounted there again. A point that a lost filesystem held is not retired,
-// since its directory went with that filesystem.
-func (w *worker) retired(record mountinfo.Record, table []mountinfo.Mount) bool {
-	if record.Mounted(table) || slices.ContainsFunc(w.roots, func(root string) bool {
-		return pathutil.Contains(record.Point, root)
+// retired reports an unmounted nested point whose directory is gone as well, as when a volume is
+// decommissioned. A point holding a root is never retired, nor one inside another unmounted point, whose
+// directory went with that filesystem. Nothing below a remote mount is probed: an unreachable server would
+// block the worker.
+func (w *worker) retired(point string, table []mountinfo.Mount) bool {
+	if mountinfo.Mounted(point, table) || slices.ContainsFunc(w.roots, func(root string) bool {
+		return pathutil.Contains(point, root)
 	}) {
 		return false
 	}
 
 	for _, other := range w.mounts {
-		if other.Point != record.Point && pathutil.Contains(other.Point, record.Point) && !other.Mounted(table) {
+		if other != point && pathutil.Contains(other, point) && !mountinfo.Mounted(other, table) {
 			return false
 		}
 	}
 
-	_, err := os.Lstat(record.Point)
+	if holding := mountinfo.Resolve(point, table); len(holding) > 0 && holding[0].Remote() {
+		return false
+	}
+
+	_, err := os.Lstat(point)
 
 	return integrity.Missing(err)
-}
-
-// restoreMounts takes the records the catalog kept before a restart, before anything walks a root: a source
-// found on an empty mount point is set aside rather than recorded as an empty tree.
-func (w *worker) restoreMounts() {
-	w.mounts = w.catalog.Mounts()
-	w.shareMounts()
-}
-
-// shareMounts gives the records to the mirror; the catalog keeps its own.
-func (w *worker) shareMounts() {
-	if w.mirror != nil {
-		w.mirror.RememberMounts(w.mounts)
-	}
 }
 
 // relatedMount reports a mount point that holds a root, or lies inside one and is not excluded.

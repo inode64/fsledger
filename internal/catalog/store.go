@@ -19,7 +19,6 @@ import (
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/filter"
 	"github.com/inode64/fsledger/internal/integrity"
-	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/reportclock"
 	"github.com/inode64/fsledger/internal/resource"
 )
@@ -129,12 +128,12 @@ type Stats struct {
 
 type diskState struct {
 	// Mounts are the mount points recorded for the sources; see RememberMounts.
-	Mounts                 []mountinfo.Record `json:"mounts,omitempty"`
-	Reports                reportState        `json:"reports"`
-	Stats                  Stats              `json:"stats"`
-	Generation             uint64             `json:"generation"`
-	NextDelivery           int64              `json:"next_delivery"`
-	InitialSnapshotPending bool               `json:"initial_snapshot_pending,omitempty"`
+	Mounts                 []string    `json:"mounts,omitempty"`
+	Reports                reportState `json:"reports"`
+	Stats                  Stats       `json:"stats"`
+	Generation             uint64      `json:"generation"`
+	NextDelivery           int64       `json:"next_delivery"`
+	InitialSnapshotPending bool        `json:"initial_snapshot_pending,omitempty"`
 }
 
 // Open opens the current directory format.
@@ -235,9 +234,9 @@ func (store *Store) Stats(ctx context.Context) (Stats, error) {
 	return store.state.Stats, fault.Wrap("catalog status", ctx.Err())
 }
 
-// RememberMounts records the mount points that hold or lie inside the sources, kept across restarts: one no
-// longer mounted keeps the entries below it, which its filesystem took away rather than deleted.
-func (store *Store) RememberMounts(ctx context.Context, mounts []mountinfo.Record) error {
+// RememberMounts records the mount points that hold or lie inside the sources, kept across restarts: while
+// one is not mounted the repository waits, since its tree would read as deleted.
+func (store *Store) RememberMounts(ctx context.Context, mounts []string) error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
@@ -259,7 +258,7 @@ func (store *Store) RememberMounts(ctx context.Context, mounts []mountinfo.Recor
 }
 
 // Mounts returns the recorded mount points, those of the previous process after a restart.
-func (store *Store) Mounts() []mountinfo.Record {
+func (store *Store) Mounts() []string {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
@@ -268,10 +267,6 @@ func (store *Store) Mounts() []mountinfo.Record {
 
 // BindCopiedHashes is called by the owner before inventory operations begin.
 func (store *Store) BindCopiedHashes(source integrity.HashSource) { store.copiedHashes = source }
-
-// kept lists the paths set aside while their recorded filesystem is not mounted: they are neither walked
-// nor deleted.
-func (store *Store) kept(roots []string) []string { return mountinfo.Kept(store.Mounts(), roots) }
 
 func (store *Store) initialize(ctx context.Context) error {
 	format, err := get(store.database, []byte(formatKey))

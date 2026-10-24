@@ -30,9 +30,8 @@ by a reconciliation scheduled after one minute, even if periodic reconciliation
 is disabled; while they stay unstable the delay doubles up to
 watch.reconcile.interval, or 15 minutes with a reconcile schedule. Polling with a scan cron waits for its next configured scan slot
 instead.
-A full hash scan left incomplete only by unstable paths, or by trees set aside
-while their filesystem is not mounted, still counts as that full scan for
-scheduling: its retries and later ordinary scans hash only new or
+A full hash scan left incomplete only by unstable paths still counts as that
+full scan for scheduling: its retries and later ordinary scans hash only new or
 changed entries until the next full deadline, measured from that scan. It does
 not update catalog.last_full_scan; after a daemon restart the full scan is due
 again.

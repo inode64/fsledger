@@ -393,11 +393,12 @@ Missing entries are skipped without error and included when they appear in a sub
 reconciliation. An entry or pattern that cannot be read (permission denied, I/O error, stale
 handle, symlink loop) is skipped too, but never taken as deleted: the daemon keeps what it
 recorded there, and `verify` refuses to run until it can be read again.
-Likewise, a filesystem that holds a source or is mounted inside one is recorded, across
-restarts too: while it is not mounted, what it held is set aside instead of recorded as
-deleted, the other sources carry on, and `status` lists it under `unmounted_paths`. The
-same filesystem mounted again resumes it; `verify --forget-unmounted` accepts one that is
-gone for good. Volatile filesystems such as tmpfs are not recorded.
+Likewise, the mount points that hold a source or lie inside one are recorded, across
+restarts too: while nothing is mounted at one of them, the repository waits instead of
+recording its tree as deleted, sends an error notice, and `status` lists the point under
+`unmounted_paths`. It resumes once a filesystem is mounted there again;
+`verify --forget-unmounted` accepts one that is gone for good. Volatile filesystems such
+as tmpfs are not recorded. Keep removable volumes in repositories of their own.
 Selection supports `*`, `?`, and `[...]` within each path component;
 recursive `**` patterns are reserved for exclusions and other filters that support them.
 

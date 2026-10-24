@@ -410,12 +410,13 @@ Las entradas ausentes se omiten sin error y se incorporan cuando aparecen en una
 reconciliación. Una entrada o un patrón que no se puede leer (permiso denegado, error de E/S,
 handle obsoleto, bucle de symlinks) también se omite, pero nunca se toma por borrado: el demonio
 conserva lo que registró ahí, y `verify` se niega a ejecutarse hasta que vuelva a poder
-leerse. Del mismo modo, se registra el sistema de archivos que contiene una fuente o que está
-montado dentro de una, también entre reinicios: mientras no está montado, lo que contenía
-queda apartado en lugar de registrarse como borrado, las demás fuentes siguen y `status` lo
-muestra en `unmounted_paths`. Al volver a montarse el mismo sistema de archivos se reanuda;
-`verify --forget-unmounted` acepta uno que ha desaparecido para siempre. Los sistemas de
-archivos volátiles, como tmpfs, no se registran. La selección admite `*`, `?` y `[...]` dentro de cada componente;
+leerse. Del mismo modo, se registran los puntos de montaje que contienen una fuente o están
+dentro de una, también entre reinicios: mientras no hay nada montado en uno de ellos, el
+repositorio espera en lugar de registrar su árbol como borrado, envía un aviso de error y
+`status` muestra el punto en `unmounted_paths`. Se reanuda cuando vuelve a haber un sistema de
+archivos montado ahí; `verify --forget-unmounted` acepta uno que ha desaparecido para siempre.
+Los sistemas de archivos volátiles, como tmpfs, no se registran. Conviene poner los volúmenes
+extraíbles en repositorios propios. La selección admite `*`, `?` y `[...]` dentro de cada componente;
 los patrones recursivos `**` se reservan para exclusiones y otros filtros que los admiten.
 
 Puedes usar `${HOST}` o `$HOST` en valores y claves YAML. Se sustituyen por la variable

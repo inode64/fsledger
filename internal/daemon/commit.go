@@ -39,8 +39,12 @@ func (w *worker) commit(ctx context.Context, group event.Group) error {
 	w.scanningUnstable = make(map[string]struct{})
 	defer func() { w.scanningUnstable = nil }()
 
-	// A filesystem mounted since the last reconciliation is recorded before its unmount can reach a commit.
-	w.recordMounts(ctx)
+	// A filesystem mounted since the last reconciliation is recorded before its unmount can reach a commit,
+	// and a commit waits like a reconciliation while one is missing.
+	err := w.waitForMounts(ctx)
+	if err != nil {
+		return err
+	}
 
 	ctx = filter.WithActors(ctx, func(path string) event.Actor { return groupActor(group, path) })
 
@@ -173,10 +177,8 @@ func (w *worker) reconcileRun(ctx context.Context, message string) error {
 
 	w.announceError(ctx)
 	w.logger.Info("reconciliation started")
-	w.recordMounts(ctx)
-	// Pin catalog-side root identities before Git. Otherwise a failed initial Git
-	// commit leaves only the mirror guard initialized and later loss looks like deletion.
-	err = w.scanner.CheckRoots(w.liveRoots())
+
+	err = w.readySources(ctx)
 	if err != nil {
 		return err
 	}
@@ -342,4 +344,16 @@ func (w *worker) settleRecovery(ctx context.Context, now time.Time) error {
 	w.refreshWarnings()
 
 	return nil
+}
+
+// readySources waits for the recorded filesystems, then pins catalog-side root identities before Git: never
+// while a recorded filesystem is missing, whose empty mount point would be pinned. Otherwise a failed initial
+// Git commit leaves only the mirror guard initialized and later loss looks like deletion.
+func (w *worker) readySources(ctx context.Context) error {
+	err := w.waitForMounts(ctx)
+	if err != nil {
+		return err
+	}
+
+	return w.scanner.CheckRoots(w.roots)
 }

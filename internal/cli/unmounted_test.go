@@ -8,7 +8,6 @@ import (
 
 	"github.com/inode64/fsledger/internal/catalog"
 	"github.com/inode64/fsledger/internal/config"
-	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/resource"
 )
 
@@ -28,9 +27,7 @@ func rememberLost(t *testing.T, root, source string) {
 	}
 	defer resource.Close(store)
 
-	err = store.RememberMounts(t.Context(), []mountinfo.Record{
-		{Point: source, Type: "ext4", Root: "/", Source: "/dev/sdb1", FSID: 0},
-	})
+	err = store.RememberMounts(t.Context(), []string{source})
 	if err != nil {
 		t.Fatal(err)
 	}

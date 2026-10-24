@@ -125,3 +125,38 @@ func TestDeletedFileAndSymlinkRootsArePruned(t *testing.T) {
 		t.Fatal("deleted file or symlink roots stayed in the mirror", err)
 	}
 }
+
+// A walk that ends with a recorded filesystem unmounted saw its empty mount point: it prunes nothing. A plain
+// directory recorded as a mount point stands for one that is no longer mounted.
+func TestReconcilePrunesNothingWhileARecordedFilesystemIsMissing(t *testing.T) {
+	t.Parallel()
+
+	source := t.TempDir()
+	repository := t.TempDir()
+	file := filepath.Join(source, "file")
+	writeFiles(t, file)
+
+	allow, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	syncer, err := mirror.Open(repository, []string{source}, allow, "sha256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(syncer)
+
+	err = syncer.ReconcileContext(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	syncer.RememberMounts([]string{source})
+	must(t, os.Remove(file))
+
+	err = syncer.ReconcileContext(t.Context())
+	if !errors.Is(err, integrity.ErrUnavailable) || !mirrored(t, repository, file) {
+		t.Fatal("the copy of a file on a missing filesystem was pruned", err)
+	}
+}

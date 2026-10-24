@@ -64,7 +64,7 @@ func (w *worker) accept(raw event.Raw) {
 	}
 
 	for _, path := range paths {
-		if !pathutil.Within(w.roots, path) || pathutil.Within(w.kept, path) || w.matcher.Match(path) {
+		if !pathutil.Within(w.roots, path) || w.matcher.Match(path) {
 			continue
 		}
 

@@ -28,7 +28,7 @@ const (
 // Status is an atomic local snapshot; Updated permits stale-daemon detection. Paths are the sources
 // selected right now. MissingSources match nothing, SkippedSources must not be watched, and
 // UnavailableSources are kept because their filesystem, not the source, disappeared. UnmountedPaths are
-// recorded mount points whose filesystem is not mounted: the sources and trees they hold are set aside.
+// recorded mount points nothing is mounted at: the repository waits for them.
 type Status struct {
 	GitStatusUpdated      time.Time               `json:"git_status_updated"`
 	LastPublished         time.Time               `json:"last_published"`

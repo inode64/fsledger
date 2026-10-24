@@ -56,7 +56,7 @@ func TestRootGuardAcceptsRootKindReplacementOnPinnedFilesystem(t *testing.T) {
 
 	identity := guard.roots[root]
 	identity.mount++
-	identity.record.Point = filepath.Join(root, "lost")
+	identity.point = filepath.Join(root, "lost")
 	guard.roots[root] = identity
 
 	err = guard.Check([]string{root})
