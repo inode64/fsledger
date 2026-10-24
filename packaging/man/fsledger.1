@@ -140,9 +140,12 @@ status, the catalog counters that status shows under catalog. It exits with
 status 2 when it recorded changes, including every entry of a first
 inventory. A Go runtime crash also exits with 2, so scripts also require the
 JSON object. verify refuses to run while a source entry or pattern cannot be
-read, or while nothing is mounted at a recorded mount point; see paths in
-fsledger.yaml(5). With --forget-unmounted it forgets those points first, lists
-them as forgotten_mounts and records what is there now, deletions included.
+read, or while nothing is mounted at a recorded mount point of its sources or
+of the trees recorded outside them, which it drops, or the mount table cannot
+be read; see paths in fsledger.yaml(5). It forgets the recorded points no
+source relates to. With --forget-unmounted it forgets the unmounted points
+first, lists them as forgotten_mounts and records what is there now, deletions
+included.
 .TP
 .B report preview --repository NAME
 Render the first pending scheduled-report part from an existing catalog opened

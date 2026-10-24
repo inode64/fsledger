@@ -311,8 +311,9 @@ sudo journalctl -u fsledger -f
 ```
 
 To apply configuration changes, run `sudo systemctl restart fsledger`.
-The [included unit](packaging/fsledger.service) restricts writable paths;
-adjust its configuration if you customize storage or enable writes to the sources.
+The [included unit](packaging/fsledger.service) starts after local and remote filesystems and
+restricts writable paths; adjust its configuration if you customize storage or enable writes to
+the sources.
 
 ### Upgrading
 
