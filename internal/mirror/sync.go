@@ -151,7 +151,7 @@ func (s *Sync) ReconcileContext(ctx context.Context) error {
 // before a commit can record them: a crash must not keep the commit and lose its worktree change.
 // Each directory is synced once however many of its entries changed. A failure is reported like that of
 // any other mirror write, and the directory stays pending: the copies are cached, so no later pass would
-// touch it again before the next commit. One that no longer exists has nothing left to sync.
+// touch it again before the next commit. One that is gone, or no longer a directory, has nothing left to sync.
 func (s *Sync) SyncDirectories() error {
 	pending := s.unsynced.Subtree("/")
 	s.unsynced = pathindex.Index[struct{}]{}
@@ -165,7 +165,11 @@ func (s *Sync) SyncDirectories() error {
 		}
 
 		err := s.syncDirectory(s.root, name)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if integrity.Missing(err) || errors.Is(err, unix.ELOOP) {
+			continue
+		}
+
+		if err != nil {
 			s.unsynced.Set(directory, struct{}{})
 		}
 

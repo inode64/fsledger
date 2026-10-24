@@ -207,3 +207,33 @@ func TestFailedDirectorySyncIsRetried(t *testing.T) {
 
 	checkDirectorySyncs(t, synced, want...)
 }
+
+// A pending directory that something else removed, or turned into a file, has nothing left to sync: keeping
+// it would fail every later mirror operation.
+func TestPendingDirectoryThatIsGoneIsDropped(t *testing.T) {
+	t.Parallel()
+
+	syncer, _, relative := directorySyncMirror(t)
+	failure := fault.New("directory sync failed")
+	syncer.syncDirectory = func(*os.Root, string) error { return failure }
+
+	err := syncer.ReconcileContext(t.Context())
+	if !errors.Is(err, failure) {
+		t.Fatal("reconciliation ignored a failed directory sync", err)
+	}
+
+	syncer.syncDirectory = syncDirectory
+	replaced := filepath.Join(syncer.root.Name(), relative, "directory")
+
+	err = errors.Join(os.RemoveAll(replaced), os.WriteFile(replaced, nil, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		err = syncer.SyncDirectories()
+		if err != nil {
+			t.Fatal("a pending directory that is gone failed the sync:", err)
+		}
+	}
+}
