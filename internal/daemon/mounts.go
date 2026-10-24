@@ -84,14 +84,15 @@ func (w *worker) recordMounts(ctx context.Context) error {
 // rebindMounted restarts the watchers of a root once a recorded filesystem is mounted over it, as when the
 // repository waited for it or it appears over the directory they watch: they still follow what was there, and
 // a pinned empty directory would read as a replaced filesystem. Mount IDs are reused, so a mount that differs
-// from the one they started with is only one of the signs.
+// from the one the watchers started with is only one of the signs, and a root still held by an unmounted point
+// waits.
 func (w *worker) rebindMounted(table []mountinfo.Mount, waiting []string) {
 	var mounted []string
 
 	for _, root := range w.roots {
 		holding := mountinfo.Resolve(root, table)
 		if len(holding) == 0 || !slices.Contains(w.mounts, holding[0].Point) ||
-			slices.Contains(w.status.UnmountedPaths, holding[0].Point) || slices.Contains(w.returnedRoots, root) {
+			pathutil.Within(w.status.UnmountedPaths, root) || slices.Contains(w.returnedRoots, root) {
 			continue
 		}
 

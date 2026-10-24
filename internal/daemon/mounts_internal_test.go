@@ -468,3 +468,48 @@ func TestKernelFilesystemMountedOverASourceRestartsItsWatchers(t *testing.T) {
 	waited(t, runner, runner.reconcile(t.Context(), "unmounted"), source)
 	adopt("again")
 }
+
+// A source on a recorded filesystem of its own, inside another recorded one, waits once unmounted: the outer
+// filesystem now holding its mount point was not mounted over it, so its watchers and identity stay.
+func TestKernelUnmountedSourceInsideARecordedFilesystemKeepsItsWatchers(t *testing.T) {
+	t.Parallel()
+
+	runner := makeWorker(t)
+	runner.cfg.Watch.Backend = event.Inotify
+	runner.queue = watcher.NewQueue(8)
+	source := runner.roots[0]
+	mountNested(t, t.TempDir(), source)
+	persistentMount(t, source)
+
+	table, err := mountinfo.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outer := mountinfo.Resolve(filepath.Dir(source), table)
+	if len(outer) == 0 {
+		t.Fatal("no filesystem holds", source)
+	}
+
+	// The filesystem holding the mount point stands for a recorded outer one.
+	runner.mounts = []string{outer[0].Point}
+
+	err = runner.reconcile(t.Context(), "mounted")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.startWatchers(t.Context())
+	defer runner.stopWatching()
+
+	err = unix.Unmount(source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waited(t, runner, runner.reconcile(t.Context(), "unmounted"), source)
+
+	if runner.sourcesPending || len(runner.returnedRoots) != 0 {
+		t.Fatal("the watchers of a source waiting for its filesystem were restarted", runner.returnedRoots)
+	}
+}
