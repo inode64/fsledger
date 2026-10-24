@@ -339,24 +339,29 @@ func (store *Store) ChangedHashes(ctx context.Context, visit func(string) error)
 	return store.iterate(ctx, hashPrefix, func(path, _ []byte) error { return visit(string(path)) })
 }
 
-// DropRefreshes removes the mirror refreshes one operation queued, for a caller whose mirror already holds
-// those bytes; refreshes pending from other operations stay.
-func (store *Store) DropRefreshes(ctx context.Context, identifier string) error {
+// DropRefreshes removes the mirror refreshes one operation queued for paths whose bytes the caller already
+// wrote to the mirror; the operation's other refreshes, and those of other operations, stay.
+func (store *Store) DropRefreshes(ctx context.Context, identifier string, paths [][]byte) error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
+
+	err := ctx.Err()
+	if err != nil {
+		return fault.Wrap("drop mirror refreshes", err)
+	}
 
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
 
-	err := store.iterate(ctx, hashPrefix, func(path, operation []byte) error {
+	for _, path := range paths {
+		operation, err := get(store.database, key(hashPrefix, path))
+		if err != nil {
+			return err
+		}
+
 		if string(operation) == identifier {
 			transaction.remove(key(hashPrefix, path))
 		}
-
-		return nil
-	})
-	if err != nil {
-		return err
 	}
 
 	return transaction.commit()

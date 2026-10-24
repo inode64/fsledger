@@ -152,3 +152,41 @@ func TestFullScanCountsVerifiedMirrorDigests(t *testing.T) {
 		t.Fatal("verified mirror digest missing from full-scan count", result, err)
 	}
 }
+
+// An import drops the refreshes of the paths it wrote, not those its full scan found elsewhere: a file the
+// import never touched may have changed behind an unchanged signature, and only its forced copy brings the
+// new bytes to the mirror.
+func TestDroppedRefreshesAreOnlyTheImportedPaths(t *testing.T) {
+	t.Parallel()
+
+	store := testStore(t)
+	store.BindCopiedHashes(func(integrity.Record, string) (string, int64, bool) { return "", 0, false })
+
+	scanner := integrity.NewScanner(1, 1)
+	root := t.TempDir()
+	imported, local := filepath.Join(root, "imported"), filepath.Join(root, "local")
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var result Result
+
+	for _, content := range []string{"before", "after"} {
+		writeHashFixture(t, imported, content)
+		writeHashFixture(t, local, content)
+
+		result, err = store.Reconcile(t.Context(), scanner, []string{root}, matcher, true, "test", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	err = store.DropRefreshes(t.Context(), result.ID, [][]byte{[]byte(imported)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checkHashWork(t, store, local, true)
+}

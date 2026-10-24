@@ -380,9 +380,14 @@ func (w *worker) finishIncoming(ctx context.Context) error {
 
 	w.rememberChange(result)
 
-	// The import wrote the same bytes to the sources and the mirror; refreshes pending from earlier
-	// reconciliations stay for reconcileCatalog.
-	err = w.catalog.DropRefreshes(ctx, result.ID)
+	// The import wrote the same bytes to its paths in the sources and the mirror. Refreshes of other paths,
+	// and those pending from earlier reconciliations, stay for reconcileCatalog.
+	imported := make([][]byte, 0, len(w.incoming.Changes))
+	for _, change := range w.incoming.Changes {
+		imported = append(imported, change.Path)
+	}
+
+	err = w.catalog.DropRefreshes(ctx, result.ID, imported)
 	if err != nil {
 		return err
 	}
