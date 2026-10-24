@@ -327,7 +327,7 @@ func newWorker(
 		store.BindCopiedHashes(syncer.CopiedHash)
 	}
 
-	return &worker{
+	runner := &worker{
 		probePIDFD: probe,
 		// A full queue never blocks forwarding: it remembers the dropped paths, and latches a loss beyond them.
 		queue:   watcher.NewRememberingQueue(eventQueueSize, droppedPathBytes),
@@ -348,6 +348,10 @@ func newWorker(
 			Repository: name, Type: cfg.Repositories[name].Type, Paths: published.load(), Running: true,
 		},
 	}
+	// Before anything pins a root, as after a restart.
+	runner.restoreMounts()
+
+	return runner
 }
 
 func (w *worker) run(ctx context.Context, initial bool) error {

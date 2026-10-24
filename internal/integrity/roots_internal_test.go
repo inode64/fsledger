@@ -228,3 +228,31 @@ func TestRetainedMountsAreTheUnmountedOnesWithinRoots(t *testing.T) {
 		t.Fatal("a mount point outside the roots was retained", retained)
 	}
 }
+
+// After a restart nothing is pinned. A recorded mount point that the table no longer lists, here a plain
+// directory, means the source found there is its empty mount point, and a missing source below it was
+// lost with it rather than deleted.
+func TestRecordedMountPointNotMountedMakesTheSourceUnavailable(t *testing.T) {
+	t.Parallel()
+
+	point := t.TempDir()
+	root := filepath.Join(point, "source")
+
+	err := os.Mkdir(root, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	guard := RootGuard{}
+	guard.Expect([]string{point})
+
+	err = guard.Check([]string{root})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatal("a source on an unmounted recorded mount point was pinned", err)
+	}
+
+	missing := filepath.Join(point, "missing")
+	if !guard.Unavailable(missing) || (&RootGuard{}).Unavailable(missing) {
+		t.Fatal("a missing source below an unmounted recorded mount point was taken for a deletion")
+	}
+}

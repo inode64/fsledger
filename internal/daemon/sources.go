@@ -102,10 +102,7 @@ func (w *worker) retainedSources(resolved []string, incomplete bool) ([]string, 
 			continue
 		}
 
-		// A root that still exists merely stopped being selected. A missing one leaves only when
-		// it was deleted: a lost filesystem must never be recorded as an empty tree.
-		_, err := os.Lstat(root)
-		if err != nil && w.scanner.RootUnavailable(root) {
+		if w.lostRoot(root) {
 			unavailable = append(unavailable, root)
 		}
 	}
@@ -113,16 +110,31 @@ func (w *worker) retainedSources(resolved []string, incomplete bool) ([]string, 
 	return pathutil.CompactRoots(append(next, unavailable...)), unavailable
 }
 
-// retainRecorded is retainedSources for startup, which has no previous roots: an incomplete
-// selection keeps every tree the catalog recorded outside it, so what could not be read is not pruned.
-func (w *worker) retainRecorded(ctx context.Context, incomplete bool) error {
-	if !incomplete {
-		return nil
-	}
+// lostRoot tells a source lost with its filesystem from one deleted or merely no longer selected: a root
+// that still exists stopped being selected, and a missing one leaves only when it was deleted. A lost
+// filesystem must never be recorded as an empty tree.
+func (w *worker) lostRoot(root string) bool {
+	_, err := os.Lstat(root)
 
+	return err != nil && w.scanner.RootUnavailable(root)
+}
+
+// retainRecorded is retainedSources for startup, which has no previous roots: an incomplete
+// selection keeps every tree the catalog recorded outside it, so what could not be read is not pruned,
+// and a complete one keeps those whose recorded mount point is no longer mounted.
+func (w *worker) retainRecorded(ctx context.Context, incomplete bool) error {
 	recorded, err := w.catalog.RecordedOutside(ctx, w.roots)
 	if err != nil || len(recorded) == 0 {
 		return err
+	}
+
+	if !incomplete {
+		recorded = slices.DeleteFunc(recorded, func(root string) bool { return !w.lostRoot(root) })
+		if len(recorded) == 0 {
+			return nil
+		}
+
+		w.status.UnavailableSources = recorded
 	}
 
 	w.logger.Info("recorded sources retained", "count", len(recorded))
