@@ -36,8 +36,8 @@ func (w *worker) flushReconciliation(ctx context.Context, now time.Time) {
 	}
 
 	w.retryAt, w.retryDelay = time.Time{}, 0
-	w.dirty = false
-	w.contaminated = false
+	// A rebind requested during the reconciliation still restarts the watchers.
+	w.dirty, w.contaminated = w.sourcesPending, w.sourcesPending
 }
 
 // stoppedBy reports an operation that failed because shutdown cancelled its context.

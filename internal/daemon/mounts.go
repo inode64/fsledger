@@ -83,9 +83,9 @@ func (w *worker) recordMounts(ctx context.Context) error {
 
 // rebindMounted restarts the watchers of a root once a recorded filesystem is mounted over it, as when the
 // repository waited for it or it appears over the directory they watch: they still follow what was there, and
-// a pinned empty directory would read as a replaced filesystem. Mount IDs are reused, so a mount that differs
-// from the one the watchers started with is only one of the signs, and a root still held by an unmounted point
-// waits.
+// a pinned empty directory would read as a replaced filesystem. Events queued meanwhile lose their actor: the
+// reconciliation that follows certifies the bytes. Mount IDs are reused, so a mount that differs from the one
+// the watchers started with is only one of the signs, and a root still held by an unmounted point waits.
 func (w *worker) rebindMounted(table []mountinfo.Mount, waiting []string) {
 	var mounted []string
 
@@ -113,7 +113,7 @@ func (w *worker) rebindMounted(table []mountinfo.Mount, waiting []string) {
 		w.nextRoots = slices.Clone(w.roots)
 	}
 
-	w.sourcesPending, w.dirty = true, true
+	w.sourcesPending, w.dirty, w.contaminated = true, true, true
 }
 
 // readMounts reads the mount table once the recorded points it shows unmounted were reached, as a walk would:

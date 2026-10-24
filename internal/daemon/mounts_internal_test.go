@@ -513,3 +513,52 @@ func TestKernelUnmountedSourceInsideARecordedFilesystemKeepsItsWatchers(t *testi
 		t.Fatal("the watchers of a source waiting for its filesystem were restarted", runner.returnedRoots)
 	}
 }
+
+// Events queued on the directory a filesystem is then mounted over describe what it covers: their actor must
+// not sign the mounted bytes, which the reconciliation records instead.
+func TestKernelMountOverASourceDropsTheActorsOfQueuedEvents(t *testing.T) {
+	t.Parallel()
+
+	runner := makeWorker(t)
+	runner.cfg.Watch.Backend = event.Inotify
+	runner.queue = watcher.NewQueue(8)
+	source, data := runner.roots[0], t.TempDir()
+	file := writeSource(t, runner, "config", "covered")
+
+	err := runner.reconcile(t.Context(), "before the mount")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.startWatchers(t.Context())
+	defer runner.stopWatching()
+
+	writeSource(t, runner, "config", "written on the covered directory")
+
+	err = os.WriteFile(filepath.Join(data, "config"), []byte("mounted"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mountNested(t, data, source)
+	persistentMount(t, source)
+
+	now := time.Now()
+	actor := event.Actor{
+		PID:        10,
+		StartTime:  100,
+		UID:        4242,
+		LoginUID:   4242,
+		UserKnown:  true,
+		LoginKnown: true,
+		Known:      true,
+	}
+	runner.accept(event.Raw{Path: file, Actor: actor, Backend: event.Inotify, Time: now})
+	runner.flush(t.Context(), now.Add(time.Hour))
+
+	relative := strings.TrimPrefix(file, "/")
+	if strings.Contains(gitOutput(t, runner, "log", "--format=%s%n%b", "--", relative), "4242") ||
+		gitOutput(t, runner, "show", "HEAD:"+relative) != "mounted" {
+		t.Fatal("the mounted bytes were not recorded without the queued actor", runner.errorReasons)
+	}
+}
