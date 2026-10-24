@@ -140,7 +140,7 @@ func (c *Config) localRemotes(trusted func(uid uint32) bool) []string {
 		remotes = append(remotes, remote)
 
 		// The remote itself is followed too: its name may be a link.
-		resolved, err := resolveParent(remote+"/.", trusted)
+		resolved, err := gitRemote(remote, trusted)
 		if err == nil && resolved != remote {
 			remotes = append(remotes, resolved)
 		}
