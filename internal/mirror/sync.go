@@ -784,7 +784,8 @@ func staleEntry(path string, roots []string, seen map[string]bool, full bool) bo
 	inScope := false
 
 	for _, source := range roots {
-		if pathutil.Contains(absolute, source) {
+		// Ancestors of a source only hold it; the source itself is stale once unseen, like any entry.
+		if absolute != source && pathutil.Contains(absolute, source) {
 			return false
 		}
 
