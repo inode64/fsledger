@@ -11,8 +11,9 @@ import (
 )
 
 // Record identifies the filesystem mounted at a point, so it is recognized when mounted there again, after
-// a restart too. A local filesystem is known by its fsid, which its UUID gives and a renamed device keeps;
-// a remote one by its source, since statfs on an unreachable server blocks.
+// a restart too. A local filesystem is known by its fsid, which ext4 and btrfs take from their UUID and a
+// renamed device keeps, or by its source, which keeps an XFS whose fsid follows a renumbered device; a
+// remote one by its source only, since statfs on an unreachable server blocks.
 type Record struct {
 	Point  string `json:"point"`
 	Type   string `json:"type"`
@@ -39,11 +40,7 @@ func (r Record) Mounted(table []Mount) bool {
 		return false
 	}
 
-	if r.FSID != 0 {
-		return fsid(r.Point) == r.FSID
-	}
-
-	return top.Source == r.Source
+	return top.Source == r.Source || r.FSID != 0 && fsid(r.Point) == r.FSID
 }
 
 // Recordable reports a mount whose loss must not read as a deletion: not a volatile filesystem, whose

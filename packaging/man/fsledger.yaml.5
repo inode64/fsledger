@@ -174,8 +174,8 @@ mounted, the sources it holds and the tree at its mount point are set aside:
 they are neither walked nor recorded as deleted, events below them are ignored,
 the other sources keep being recorded, status lists the mount point as
 unmounted_paths, and scans count as partial. The same filesystem mounted again
-there ends this, whatever its mount ID: same type and root, and same fsid, or
-same mount source for a network filesystem. Another filesystem mounted there,
+there ends this, whatever its mount ID: same type and root, and same mount
+source or, for a local filesystem, same fsid. Another filesystem mounted there,
 or one stacked over it, does not. Volatile filesystems such as tmpfs or
 overlay, whose contents go with the mount, and directories bound onto
 themselves, as systemd mounts ReadWritePaths for the service only, are never
