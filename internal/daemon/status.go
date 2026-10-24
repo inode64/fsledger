@@ -27,7 +27,8 @@ const (
 
 // Status is an atomic local snapshot; Updated permits stale-daemon detection. Paths are the sources
 // selected right now. MissingSources match nothing, SkippedSources must not be watched, and
-// UnavailableSources are kept because their filesystem, not the source, disappeared.
+// UnavailableSources are kept because their filesystem, not the source, disappeared; so are the trees
+// below UnmountedPaths, recorded mount points inside a source that are no longer mounted.
 type Status struct {
 	GitStatusUpdated      time.Time               `json:"git_status_updated"`
 	LastPublished         time.Time               `json:"last_published"`
@@ -56,6 +57,7 @@ type Status struct {
 	UnstablePaths         []string                `json:"unstable_paths,omitempty"`
 	MissingSources        []string                `json:"missing_sources,omitempty"`
 	UnavailableSources    []string                `json:"unavailable_sources,omitempty"`
+	UnmountedPaths        []string                `json:"unmounted_paths,omitempty"`
 	Scan                  ScanStatus              `json:"scan"`
 	Catalog               catalog.Stats           `json:"catalog"`
 	Reports               catalog.ReportStatus    `json:"reports"`

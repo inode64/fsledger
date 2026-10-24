@@ -210,3 +210,21 @@ func TestRootGuardLearnsPreviouslyUnavailableMountID(t *testing.T) {
 		t.Fatal("mount ID was not learned")
 	}
 }
+
+// A recorded mount point inside a root that the table no longer lists keeps its tree; one still mounted, or
+// outside every root, does not.
+func TestRetainedMountsAreTheUnmountedOnesWithinRoots(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gone := filepath.Join(root, "gone")
+
+	retained := RetainedMounts([]string{gone, "/proc", "/elsewhere"}, []string{root, "/"})
+	if len(retained) != 2 || retained[0] != gone || retained[1] != "/elsewhere" {
+		t.Fatal("wrong retained mount points", retained)
+	}
+
+	if retained = RetainedMounts([]string{gone}, []string{filepath.Join(root, "other")}); len(retained) != 0 {
+		t.Fatal("a mount point outside the roots was retained", retained)
+	}
+}

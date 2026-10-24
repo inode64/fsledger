@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -101,16 +102,18 @@ type Store struct {
 	database       *pebble.DB
 	versions       map[string]string
 	windows        map[string]notificationWindow
-	reportHead     string
-	Repository     string
-	Host           string
-	policy         config.Integrity
-	reports        config.Reports
-	Notifications  config.Notifications
-	state          diskState
-	mutex          sync.Mutex
-	operation      sync.Mutex
-	scanActive     bool
+	// mounts are the recorded mount points holding or inside the sources; see RememberMounts.
+	mounts        []string
+	reportHead    string
+	Repository    string
+	Host          string
+	policy        config.Integrity
+	reports       config.Reports
+	Notifications config.Notifications
+	state         diskState
+	mutex         sync.Mutex
+	operation     sync.Mutex
+	scanActive    bool
 }
 
 // Stats describes live state, never cumulative change history. ExhaustedNotifications counts the pending
@@ -231,8 +234,25 @@ func (store *Store) Stats(ctx context.Context) (Stats, error) {
 	return store.state.Stats, fault.Wrap("catalog status", ctx.Err())
 }
 
+// RememberMounts records the mount points that hold or lie inside the sources: one no longer mounted keeps
+// the entries below it, which its filesystem took away rather than deleted.
+func (store *Store) RememberMounts(mounts []string) {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
+	store.mounts = slices.Clone(mounts)
+}
+
 // BindCopiedHashes is called by the owner before inventory operations begin.
 func (store *Store) BindCopiedHashes(source integrity.HashSource) { store.copiedHashes = source }
+
+func (store *Store) retainedMounts(roots []string) []string {
+	store.mutex.Lock()
+	mounts := store.mounts
+	store.mutex.Unlock()
+
+	return integrity.RetainedMounts(mounts, roots)
+}
 
 func (store *Store) initialize(ctx context.Context) error {
 	format, err := get(store.database, []byte(formatKey))

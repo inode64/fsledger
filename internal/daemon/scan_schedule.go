@@ -163,7 +163,7 @@ func (w *worker) reconcile(ctx context.Context, message string) error {
 		w.status.Scan.Result = "interrupted"
 	case err != nil:
 		w.status.Scan.Result = "failed"
-	case len(w.unstable) > 0:
+	case len(w.unstable) > 0 || len(w.status.UnmountedPaths) > 0:
 		w.status.Scan.Result = "partial"
 		w.settlePartialFullScan()
 	default:
@@ -185,9 +185,10 @@ func (w *worker) reconcile(ctx context.Context, message string) error {
 	return err
 }
 
-// A full scan left incomplete only by unstable paths still hashed every other entry, and those paths have
-// their own retry. Repeating the whole hash pass at each retry would rehash the tree while one file keeps
-// changing, so the request is consumed; the catalog keeps last_full_scan for a complete pass.
+// A full scan left incomplete only by unstable paths, or by trees kept while their filesystem is not
+// mounted, still hashed every other entry, and those paths have their own retry. Repeating the whole hash
+// pass at each retry would rehash the tree while one file keeps changing, so the request is consumed; the
+// catalog keeps last_full_scan for a complete pass.
 func (w *worker) settlePartialFullScan() {
 	if w.status.Scan.Full {
 		w.fullScanRequested = false

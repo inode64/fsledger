@@ -125,6 +125,9 @@ func (store *Store) reconcile(
 		return result, errors.Join(err, flushErr)
 	}
 
+	// A tree lost with its filesystem keeps its entries like an unstable path, and the scan is not complete.
+	unstable = append(unstable, store.retainedMounts(roots)...)
+
 	result, finishErr := store.finishScan(ctx, generation, result, actor, full, paths, matcher, unstable)
 
 	return result, errors.Join(err, finishErr)
