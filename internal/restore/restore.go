@@ -148,6 +148,12 @@ func (s *run) finish() error {
 
 // step handles one archive entry and records its outcome.
 func (s *run) step(reader io.Reader, header *tar.Header, summary *Summary) error {
+	// git archive starts with a pax global header named pax_global_header: metadata, never an entry, so
+	// it must not claim an archived path of that name.
+	if header.Typeflag == tar.TypeXGlobalHeader {
+		return nil
+	}
+
 	relative, included, err := s.locate(header)
 	if err != nil || !included {
 		return err
