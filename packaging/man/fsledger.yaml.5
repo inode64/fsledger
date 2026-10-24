@@ -181,9 +181,10 @@ volumes in repositories of their own. Any other filesystem mounted for a
 while, such as a loop-mounted image, a snapshot or a systemd-homed home, makes
 the repository wait once unmounted; exclude its mount point.
 Volatile filesystems such as tmpfs or overlay, whose contents go with the
-mount, FUSE and eCryptfs, which users mount and unmount themselves, and
-directories bound onto themselves, as systemd mounts ReadWritePaths for the
-service only, are never recorded: their unmount reads as deletion. A nested
+mount, FUSE mounts of users other than root and eCryptfs, which users mount
+and unmount themselves, and directories bound onto themselves, as systemd
+mounts ReadWritePaths for the service only, are never recorded: unmounting one
+inside a source reads as deletion. A nested
 point whose directory is removed as well is forgotten, and any other once no
 source relates to it. A source lost with its filesystem still does, so
 verify --forget-unmounted forgets a point that is gone for good.

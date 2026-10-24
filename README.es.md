@@ -418,7 +418,7 @@ sistema de archivos montado ahí, aunque sea otro distinto o uno vacío, y regis
 contiene, borrados incluidos, mientras Git conserva el historial; `verify --forget-unmounted`
 olvida un punto que ha desaparecido para siempre. Los sistemas de archivos volátiles, como
 tmpfs, y los montajes FUSE o eCryptfs que hacen los propios usuarios no se registran, así que
-su desmontaje cuenta como borrado. Cualquier otro sistema de archivos montado durante un
+desmontar uno dentro de una fuente cuenta como borrado. Cualquier otro sistema de archivos montado durante un
 tiempo, como una imagen montada por loop, una instantánea o un home de systemd-homed, hace
 esperar al repositorio cuando se desmonta: excluye su punto de montaje. Conviene poner los
 volúmenes extraíbles o automontados en repositorios propios. La selección admite `*`, `?` y `[...]` dentro de cada componente;

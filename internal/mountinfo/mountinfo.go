@@ -25,9 +25,11 @@ type Mount struct {
 	Type   string `json:"type"`
 	Device string `json:"device"`
 	// Source is the mount's origin (a device, server:/export or a share tag), Root the directory of its
-	// filesystem it shows, and Parent the ID of the mount it sits on.
+	// filesystem it shows, and Parent the ID of the mount it sits on. UserID is the user_id superblock option
+	// FUSE sets to the user who mounted it, "" without one.
 	Source string `json:"-"`
 	Root   string `json:"-"`
+	UserID string `json:"-"`
 	ID     int    `json:"id"`
 	Parent int    `json:"-"`
 }
@@ -60,6 +62,7 @@ func Parse(reader io.Reader) ([]Mount, error) {
 				Device: fmt.Sprintf("%d:%d", entry.Major, entry.Minor),
 				Source: entry.Source,
 				Root:   entry.Root,
+				UserID: superOption(entry.VFSOptions, "user_id"),
 				ID:     entry.ID,
 				Parent: entry.Parent,
 			},
@@ -67,6 +70,18 @@ func Parse(reader io.Reader) ([]Mount, error) {
 	}
 
 	return result, nil
+}
+
+// superOption returns the value of a superblock option, "" without it.
+func superOption(options, name string) string {
+	for option := range strings.SplitSeq(options, ",") {
+		value, found := strings.CutPrefix(option, name+"=")
+		if found {
+			return value
+		}
+	}
+
+	return ""
 }
 
 // Resolve returns the deepest containing mount and all nested mount points.

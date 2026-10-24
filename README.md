@@ -400,7 +400,7 @@ recording its tree as deleted, sends an error notice, and `status` lists the poi
 different or blank one, and records what it holds, deletions included, while Git keeps the
 history; `verify --forget-unmounted` forgets a point that is gone for good. Volatile
 filesystems such as tmpfs, and FUSE or eCryptfs mounts that users make themselves, are not
-recorded, so their unmount reads as deletion. Any other filesystem mounted for a while,
+recorded, so unmounting one inside a source reads as deletion. Any other filesystem mounted for a while,
 such as a loop-mounted image, a snapshot or a systemd-homed home, makes the repository wait
 once unmounted: exclude its mount point. Keep removable or automounted volumes in
 repositories of their own.
