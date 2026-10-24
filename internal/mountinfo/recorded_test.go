@@ -72,3 +72,67 @@ func TestUnmountedListsThePointsNothingIsMountedAt(t *testing.T) {
 		t.Fatal("wrong unmounted points", unmounted)
 	}
 }
+
+// Only the visible mount at a point counts, and not when it shows the directory it covers: systemd binds a
+// ReadWritePaths directory onto itself in the service's namespace, and a host mount propagated later is
+// tucked beneath that bind, so the daemon still sees the empty directory.
+func TestMountedJudgesTheVisibleMountAtThePoint(t *testing.T) {
+	t.Parallel()
+
+	const point = "/srv/data"
+
+	root := mountinfo.Mount{
+		Point:  "/",
+		Type:   typeExt4,
+		Device: diskDevice,
+		Source: diskSource,
+		Root:   "/",
+		ID:     1,
+		Parent: 0,
+	}
+	self := mountinfo.Mount{
+		Point:  point,
+		Type:   typeExt4,
+		Device: diskDevice,
+		Source: diskSource,
+		Root:   point,
+		ID:     5,
+		Parent: 1,
+	}
+	volume := mountinfo.Mount{
+		Point: point, Type: "xfs", Device: "253:3", Source: "/dev/mapper/vg-data", Root: "/", ID: 9,
+		Parent: 1,
+	}
+	tucked := self
+	tucked.Parent = volume.ID
+	automount := mountinfo.Mount{
+		Point: point, Type: "autofs", Device: "0:50", Source: "systemd-1", Root: "/", ID: 7,
+		Parent: 1,
+	}
+	share := mountinfo.Mount{
+		Point:  point,
+		Type:   typeNFS,
+		Device: "0:51",
+		Source: "server:/x",
+		Root:   "/",
+		ID:     8,
+		Parent: 7,
+	}
+
+	for _, test := range []struct {
+		name  string
+		table []mountinfo.Mount
+		want  bool
+	}{
+		{"nothing", []mountinfo.Mount{root}, false},
+		{"a directory bound onto itself", []mountinfo.Mount{root, self}, false},
+		{"a volume", []mountinfo.Mount{root, volume}, true},
+		{"a volume tucked beneath a self-bind", []mountinfo.Mount{root, tucked, volume}, false},
+		{"an automounter", []mountinfo.Mount{root, automount}, true},
+		{"a share over its automounter", []mountinfo.Mount{root, automount, share}, true},
+	} {
+		if mountinfo.Mounted(point, test.table) != test.want {
+			t.Error(test.name, "misjudged")
+		}
+	}
+}

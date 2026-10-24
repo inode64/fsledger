@@ -12,13 +12,23 @@ import (
 // contents go with the mount, and not a directory bound onto itself, as systemd mounts ReadWritePaths in the
 // service's namespace only.
 func Recordable(mount Mount, table []Mount) bool {
-	return !volatile(mount.Type) && !boundOntoItself(mount, table)
+	return !volatile(mount.Type) && !shows(mount, table)
 }
 
-// Mounted reports whether some filesystem is mounted at point. Any one counts, an automounter's own entry
-// too, since reaching the point mounts what it serves.
+// Mounted reports whether a filesystem is visible at point: the mount no other one at the point sits on,
+// unless it shows the directory it covers, as a directory bound onto itself does even with a volume tucked
+// beneath it. Any other one counts, an automounter's own entry too, since reaching the point mounts what it
+// serves.
 func Mounted(point string, table []Mount) bool {
-	return slices.ContainsFunc(table, func(mount Mount) bool { return mount.Point == point })
+	for _, mount := range table {
+		if mount.Point == point && !slices.ContainsFunc(table, func(other Mount) bool {
+			return other.Point == point && other.Parent == mount.ID
+		}) {
+			return !shows(mount, table)
+		}
+	}
+
+	return false
 }
 
 // Unmounted lists the points no filesystem is mounted at.
@@ -26,19 +36,24 @@ func Unmounted(points []string, table []Mount) []string {
 	return slices.DeleteFunc(slices.Clone(points), func(point string) bool { return Mounted(point, table) })
 }
 
-func boundOntoItself(mount Mount, table []Mount) bool {
-	for _, parent := range table {
-		if parent.ID != mount.Parent || parent.Point == mount.Point {
-			continue
+// shows reports a mount whose tree is the directory it covers, found on the mount below every one stacked at
+// its point.
+func shows(mount Mount, table []Mount) bool {
+	below := mount
+
+	for below.Point == mount.Point {
+		index := slices.IndexFunc(table, func(parent Mount) bool { return parent.ID == below.Parent })
+		if index < 0 {
+			return false
 		}
 
-		relative := strings.TrimPrefix(strings.TrimPrefix(mount.Point, parent.Point), "/")
-
-		return parent.Device == mount.Device && pathutil.Contains(parent.Point, mount.Point) &&
-			path.Join(parent.Root, relative) == mount.Root
+		below = table[index]
 	}
 
-	return false
+	relative := strings.TrimPrefix(strings.TrimPrefix(mount.Point, below.Point), "/")
+
+	return below.Device == mount.Device && pathutil.Contains(below.Point, mount.Point) &&
+		path.Join(below.Root, relative) == mount.Root
 }
 
 func volatile(kind string) bool {

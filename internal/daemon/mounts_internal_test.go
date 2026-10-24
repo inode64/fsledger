@@ -388,3 +388,35 @@ func TestKernelUnmountedSourceResumesWhenMountedAgain(t *testing.T) {
 
 	keptTree(t, runner, stats.Entries, file)
 }
+
+// systemd binds a ReadWritePaths directory onto itself in the service's namespace, also when the volume
+// meant to be there is missing: that bind is the empty mount point, so the repository waits.
+func TestKernelSelfBindAtAMissingPointWaits(t *testing.T) {
+	t.Parallel()
+
+	runner := makeWorker(t)
+	nested := filepath.Join(runner.roots[0], "data")
+	mountNested(t, t.TempDir(), nested)
+	persistentMount(t, nested)
+
+	file := writeSource(t, runner, "data/file", "nested")
+
+	err := runner.reconcile(t.Context(), "mounted")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := runner.catalog.Stats(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = unix.Unmount(nested, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mountNested(t, nested, nested)
+	waited(t, runner, runner.reconcile(t.Context(), "bound onto itself"), nested)
+	keptTree(t, runner, stats.Entries, file)
+}
