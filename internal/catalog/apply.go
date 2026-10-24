@@ -339,6 +339,29 @@ func (store *Store) ChangedHashes(ctx context.Context, visit func(string) error)
 	return store.iterate(ctx, hashPrefix, func(path, _ []byte) error { return visit(string(path)) })
 }
 
+// DropRefreshes removes the mirror refreshes one operation queued, for a caller whose mirror already holds
+// those bytes; refreshes pending from other operations stay.
+func (store *Store) DropRefreshes(ctx context.Context, identifier string) error {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
+	transaction := store.begin()
+	defer resource.Close(transaction.batch)
+
+	err := store.iterate(ctx, hashPrefix, func(path, operation []byte) error {
+		if string(operation) == identifier {
+			transaction.remove(key(hashPrefix, path))
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return transaction.commit()
+}
+
 // ClearOperation removes transient hash refresh work after its consumer finishes.
 func (store *Store) ClearOperation(ctx context.Context) error {
 	store.mutex.Lock()

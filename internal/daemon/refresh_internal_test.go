@@ -63,3 +63,15 @@ func TestRefreshOfADeselectedSourceIsDropped(t *testing.T) {
 		t.Fatal("refresh of a deleted entry kept:", pending)
 	}
 }
+
+// An import writes the fetched bytes to the sources and the mirror alike: the hash changes its full scan
+// records need no forced copy, while refreshes pending from earlier reconciliations stay.
+func TestImportQueuesNoMirrorRefresh(t *testing.T) {
+	t.Parallel()
+
+	runner := importedWorker(t)
+
+	if pending := pendingRefreshes(t, runner); len(pending) != 0 {
+		t.Fatal("import queued forced copies of what it wrote:", pending)
+	}
+}
