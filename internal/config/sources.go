@@ -38,14 +38,17 @@ func SourcePattern(path string) bool { return strings.ContainsAny(path, sourceMe
 // ResolveSources expands patterns and drops absent entries. It never fails: a fleet-wide
 // list names paths that exist on some hosts only and may appear later.
 func (c *Config) ResolveSources() map[string]Sources {
-	return c.resolveSources("", func(uid uint32) bool { return uid == 0 || int(uid) == os.Geteuid() })
+	return c.resolveSources("", trustedOwner)
 }
 
 // ResolveRepository resolves one repository. Only repositories of its type named before it can
 // claim its sources, so nothing else is read from disk.
 func (c *Config) ResolveRepository(name string) Sources {
-	return c.resolveSources(name, func(uid uint32) bool { return uid == 0 || int(uid) == os.Geteuid() })[name]
+	return c.resolveSources(name, trustedOwner)[name]
 }
+
+// trustedOwner reports a symlink owner who could have changed the path anyway: root or the daemon's own user.
+func trustedOwner(uid uint32) bool { return uid == 0 || int(uid) == os.Geteuid() }
 
 // resolveSources resolves every repository, or with only set, that one and those able to claim from it.
 func (c *Config) resolveSources(only string, trusted func(uid uint32) bool) map[string]Sources {

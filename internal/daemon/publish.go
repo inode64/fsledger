@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"time"
+
+	"github.com/inode64/fsledger/internal/config"
 )
 
 const maximumPublishBackoff = 15 * time.Minute
@@ -18,7 +20,11 @@ func (w *worker) publish(ctx context.Context, now time.Time) {
 	ctx, cancel := context.WithTimeout(ctx, settings.PushTimeout)
 	defer cancel()
 
-	err := w.repo.Publish(ctx, settings.Remote, settings.Branch, w.status.LastCommit)
+	remote, err := config.GitRemote(settings.Remote)
+	if err == nil {
+		err = w.repo.Publish(ctx, remote, settings.Branch, w.status.LastCommit)
+	}
+
 	if err != nil {
 		w.publishDelay = doubledDelay(w.publishDelay, settings.PushInterval, maximumPublishBackoff)
 		w.publishNext = time.Now().Add(w.publishDelay)

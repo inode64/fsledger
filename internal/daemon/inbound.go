@@ -38,7 +38,13 @@ func (w *worker) syncRemote(ctx context.Context, now time.Time) {
 
 	settings := w.cfg.Storage.Git
 	fetch, cancel := context.WithTimeout(ctx, settings.FetchTimeout)
-	remote, err := w.repo.FetchBranch(fetch, settings.Remote, settings.Branch)
+
+	var remote string
+
+	target, err := config.GitRemote(settings.Remote)
+	if err == nil {
+		remote, err = w.repo.FetchBranch(fetch, target, settings.Branch)
+	}
 
 	cancel()
 

@@ -40,3 +40,8 @@ func ParseFileDocument(reader io.Reader, target any) error {
 func (c *Config) ResolveSourcesTrusting(trusted func(uid uint32) bool) map[string]Sources {
 	return c.resolveSources("", trusted)
 }
+
+// GitRemoteTrusting resolves a Git remote with a substituted symlink owner policy.
+func GitRemoteTrusting(remote string, trusted func(uid uint32) bool) (string, error) {
+	return gitRemote(remote, trusted)
+}
