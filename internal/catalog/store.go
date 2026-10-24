@@ -102,18 +102,16 @@ type Store struct {
 	database       *pebble.DB
 	versions       map[string]string
 	windows        map[string]notificationWindow
-	// mounts are the recorded mount points holding or inside the sources; see RememberMounts.
-	mounts        []string
-	reportHead    string
-	Repository    string
-	Host          string
-	policy        config.Integrity
-	reports       config.Reports
-	Notifications config.Notifications
-	state         diskState
-	mutex         sync.Mutex
-	operation     sync.Mutex
-	scanActive    bool
+	reportHead     string
+	Repository     string
+	Host           string
+	policy         config.Integrity
+	reports        config.Reports
+	Notifications  config.Notifications
+	state          diskState
+	mutex          sync.Mutex
+	operation      sync.Mutex
+	scanActive     bool
 }
 
 // Stats describes live state, never cumulative change history. ExhaustedNotifications counts the pending
@@ -129,6 +127,8 @@ type Stats struct {
 }
 
 type diskState struct {
+	// Mounts are the mount points recorded for the sources; see RememberMounts.
+	Mounts                 []string    `json:"mounts,omitempty"`
 	Reports                reportState `json:"reports"`
 	Stats                  Stats       `json:"stats"`
 	Generation             uint64      `json:"generation"`
@@ -234,24 +234,42 @@ func (store *Store) Stats(ctx context.Context) (Stats, error) {
 	return store.state.Stats, fault.Wrap("catalog status", ctx.Err())
 }
 
-// RememberMounts records the mount points that hold or lie inside the sources: one no longer mounted keeps
-// the entries below it, which its filesystem took away rather than deleted.
-func (store *Store) RememberMounts(mounts []string) {
+// RememberMounts records the mount points that hold or lie inside the sources, kept across restarts: one no
+// longer mounted keeps the entries below it, which its filesystem took away rather than deleted.
+func (store *Store) RememberMounts(ctx context.Context, mounts []string) error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
-	store.mounts = slices.Clone(mounts)
+	if slices.Equal(store.state.Mounts, mounts) {
+		return nil
+	}
+
+	err := ctx.Err()
+	if err != nil {
+		return fault.Wrap("record mount points", err)
+	}
+
+	transaction := store.begin()
+	defer resource.Close(transaction.batch)
+
+	transaction.state.Mounts = slices.Clone(mounts)
+
+	return transaction.commit()
+}
+
+// Mounts returns the recorded mount points, those of the previous process after a restart.
+func (store *Store) Mounts() []string {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
+	return slices.Clone(store.state.Mounts)
 }
 
 // BindCopiedHashes is called by the owner before inventory operations begin.
 func (store *Store) BindCopiedHashes(source integrity.HashSource) { store.copiedHashes = source }
 
 func (store *Store) retainedMounts(roots []string) []string {
-	store.mutex.Lock()
-	mounts := store.mounts
-	store.mutex.Unlock()
-
-	return integrity.RetainedMounts(mounts, roots)
+	return integrity.RetainedMounts(store.Mounts(), roots)
 }
 
 func (store *Store) initialize(ctx context.Context) error {

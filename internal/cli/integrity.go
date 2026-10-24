@@ -222,6 +222,8 @@ func verifyInventory(
 	}
 
 	scanner := integrity.NewScanner(cfg.Scan.Workers, cfg.Scan.MaxConcurrent)
+	// A source on a recorded mount point that is no longer mounted is unavailable, not an empty tree.
+	scanner.ExpectMounts(store.Mounts())
 
 	// Mirror refreshes the daemon left pending stay for it: verify cannot copy them.
 	result, err := store.Reconcile(ctx, scanner, sources.Roots, matcher, true, "manual verification", "")

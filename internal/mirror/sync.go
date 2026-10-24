@@ -43,7 +43,6 @@ type Sync struct {
 	directories *pathindex.Index[struct{}]
 	// walkDirectories keeps the running walk's current source and mirror directories; nil outside one.
 	walkDirectories *walkDirectories
-	roots           integrity.RootGuard
 	sources         []string
 	// mounts are the recorded mount points holding or inside the sources; see RememberMounts.
 	mounts []string
@@ -53,6 +52,7 @@ type Sync struct {
 	syncDirectory func(*os.Root, string) error
 	// compareBuffer is reused by serialized comparisons and grows to at most two chunks.
 	compareBuffer []byte
+	roots         integrity.RootGuard
 }
 type signature struct {
 	size   int64
@@ -130,7 +130,10 @@ func (s *Sync) RebindSources(sources []string) {
 
 // RememberMounts records the mount points that hold or lie inside the sources: one no longer mounted keeps
 // the copies below it.
-func (s *Sync) RememberMounts(mounts []string) { s.mounts = slices.Clone(mounts) }
+func (s *Sync) RememberMounts(mounts []string) {
+	s.mounts = slices.Clone(mounts)
+	s.roots.Expect(mounts)
+}
 
 // Close releases the mirror directory descriptor.
 func (s *Sync) Close() error { return fault.Wrap("close mirror", s.root.Close()) }
