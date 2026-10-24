@@ -398,7 +398,8 @@ restarts too: while nothing is mounted at one of them, the repository waits inst
 recording its tree as deleted, sends an error notice, and `status` lists the point under
 `unmounted_paths`. It resumes once a filesystem is mounted there again;
 `verify --forget-unmounted` accepts one that is gone for good. Volatile filesystems such
-as tmpfs are not recorded. Keep removable volumes in repositories of their own.
+as tmpfs, and FUSE or eCryptfs mounts that users make themselves, are not recorded, so
+their unmount reads as deletion. Keep removable volumes in repositories of their own.
 Selection supports `*`, `?`, and `[...]` within each path component;
 recursive `**` patterns are reserved for exclusions and other filters that support them.
 

@@ -9,10 +9,11 @@ import (
 )
 
 // Recordable reports a mount whose absence must not read as an empty tree: not a volatile filesystem, whose
-// contents go with the mount, and not a directory bound onto itself, as systemd mounts ReadWritePaths in the
-// service's namespace only.
+// contents go with the mount, not one users mount themselves, whose unmount would pause the repository at
+// their will, and not a directory bound onto itself, as systemd mounts ReadWritePaths in the service's
+// namespace only.
 func Recordable(mount Mount, table []Mount) bool {
-	return !volatile(mount.Type) && !shows(mount, table)
+	return !volatile(mount.Type) && !userMounted(mount.Type) && !shows(mount, table)
 }
 
 // Mounted reports whether a filesystem is visible at point: the mount no other one at the point sits on,
@@ -65,4 +66,10 @@ func volatile(kind string) bool {
 	}
 
 	return false
+}
+
+// userMounted reports a filesystem type that unprivileged users mount and unmount, as FUSE and eCryptfs
+// homes are.
+func userMounted(kind string) bool {
+	return kind == "fuse" || strings.HasPrefix(kind, "fuse.") || kind == "ecryptfs"
 }
