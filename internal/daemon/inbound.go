@@ -372,12 +372,8 @@ func (w *worker) finishIncoming(ctx context.Context) error {
 		return err
 	}
 
+	// The imported paths already match the mirror; refreshes pending from earlier stay for reconcileCatalog.
 	w.rememberChange(result)
-
-	err = w.catalog.ClearOperation(ctx)
-	if err != nil {
-		return err
-	}
 
 	err = w.catalog.SaveIncoming(ctx, nil)
 	if err != nil {

@@ -39,22 +39,61 @@ func checkHashRefresh(t *testing.T, copied bool) {
 	for index, full := range []bool{true, true, false} {
 		writeHashFixture(t, path, string(rune('a'+index)))
 
-		result, scanErr := store.Reconcile(t.Context(), scanner, []string{root}, matcher, full, "test", "")
+		_, scanErr := store.Reconcile(t.Context(), scanner, []string{root}, matcher, full, "test", "")
 		if scanErr != nil {
 			t.Fatal(scanErr)
 		}
 
-		checkHashWork(t, store, result.ID, path, copied && index == 1)
+		checkHashWork(t, store, path, copied && index == 1)
+		clearHashWork(t, store)
 	}
 
 	writeHashFixture(t, path, "event")
 
-	result, err := store.Observe(t.Context(), scanner, []string{path}, []string{root}, matcher, "test", "event")
+	_, err = store.Observe(t.Context(), scanner, []string{path}, []string{root}, matcher, "test", "event")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	checkHashWork(t, store, result.ID, path, false)
+	checkHashWork(t, store, path, false)
+}
+
+// The refresh consumes its work only once the mirror copy and its commit succeed: work left by a failed
+// refresh, or by a daemon that died before it, outlives the next reconciliation instead of being lost.
+func TestUnconsumedHashRefreshWorkSurvivesTheNextReconciliation(t *testing.T) {
+	t.Parallel()
+
+	store := testStore(t)
+	store.BindCopiedHashes(func(integrity.Record, string) (string, int64, bool) { return "", 0, false })
+
+	scanner := integrity.NewScanner(1, 1)
+	root := t.TempDir()
+	path := filepath.Join(root, "file")
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, content := range []string{"first", "second", "second"} {
+		writeHashFixture(t, path, content)
+
+		_, err = store.Reconcile(t.Context(), scanner, []string{root}, matcher, true, "test", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	checkHashWork(t, store, path, true)
+}
+
+func clearHashWork(t *testing.T, store *Store) {
+	t.Helper()
+
+	err := store.ClearOperation(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeHashFixture(t *testing.T, path, content string) {
@@ -66,12 +105,12 @@ func writeHashFixture(t *testing.T, path, content string) {
 	}
 }
 
-func checkHashWork(t *testing.T, store *Store, id, path string, want bool) {
+func checkHashWork(t *testing.T, store *Store, path string, want bool) {
 	t.Helper()
 
 	var paths []string
 
-	err := store.ChangedHashes(t.Context(), id, func(path string) error {
+	err := store.ChangedHashes(t.Context(), func(path string) error {
 		paths = append(paths, path)
 
 		return nil
