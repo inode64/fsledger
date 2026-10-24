@@ -9,6 +9,7 @@ import (
 const (
 	sharePoint = "/srv/share"
 	typeExt4   = "ext4"
+	typeXFS    = "xfs"
 	typeNFS    = "nfs4"
 	diskDevice = "8:1"
 	diskSource = "/dev/sda1"
@@ -122,5 +123,27 @@ func TestLostSetsAsideUnmountedPointsAndTheRootsTheyHold(t *testing.T) {
 	kept := mountinfo.Lost(records, roots, nil)
 	if len(kept) != 2 || kept[0] != "/mnt/data/app" || kept[1] != sharePoint {
 		t.Fatal("wrong paths set aside", kept)
+	}
+}
+
+// A local filesystem is the recorded one when its fsid or its source matches: XFS takes its fsid from the
+// device number, which a reboot may renumber while the source stays /dev/mapper/vg-data.
+func TestLocalRecordMatchesBySourceWhenTheFsidChanges(t *testing.T) {
+	t.Parallel()
+
+	point := t.TempDir()
+	record := mountinfo.Record{Point: point, Type: typeXFS, Root: "/", Source: "/dev/mapper/vg-data", FSID: 1}
+	mounted := mountinfo.Mount{
+		Point: point, Type: typeXFS, Device: "253:7", Source: "/dev/mapper/vg-data",
+		Root: "/", ID: 40, Parent: 1,
+	}
+
+	if !record.Mounted([]mountinfo.Mount{mounted}) {
+		t.Fatal("the same source was not recognized after its fsid changed")
+	}
+
+	mounted.Source = "/dev/mapper/vg-other"
+	if record.Mounted([]mountinfo.Mount{mounted}) {
+		t.Fatal("another device with another fsid was taken for the recorded filesystem")
 	}
 }
