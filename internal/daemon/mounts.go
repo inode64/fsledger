@@ -164,12 +164,13 @@ func (w *worker) lostMounts() []string {
 // mounts now holding a root or inside one.
 func (w *worker) mergeMounts(table []mountinfo.Mount) []string {
 	recorded := slices.DeleteFunc(slices.Clone(w.mounts), func(point string) bool {
-		return !w.relatedMount(point) || w.retired(point, table)
+		return !mountinfo.Related(point, w.roots, w.matcher.Match) || w.retired(point, table)
 	})
 
 	for _, root := range w.roots {
 		for _, mount := range mountinfo.Resolve(root, table) {
-			if mount.Point != "/" && !slices.Contains(recorded, mount.Point) && w.relatedMount(mount.Point) &&
+			if mount.Point != "/" && !slices.Contains(recorded, mount.Point) &&
+				mountinfo.Related(mount.Point, w.roots, w.matcher.Match) &&
 				mountinfo.Recordable(mount, table) {
 				recorded = append(recorded, mount.Point)
 			}
@@ -204,15 +205,4 @@ func (w *worker) retired(point string, table []mountinfo.Mount) bool {
 	_, err := os.Lstat(point)
 
 	return integrity.Missing(err)
-}
-
-// relatedMount reports a mount point that holds a root, or lies inside one and is not excluded.
-func (w *worker) relatedMount(point string) bool {
-	for _, root := range w.roots {
-		if pathutil.Contains(point, root) || pathutil.Contains(root, point) && !w.matcher.Match(point) {
-			return true
-		}
-	}
-
-	return false
 }

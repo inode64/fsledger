@@ -14,6 +14,7 @@ import (
 
 	"github.com/inode64/fsledger/internal/catalog"
 	"github.com/inode64/fsledger/internal/config"
+	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/mountinfo"
@@ -95,26 +96,39 @@ func verifyCommand(ctx context.Context, writer io.Writer, cfg *config.Config, na
 		func(store *catalog.Store) error { return verifyInventory(ctx, writer, cfg, store, name, forget) })
 }
 
-// settleUnmounted refuses to verify while nothing is mounted at a recorded mount point: verify claims to
-// rescan every source, and that tree would read as deleted. With forget, those points are forgotten first and
-// returned, so what is there now is recorded, deletions included.
-func settleUnmounted(ctx context.Context, store *catalog.Store, forget bool) ([]string, error) {
+// settleUnmounted refuses to verify while nothing is mounted at a recorded mount point of the sources, or of
+// the trees recorded outside them, which verify drops: those trees would read as deleted. Records related to
+// neither are stale and go. With forget, the unmounted points are forgotten first and returned, so what is
+// there now is recorded, deletions included.
+func settleUnmounted(
+	ctx context.Context,
+	store *catalog.Store,
+	roots []string,
+	matcher *exclude.Matcher,
+	forget bool,
+) ([]string, error) {
 	recorded := store.Mounts()
 	if len(recorded) == 0 {
 		return nil, nil
 	}
+
+	outside, err := store.RecordedOutside(ctx, roots)
+	if err != nil {
+		return nil, err
+	}
+
+	trees := append(slices.Clone(roots), outside...)
+	related := slices.DeleteFunc(recorded, func(point string) bool {
+		return !mountinfo.Related(point, trees, matcher.Match)
+	})
 
 	table, err := mountinfo.Read()
 	if err != nil {
 		return nil, fault.Wrap("read mount table", err)
 	}
 
-	unmounted := mountinfo.Unmounted(recorded, table)
-	if len(unmounted) == 0 {
-		return nil, nil
-	}
-
-	if !forget {
+	unmounted := mountinfo.Unmounted(related, table)
+	if len(unmounted) > 0 && !forget {
 		return nil, fault.New("refuse manual verification while recorded filesystems are not mounted at " +
 			strings.Join(
 				unmounted,
@@ -122,7 +136,7 @@ func settleUnmounted(ctx context.Context, store *catalog.Store, forget bool) ([]
 			) + "; mount them, or run verify --forget-unmounted to record what is there now")
 	}
 
-	return unmounted, store.RememberMounts(ctx, slices.DeleteFunc(recorded, func(point string) bool {
+	return unmounted, store.RememberMounts(ctx, slices.DeleteFunc(related, func(point string) bool {
 		return slices.Contains(unmounted, point)
 	}))
 }
@@ -251,12 +265,12 @@ func verifyInventory(
 			strings.Join(sources.Skipped, "; "))
 	}
 
-	forgotten, err := settleUnmounted(ctx, store, forget)
+	matcher, err := cfg.Matcher(name)
 	if err != nil {
 		return err
 	}
 
-	matcher, err := cfg.Matcher(name)
+	forgotten, err := settleUnmounted(ctx, store, sources.Roots, matcher, forget)
 	if err != nil {
 		return err
 	}

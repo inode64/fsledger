@@ -11,9 +11,8 @@ import (
 	"github.com/inode64/fsledger/internal/resource"
 )
 
-// rememberLost records the source as a mount point; a plain directory is in no mount table, as after an
-// unmount.
-func rememberLost(t *testing.T, root, source string) {
+// withFixtureStore lets use read or change the fixture repository's catalog, closed again before verify runs.
+func withFixtureStore(t *testing.T, root string, use func(*catalog.Store)) {
 	t.Helper()
 
 	cfg, err := config.Load(filepath.Join(root, fixtureMainYaml))
@@ -27,10 +26,19 @@ func rememberLost(t *testing.T, root, source string) {
 	}
 	defer resource.Close(store)
 
-	err = store.RememberMounts(t.Context(), []string{source})
-	if err != nil {
-		t.Fatal(err)
-	}
+	use(store)
+}
+
+// rememberLost records points as mount points; a plain directory is in no mount table, as after an unmount.
+func rememberLost(t *testing.T, root string, points ...string) {
+	t.Helper()
+
+	withFixtureStore(t, root, func(store *catalog.Store) {
+		err := store.RememberMounts(t.Context(), points)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 // verify rescans every source, so it refuses while a recorded filesystem is not mounted: the scan would skip
@@ -61,4 +69,43 @@ func TestVerifyRefusesWhileARecordedFilesystemIsNotMounted(t *testing.T) {
 	if changed := verifiedChanges(t, run); changed != 0 {
 		t.Fatalf("the forgotten filesystem still blocks verify or records %d changes", changed)
 	}
+}
+
+// verify drops the trees recorded outside the selection, so a source missing below a recorded point that is
+// not mounted makes it refuse too: the source was lost with that filesystem.
+func TestVerifyRefusesWhileALostSourceWaitsForItsFilesystem(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	file, run := inventorySource(t, root, "{}")
+	rememberLost(t, root, root)
+
+	err := os.RemoveAll(filepath.Dir(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = run(verifyCommand)
+	if err == nil || !strings.Contains(err.Error(), "not mounted at "+root) {
+		t.Fatal("verify dropped a source lost with its filesystem", err)
+	}
+}
+
+// A recorded point that holds no source and lies inside none is stale: verify neither waits for it nor keeps it.
+func TestVerifyForgetsMountPointsOfNoSource(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	_, run := inventorySource(t, root, "{}")
+	rememberLost(t, root, filepath.Join(root, "elsewhere"))
+
+	if changed := verifiedChanges(t, run); changed != 0 {
+		t.Fatalf("a mount point of no source recorded %d changes", changed)
+	}
+
+	withFixtureStore(t, root, func(store *catalog.Store) {
+		if mounts := store.Mounts(); len(mounts) != 0 {
+			t.Fatal("a mount point of no source was kept", mounts)
+		}
+	})
 }
