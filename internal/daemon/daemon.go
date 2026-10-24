@@ -28,6 +28,7 @@ import (
 	"github.com/inode64/fsledger/internal/grouping"
 	"github.com/inode64/fsledger/internal/inbound"
 	"github.com/inode64/fsledger/internal/mirror"
+	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/watcher"
 	"github.com/inode64/fsledger/internal/watcher/fanotify"
 )
@@ -81,7 +82,9 @@ type worker struct {
 	advisories       []string
 	roots            []string
 	// mounts are the recorded mount points holding or inside the roots; see recordMounts.
-	mounts        []string
+	mounts []string
+	// watchedMounts is the mount table the watchers started with; see rebindMounted.
+	watchedMounts []mountinfo.Mount
 	nextRoots     []string
 	returnedRoots []string
 	status        Status

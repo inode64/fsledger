@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/inode64/fsledger/internal/mirror"
 	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/resource"
+	"github.com/inode64/fsledger/internal/watcher"
 )
 
 // mountNested binds source onto path, a directory it creates, for tests that opted in, and unmounts it at
@@ -419,4 +421,52 @@ func TestKernelSelfBindAtAMissingPointWaits(t *testing.T) {
 	mountNested(t, nested, nested)
 	waited(t, runner, runner.reconcile(t.Context(), "bound onto itself"), nested)
 	keptTree(t, runner, stats.Entries, file)
+}
+
+// A recorded filesystem mounted over a watched source, for the first time or once the repository waited for
+// it, replaces what its watchers and its pinned identity follow: the watchers restart, and the repository
+// records what is mounted instead of reporting the source changed.
+func TestKernelFilesystemMountedOverASourceRestartsItsWatchers(t *testing.T) {
+	t.Parallel()
+
+	runner := makeWorker(t)
+	runner.cfg.Watch.Backend = event.Inotify
+	runner.queue = watcher.NewQueue(8)
+	source, data := runner.roots[0], t.TempDir()
+
+	err := runner.reconcile(t.Context(), "before the mount")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.startWatchers(t.Context())
+	defer runner.stopWatching()
+
+	adopt := func(name string) {
+		t.Helper()
+
+		watchers := slices.Clone(runner.watchers)
+
+		mountNested(t, data, source)
+		persistentMount(t, source)
+		file := writeSource(t, runner, name, name)
+
+		runner.dirty = true
+		runner.flushReconciliation(t.Context(), time.Now())
+
+		if runner.dirty || slices.Equal(watchers, runner.watchers) ||
+			!strings.Contains(gitOutput(t, runner, "ls-files"), strings.TrimPrefix(file, "/")) {
+			t.Fatal("the filesystem mounted over the source was not adopted", runner.errorReasons, runner.watchers)
+		}
+	}
+
+	adopt("first")
+
+	err = unix.Unmount(source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waited(t, runner, runner.reconcile(t.Context(), "unmounted"), source)
+	adopt("again")
 }

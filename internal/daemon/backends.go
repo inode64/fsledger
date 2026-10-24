@@ -24,6 +24,8 @@ func (w *worker) startWatchers(ctx context.Context) {
 		w.forceReconcile = true
 	}
 
+	w.watchedMounts = mounts
+
 	for _, root := range w.roots {
 		w.startRoot(ctx, root, mounts)
 	}
