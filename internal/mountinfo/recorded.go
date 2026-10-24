@@ -13,7 +13,7 @@ import (
 // their will, and not a directory bound onto itself, as systemd mounts ReadWritePaths in the service's
 // namespace only.
 func Recordable(mount Mount, table []Mount) bool {
-	return !volatile(mount.Type) && !userMounted(mount.Type) && !shows(mount, table)
+	return !volatile(mount.Type) && !userMounted(mount) && !shows(mount, table)
 }
 
 // Mounted reports whether a filesystem is visible at point: the mount no other one at the point sits on,
@@ -95,8 +95,9 @@ func volatile(kind string) bool {
 	return false
 }
 
-// userMounted reports a filesystem type that unprivileged users mount and unmount, as FUSE and eCryptfs
-// homes are.
-func userMounted(kind string) bool {
-	return kind == "fuse" || strings.HasPrefix(kind, "fuse.") || kind == "ecryptfs"
+// userMounted reports a filesystem that an unprivileged user mounted and may unmount: a FUSE mount of a user
+// other than root, or an eCryptfs private directory, which a setuid helper mounts at login.
+func userMounted(mount Mount) bool {
+	return strings.HasPrefix(mount.Type, "fuse") && mount.UserID != "" && mount.UserID != "0" ||
+		mount.Type == "ecryptfs"
 }

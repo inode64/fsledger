@@ -1,6 +1,7 @@
 package mountinfo_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/inode64/fsledger/internal/mountinfo"
@@ -15,9 +16,9 @@ const (
 )
 
 // Only filesystems whose contents outlive the mount are recorded: not volatile ones, not those users mount
-// themselves, and not a directory bound onto itself, which systemd mounts for ReadWritePaths in the service's
-// namespace only.
-func TestRecordableSkipsVolatileFilesystemsAndSelfBinds(t *testing.T) {
+// themselves, though root's FUSE mounts are, and not a directory bound onto itself, which systemd mounts for
+// ReadWritePaths in the service's namespace only.
+func TestRecordableSkipsVolatileAndUserMountsAndSelfBinds(t *testing.T) {
 	t.Parallel()
 
 	root := mountinfo.Mount{
@@ -43,9 +44,27 @@ func TestRecordableSkipsVolatileFilesystemsAndSelfBinds(t *testing.T) {
 		{Point: "/srv/bound", Type: typeExt4, Device: diskDevice, Source: diskSource, Root: "/data", ID: 3, Parent: 1},
 		{Point: "/srv/scratch", Type: "tmpfs", Device: "0:40", Source: "none", Root: "/", ID: 4, Parent: 1},
 		{Point: sharePoint, Type: typeNFS, Device: "0:41", Source: "server:/export", Root: "/", ID: 5, Parent: 1},
-		{Point: "/home/user/remote", Type: "fuse.sshfs", Device: "0:42", Source: "host:", Root: "/", ID: 6, Parent: 1},
+		{
+			Point:  "/home/user/remote",
+			Type:   "fuse.sshfs",
+			Device: "0:42",
+			Source: "host:",
+			Root:   "/",
+			UserID: "1000",
+			ID:     6,
+			Parent: 1,
+		},
 		{Point: "/home/user", Type: "ecryptfs", Device: "0:43", Source: "/home/.user", Root: "/", ID: 7, Parent: 1},
-		{Point: "/srv/fuse", Type: "fuse", Device: "0:44", Source: "/dev/fuse", Root: "/", ID: 8, Parent: 1},
+		{
+			Point:  "/srv/pool",
+			Type:   "fuse.mergerfs",
+			Device: "0:44",
+			Source: "pool",
+			Root:   "/",
+			UserID: "0",
+			ID:     8,
+			Parent: 1,
+		},
 	}
 
 	var recordable []string
@@ -56,7 +75,7 @@ func TestRecordableSkipsVolatileFilesystemsAndSelfBinds(t *testing.T) {
 		}
 	}
 
-	if len(recordable) != 2 || recordable[0] != "/srv/bound" || recordable[1] != sharePoint {
+	if !slices.Equal(recordable, []string{"/srv/bound", sharePoint, "/srv/pool"}) {
 		t.Fatal("wrong recordable mounts", recordable)
 	}
 }

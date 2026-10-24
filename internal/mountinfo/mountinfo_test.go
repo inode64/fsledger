@@ -12,7 +12,7 @@ func TestParsingAndNestedMounts(t *testing.T) {
 
 	data := `1 0 8:1 / / rw - ext4 /dev/sda1 rw
 2 1 0:22 / /srv/archive rw - nfs4 host:/archive rw
-3 1 0:23 / /srv/with\040space rw - fuse.sshfs remote rw
+3 1 0:23 / /srv/with\040space rw - fuse.sshfs remote rw,user_id=1000,group_id=1000
 `
 
 	mounts, err := mountinfo.Parse(strings.NewReader(data))
@@ -22,7 +22,7 @@ func TestParsingAndNestedMounts(t *testing.T) {
 
 	resolved := mountinfo.Resolve("/srv", mounts)
 	if len(resolved) != 3 || resolved[0].Point != "/" || resolved[2].Point != "/srv/with space" ||
-		!resolved[1].Remote() {
+		!resolved[1].Remote() || resolved[2].UserID != "1000" || resolved[1].UserID != "" {
 		t.Fatalf("wrong mounts: %+v", resolved)
 	}
 
