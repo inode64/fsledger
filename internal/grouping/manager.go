@@ -206,6 +206,7 @@ func createAfterWrite(previous, raw event.Raw) bool {
 func canEnrich(group *event.Group, previous, raw event.Raw) bool {
 	return sameWrite(previous, raw) && raw.Actor.Known && raw.Backend == event.Fanotify &&
 		previous.Backend == event.Inotify &&
+		!createAfterWrite(raw, previous) &&
 		group.Reason != conflictingActors
 }
 
