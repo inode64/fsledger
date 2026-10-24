@@ -15,7 +15,6 @@ import (
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/integrity"
-	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/notify"
 	"github.com/inode64/fsledger/internal/resource"
 )
@@ -223,8 +222,6 @@ func verifyInventory(
 	}
 
 	scanner := integrity.NewScanner(cfg.Scan.Workers, cfg.Scan.MaxConcurrent)
-	// A source on a recorded mount point that is no longer mounted is unavailable, not an empty tree.
-	scanner.ExpectMounts(mountinfo.Points(store.Mounts()))
 
 	// Mirror refreshes the daemon left pending stay for it: verify cannot copy them.
 	result, err := store.Reconcile(ctx, scanner, sources.Roots, matcher, true, "manual verification", "")

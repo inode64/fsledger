@@ -269,9 +269,9 @@ func (store *Store) Mounts() []mountinfo.Record {
 // BindCopiedHashes is called by the owner before inventory operations begin.
 func (store *Store) BindCopiedHashes(source integrity.HashSource) { store.copiedHashes = source }
 
-func (store *Store) retainedMounts(roots []string) []string {
-	return integrity.RetainedMounts(mountinfo.Points(store.Mounts()), roots)
-}
+// kept lists the paths set aside while their recorded filesystem is not mounted: they are neither walked
+// nor deleted.
+func (store *Store) kept(roots []string) []string { return mountinfo.Kept(store.Mounts(), roots) }
 
 func (store *Store) initialize(ctx context.Context) error {
 	format, err := get(store.database, []byte(formatKey))

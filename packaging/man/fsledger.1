@@ -85,8 +85,9 @@ lifetime probe are not opened.
 .B status
 Print one JSON object per repository from local status snapshots. paths are
 the sources selected at the snapshot time; missing_sources, skipped_sources and
-unavailable_sources explain the rest, and unmounted_paths lists the filesystems
-inside a source whose trees are kept while they are not mounted.
+unavailable_sources explain the rest, and unmounted_paths lists the recorded
+mount points whose filesystem is not mounted: the sources and trees they hold
+are set aside.
 scan describes the current daemon's scan times, duration, result, observed
 entries,
 hashes computed by the catalog scan and upcoming ordinary/full schedules.

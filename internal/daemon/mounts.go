@@ -47,14 +47,61 @@ func (w *worker) recordMounts(ctx context.Context) {
 		}
 	}
 
-	w.mounts, w.status.UnmountedPaths = recorded, unmounted
+	kept := mountinfo.Lost(recorded, w.roots, table)
+	w.restoreReturned(pathutil.Outside(w.kept, kept))
+	w.mounts, w.kept, w.status.UnmountedPaths = recorded, kept, unmounted
 
 	err = w.catalog.RememberMounts(ctx, recorded)
 	if err != nil {
 		w.logger.Warn("cannot record mount points", "error", err)
 	}
 
-	w.expectMounts()
+	w.shareMounts()
+}
+
+// restoreReturned takes back what a filesystem mounted again holds: a root re-pins its filesystem and
+// drops its copy signatures, and a reconciliation verifies the tree soon.
+func (w *worker) restoreReturned(returned []string) {
+	if len(returned) == 0 {
+		return
+	}
+
+	roots := slices.DeleteFunc(
+		slices.Clone(returned),
+		func(path string) bool { return !slices.Contains(w.roots, path) },
+	)
+	w.scanner.ForgetRoots(roots)
+
+	if w.mirror != nil {
+		w.mirror.RebindSources(roots)
+	}
+
+	w.dirty = true
+}
+
+// liveRoots are the roots that are not set aside while their filesystem is not mounted.
+func (w *worker) liveRoots() []string { return pathutil.Outside(w.roots, w.kept) }
+
+// lostMounts lists the recorded mount points whose filesystem is not mounted now.
+func (w *worker) lostMounts() []string {
+	if len(w.mounts) == 0 {
+		return nil
+	}
+
+	table, err := mountinfo.Read()
+	if err != nil {
+		return mountinfo.Points(w.mounts)
+	}
+
+	var lost []string
+
+	for _, record := range w.mounts {
+		if !record.Mounted(table) {
+			lost = append(lost, record.Point)
+		}
+	}
+
+	return lost
 }
 
 // mergeMounts keeps the records that still relate to a root and were not retired, and adds the recordable
@@ -102,19 +149,17 @@ func (w *worker) retired(record mountinfo.Record, table []mountinfo.Mount) bool 
 	return integrity.Missing(err)
 }
 
-// restoreMounts takes the mount points the catalog recorded before a restart, before anything pins a root:
-// a source found on an empty mount point is unavailable rather than an empty tree.
+// restoreMounts takes the records the catalog kept before a restart, before anything walks a root: a source
+// found on an empty mount point is set aside rather than recorded as an empty tree.
 func (w *worker) restoreMounts() {
 	w.mounts = w.catalog.Mounts()
-	w.expectMounts()
+	w.shareMounts()
 }
 
-func (w *worker) expectMounts() {
-	points := mountinfo.Points(w.mounts)
-	w.scanner.ExpectMounts(points)
-
+// shareMounts gives the records to the mirror; the catalog keeps its own.
+func (w *worker) shareMounts() {
 	if w.mirror != nil {
-		w.mirror.RememberMounts(points)
+		w.mirror.RememberMounts(w.mounts)
 	}
 }
 

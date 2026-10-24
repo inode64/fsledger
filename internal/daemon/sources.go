@@ -97,12 +97,14 @@ func (w *worker) retainedSources(resolved []string, incomplete bool) ([]string, 
 
 	var unavailable []string
 
+	lost := w.lostMounts()
+
 	for _, root := range w.roots {
 		if slices.Contains(resolved, root) {
 			continue
 		}
 
-		if w.lostRoot(root) {
+		if w.lostRoot(root, lost) {
 			unavailable = append(unavailable, root)
 		}
 	}
@@ -113,23 +115,28 @@ func (w *worker) retainedSources(resolved []string, incomplete bool) ([]string, 
 // lostRoot tells a source lost with its filesystem from one deleted or merely no longer selected: a root
 // that still exists stopped being selected, and a missing one leaves only when it was deleted. A lost
 // filesystem must never be recorded as an empty tree.
-func (w *worker) lostRoot(root string) bool {
+func (w *worker) lostRoot(root string, lost []string) bool {
 	_, err := os.Lstat(root)
 
-	return err != nil && w.scanner.RootUnavailable(root)
+	return err != nil && (w.scanner.RootUnavailable(root) || pathutil.Within(lost, root))
 }
 
 // retainRecorded is retainedSources for startup, which has no previous roots: an incomplete
 // selection keeps every tree the catalog recorded outside it, so what could not be read is not pruned,
 // and a complete one keeps those whose recorded mount point is no longer mounted.
 func (w *worker) retainRecorded(ctx context.Context, incomplete bool) error {
+	lost := w.lostMounts()
+	if !incomplete && len(lost) == 0 {
+		return nil
+	}
+
 	recorded, err := w.catalog.RecordedOutside(ctx, w.roots)
 	if err != nil || len(recorded) == 0 {
 		return err
 	}
 
 	if !incomplete {
-		recorded = slices.DeleteFunc(recorded, func(root string) bool { return !w.lostRoot(root) })
+		recorded = slices.DeleteFunc(recorded, func(root string) bool { return !w.lostRoot(root, lost) })
 		if len(recorded) == 0 {
 			return nil
 		}

@@ -39,6 +39,9 @@ func (w *worker) commit(ctx context.Context, group event.Group) error {
 	w.scanningUnstable = make(map[string]struct{})
 	defer func() { w.scanningUnstable = nil }()
 
+	// A filesystem mounted since the last reconciliation is recorded before its unmount can reach a commit.
+	w.recordMounts(ctx)
+
 	ctx = filter.WithActors(ctx, func(path string) event.Actor { return groupActor(group, path) })
 
 	paths := make([]string, 0, len(group.Paths))
@@ -173,7 +176,7 @@ func (w *worker) reconcileRun(ctx context.Context, message string) error {
 	w.recordMounts(ctx)
 	// Pin catalog-side root identities before Git. Otherwise a failed initial Git
 	// commit leaves only the mirror guard initialized and later loss looks like deletion.
-	err = w.scanner.CheckRoots(w.roots)
+	err = w.scanner.CheckRoots(w.liveRoots())
 	if err != nil {
 		return err
 	}

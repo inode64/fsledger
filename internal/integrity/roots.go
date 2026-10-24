@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"sync"
 
 	"golang.org/x/sys/unix"
@@ -22,9 +21,7 @@ var ErrUnavailable = errors.New("configured source unavailable")
 // is anchored at its parent so deleting that file remains a normal observation.
 type RootGuard struct {
 	roots map[string]rootIdentity
-	// points are the mount points recorded for the sources before this process pinned them; see Expect.
-	points []string
-	mutex  sync.Mutex
+	mutex sync.Mutex
 }
 
 type rootIdentity struct {
@@ -47,6 +44,12 @@ func (guard *RootGuard) Check(roots []string) error {
 		guard.roots = make(map[string]rootIdentity)
 	}
 
+	var (
+		mounts  []mountinfo.Mount
+		readErr error
+		read    bool
+	)
+
 	for _, root := range roots {
 		expected, known := guard.roots[root]
 
@@ -64,17 +67,16 @@ func (guard *RootGuard) Check(roots []string) error {
 		if known && !changed {
 			current.record = expected.record
 		} else {
-			mounts, readErr := mountinfo.Read()
+			// One table serves every root this call pins or rechecks.
+			if !read {
+				mounts, readErr = mountinfo.Read()
+				read = true
+			}
+
 			current.record = pinnedRecord(root, current.directory, mounts, readErr)
 
 			if changed && !remounted(expected, current, mounts, readErr) {
 				return fmt.Errorf("%w: filesystem changed at %s", ErrUnavailable, root)
-			}
-
-			// After a restart nothing is pinned: a recorded mount point holding the root that is no longer
-			// mounted lost its filesystem, and the directory found there is the empty mount point.
-			if lost := lostMount(guard.points, root, mounts, readErr); !known && lost != "" {
-				return fmt.Errorf("%w: filesystem not mounted at %s", ErrUnavailable, lost)
 			}
 		}
 
@@ -82,62 +84,6 @@ func (guard *RootGuard) Check(roots []string) error {
 	}
 
 	return nil
-}
-
-// Expect adds mount points recorded for the sources before this process pinned them, such as those a
-// catalog kept across a restart: a root they hold is unavailable while they are not mounted.
-func (guard *RootGuard) Expect(points []string) {
-	guard.mutex.Lock()
-	defer guard.mutex.Unlock()
-
-	for _, point := range points {
-		if !slices.Contains(guard.points, point) {
-			guard.points = append(guard.points, point)
-		}
-	}
-}
-
-// lostMount returns the deepest of points holding path that the mount table no longer lists; without a
-// table, the deepest holding it.
-func lostMount(points []string, path string, mounts []mountinfo.Mount, err error) string {
-	lost := ""
-
-	for _, point := range points {
-		mounted := err == nil && slices.ContainsFunc(mounts, func(mount mountinfo.Mount) bool {
-			return mount.Point == point
-		})
-		if !mounted && pathutil.Contains(point, path) && len(point) > len(lost) {
-			lost = point
-		}
-	}
-
-	return lost
-}
-
-// RetainedMounts lists the recorded mount points within roots that are no longer mounted. Their trees were
-// lost with their filesystem, not deleted, so nothing below them may be pruned. Without a mount table every
-// recorded point within roots is retained.
-func RetainedMounts(mounts, roots []string) []string {
-	var within []string
-
-	for _, point := range mounts {
-		if pathutil.Within(roots, point) {
-			within = append(within, point)
-		}
-	}
-
-	if len(within) == 0 {
-		return nil
-	}
-
-	table, err := mountinfo.Read()
-	if err != nil {
-		return within
-	}
-
-	return slices.DeleteFunc(within, func(point string) bool {
-		return slices.ContainsFunc(table, func(mount mountinfo.Mount) bool { return mount.Point == point })
-	})
 }
 
 // pinnedRecord describes the filesystem at the deepest mount point holding a root, or its parent for a file
@@ -249,17 +195,14 @@ func (guard *RootGuard) Forget(roots []string) {
 }
 
 // Unavailable separates a lost filesystem from a deletion: a pinned root is unavailable when
-// it is missing and its nearest existing ancestor is not the filesystem it was pinned on. One not
-// pinned yet, as after a restart, is unavailable while a recorded mount point holding it is not mounted.
+// it is missing and its nearest existing ancestor is not the filesystem it was pinned on.
 func (guard *RootGuard) Unavailable(root string) bool {
 	guard.mutex.Lock()
 	defer guard.mutex.Unlock()
 
 	expected, known := guard.roots[root]
 	if !known {
-		mounts, err := mountinfo.Read()
-
-		return lostMount(guard.points, root, mounts, err) != ""
+		return false
 	}
 
 	// A file root pins its parent, so that parent is already an ancestor: after an unmount it

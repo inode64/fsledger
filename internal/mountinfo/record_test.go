@@ -7,6 +7,7 @@ import (
 )
 
 const (
+	sharePoint = "/srv/share"
 	typeExt4   = "ext4"
 	typeNFS    = "nfs4"
 	diskDevice = "8:1"
@@ -75,7 +76,7 @@ func TestRecordableSkipsVolatileFilesystemsAndSelfBinds(t *testing.T) {
 		},
 		{Point: "/srv/bound", Type: typeExt4, Device: diskDevice, Source: diskSource, Root: "/data", ID: 3, Parent: 1},
 		{Point: "/srv/scratch", Type: "tmpfs", Device: "0:40", Source: "none", Root: "/", ID: 4, Parent: 1},
-		{Point: "/srv/share", Type: typeNFS, Device: "0:41", Source: "server:/export", Root: "/", ID: 5, Parent: 1},
+		{Point: sharePoint, Type: typeNFS, Device: "0:41", Source: "server:/export", Root: "/", ID: 5, Parent: 1},
 	}
 
 	var recordable []string
@@ -86,7 +87,40 @@ func TestRecordableSkipsVolatileFilesystemsAndSelfBinds(t *testing.T) {
 		}
 	}
 
-	if len(recordable) != 2 || recordable[0] != "/srv/bound" || recordable[1] != "/srv/share" {
+	if len(recordable) != 2 || recordable[0] != "/srv/bound" || recordable[1] != sharePoint {
 		t.Fatal("wrong recordable mounts", recordable)
+	}
+}
+
+// While its recorded filesystem is not mounted, a point within a root is set aside, and so is every root it
+// holds; a mounted one, or one outside every root, sets nothing aside.
+func TestLostSetsAsideUnmountedPointsAndTheRootsTheyHold(t *testing.T) {
+	t.Parallel()
+
+	nested := mountinfo.Mount{
+		Point: sharePoint, Type: typeNFS, Device: "0:41", Source: "server:/a",
+		Root: "/", ID: 2, Parent: 1,
+	}
+	holding := mountinfo.Mount{
+		Point: "/mnt/data", Type: typeNFS, Device: "0:42", Source: "server:/b",
+		Root: "/", ID: 3, Parent: 1,
+	}
+	elsewhere := mountinfo.Mount{
+		Point: "/elsewhere", Type: typeNFS, Device: "0:43", Source: "server:/c",
+		Root: "/", ID: 4, Parent: 1,
+	}
+
+	records := []mountinfo.Record{
+		mountinfo.Describe(nested), mountinfo.Describe(holding), mountinfo.Describe(elsewhere),
+	}
+	roots := []string{"/srv", "/mnt/data/app"}
+
+	if kept := mountinfo.Lost(records, roots, []mountinfo.Mount{nested, holding}); len(kept) != 0 {
+		t.Fatal("mounted filesystems were set aside", kept)
+	}
+
+	kept := mountinfo.Lost(records, roots, nil)
+	if len(kept) != 2 || kept[0] != "/mnt/data/app" || kept[1] != sharePoint {
+		t.Fatal("wrong paths set aside", kept)
 	}
 }

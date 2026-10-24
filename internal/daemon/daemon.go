@@ -81,8 +81,10 @@ type worker struct {
 	errorReasons     []string
 	advisories       []string
 	roots            []string
-	// mounts are the records of the filesystems holding or inside the roots; see recordMounts.
+	// mounts are the records of the filesystems holding or inside the roots, and kept the paths set aside
+	// while theirs is not mounted; see recordMounts.
 	mounts        []mountinfo.Record
+	kept          []string
 	nextRoots     []string
 	returnedRoots []string
 	status        Status

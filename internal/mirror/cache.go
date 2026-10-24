@@ -224,14 +224,17 @@ func (s *Sync) CopiedHash(record integrity.Record, algorithm string) (string, in
 func (s *Sync) ApplyPaths(ctx context.Context, paths []string) error {
 	clear(s.hashes)
 
-	err := s.roots.Check(s.sources)
+	// A path below a tree lost with its filesystem is missing because it went with it, not deleted.
+	kept := s.kept()
+
+	err := s.checkLive(kept)
 	if err != nil {
 		return err
 	}
 
 	var failure error
 
-	for _, path := range pathutil.CompactRoots(paths) {
+	for _, path := range pathutil.Outside(pathutil.CompactRoots(paths), kept) {
 		err := s.apply(ctx, path, copyEvent)
 		failure = errors.Join(failure, err)
 
@@ -241,7 +244,7 @@ func (s *Sync) ApplyPaths(ctx context.Context, paths []string) error {
 		}
 	}
 
-	return errors.Join(failure, s.SyncDirectories(), s.roots.Check(s.sources))
+	return errors.Join(failure, s.SyncDirectories(), s.checkLive(kept))
 }
 
 func verifyCopiedContent(source *os.File, sig signature, count int64) error {

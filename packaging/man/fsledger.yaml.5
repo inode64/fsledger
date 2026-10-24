@@ -167,21 +167,21 @@ by interval or cron, and on flush for Git repositories: new matches are
 adopted and
 deleted ones recorded as deletions without
 restarting. A selected source whose filesystem disappeared is kept, listed as
-unavailable_sources, and nothing is pruned until it returns. The filesystem
-mounted again at the mount point that held the source returns it, whatever its
-mount ID, when it is the same one: same type and root, and same fsid, or same
-mount source for a network filesystem. Another filesystem mounted there, or one
-stacked over it, does not. A filesystem
-mounted inside a source is recorded too: once unmounted, its tree is kept and
-listed as unmounted_paths, and scans count as partial, until it is mounted
-again or leaves the selection. One whose mount point directory is removed as
-well is forgotten. Volatile filesystems such as tmpfs or overlay, whose
-contents go with the mount, and directories bound onto themselves, as systemd
-mounts ReadWritePaths for the service only, are never recorded. The catalog keeps these mount points across
-restarts: a source found on one that is no longer mounted, or missing below
-it, stays unavailable instead of being recorded as an empty tree, and verify
-fails meanwhile. To retire a mount point for good, take its sources out of the
-selection or exclude it. An entry or pattern that cannot be read (permission denied,
+unavailable_sources, and nothing is pruned until it returns. Each repository
+records the filesystems that hold a source or are mounted inside one, and its
+catalog keeps the records across restarts. While a recorded filesystem is not
+mounted, the sources it holds and the tree at its mount point are set aside:
+they are neither walked nor recorded as deleted, events below them are ignored,
+the other sources keep being recorded, status lists the mount point as
+unmounted_paths, and scans count as partial. The same filesystem mounted again
+there ends this, whatever its mount ID: same type and root, and same fsid, or
+same mount source for a network filesystem. Another filesystem mounted there,
+or one stacked over it, does not. Volatile filesystems such as tmpfs or
+overlay, whose contents go with the mount, and directories bound onto
+themselves, as systemd mounts ReadWritePaths for the service only, are never
+recorded. A nested filesystem whose mount point directory is removed as well
+is forgotten; any other record goes once its sources leave the selection.
+An entry or pattern that cannot be read (permission denied,
 I/O error, stale handle, too many symlinks) is listed as skipped_sources but
 proves no deletion: the daemon keeps every source it watched and, after a
 restart, every tree its catalog recorded outside the selection, until the entry
