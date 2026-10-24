@@ -76,9 +76,11 @@ func (w *worker) startBoundary(
 	mount mountinfo.Mount,
 	matcher *exclude.Matcher,
 ) {
+	// Changes made through another client of a remote filesystem raise no local event: a lasting property of
+	// the filesystem, which doctor reports, not an error to announce and recover from on every start.
 	if mount.Remote() {
 		w.forceReconcile = true
-		w.warn("remote filesystem requires reconciliation: " + path)
+		w.logger.Info("remote filesystem requires reconciliation", "path", path, "filesystem", mount.Type)
 	}
 
 	// Like the pidfd advisory, an attribute comparison the filesystem cannot provide is a lasting
