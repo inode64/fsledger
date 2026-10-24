@@ -295,7 +295,13 @@ func (w *worker) resumeIncoming(ctx context.Context) error {
 
 	w.status.InboundPending = w.incoming.Target
 
-	err := w.applyIncoming(ctx)
+	// A journaled change below a missing filesystem would land on its empty mount point: it waits too.
+	err := w.waitForMounts(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = w.applyIncoming(ctx)
 	if err == nil {
 		return nil
 	}
