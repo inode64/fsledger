@@ -26,14 +26,7 @@ func (w *worker) recordMounts(ctx context.Context) {
 	}
 
 	recorded := w.mergeMounts(table)
-
-	var unmounted []string
-
-	for _, record := range recorded {
-		if !record.Mounted(table) {
-			unmounted = append(unmounted, record.Point)
-		}
-	}
+	unmounted := mountinfo.Unmounted(recorded, table)
 
 	for _, point := range unmounted {
 		if !slices.Contains(w.status.UnmountedPaths, point) {
@@ -93,15 +86,7 @@ func (w *worker) lostMounts() []string {
 		return mountinfo.Points(w.mounts)
 	}
 
-	var lost []string
-
-	for _, record := range w.mounts {
-		if !record.Mounted(table) {
-			lost = append(lost, record.Point)
-		}
-	}
-
-	return lost
+	return mountinfo.Unmounted(w.mounts, table)
 }
 
 // mergeMounts keeps the records that still relate to a root and were not retired, and adds the recordable
