@@ -15,6 +15,7 @@ suspected malware, unauthorized changes, and deployment mistakes.
 
 ## Contents
 
+- [Why fsledger](#why-fsledger)
 - [Use cases](#use-cases)
 - [Features](#features)
 - [Malware detection and incident response](#malware-detection-and-incident-response)
@@ -27,6 +28,25 @@ suspected malware, unauthorized changes, and deployment mistakes.
 - [Everyday use](#everyday-use)
 - [Data protection](#data-protection)
 - [License](#license)
+
+## Why fsledger
+
+Most integrity checkers tell you that a file changed. fsledger also shows how it changed
+and who changed it when Linux can tell, and gives you the previous version back.
+
+- **The whole answer in one tool.** What changed and when, the contents before and after
+  in Git, and the observed user and process.
+- **Nothing else to run.** Two static binaries and a local catalog: no agent manager,
+  indexer, database server, or dashboard. Publish history to the Git server you already use.
+- **Leaves your system as it was.** No `.git` inside your directories, and Audit is used
+  passively: fsledger never installs rules or takes control of auditd.
+- **Built for production servers.** Real-time detection with fanotify and inotify,
+  reconciliation for what events can miss, scheduled scans for large trees and remote
+  filesystems, and queues that survive restarts.
+- **Quiet alerts.** Grouped notifications, filters by user, command, or path, deferred
+  commits for noisy files, and scheduled reports.
+- **Recovery included.** Compare versions and restore one into a separate directory or
+  in place.
 
 ## Use cases
 
@@ -140,33 +160,38 @@ application protection, logs, and independent backups.
 
 ## Comparison with similar tools
 
-These tools address related needs. The choice depends on whether you want to automate
-Git, manage `/etc`, or verify file integrity.
+Each tool covers part of the same need. This summary follows each project's public
+documentation as of October 2026; check it for the version you use.
 
-| Tool | Main focus |
-| --- | --- |
-| [gitwatch][gitwatch] | Automatically commit changes to a file or directory, with optional publication. |
-| [etckeeper][etckeeper] | Version `/etc`, preserve metadata, and integrate with package managers. |
-| [AIDE][aide] | Check file contents and attributes against a reference database. |
-| **fsledger** | Combine Git mirrors, integrity inventories, available attribution, alerts, and reports. |
+| Tool | Real time | Who changed it | Previous contents | Alerts | Needs a server | Platforms |
+| --- | --- | --- | --- | --- | --- | --- |
+| **fsledger** | Yes | When Linux reports it | Git, with restore | Email, Slack, reports | No | Linux |
+| [FIM][achiefs-fim] | Yes | With auditd | No (event history) | Through an indexer | No | Linux, macOS, Windows |
+| [Wazuh FIM][wazuh-fim] | Yes | Who-data (Audit) | Text diffs | Wazuh server | Yes | Linux, Windows, macOS, others |
+| [AIDE][aide] | No | No | No | Check reports | No | Unix-like |
+| [etckeeper][etckeeper] | No | No | `/etc` in Git | No | No | Unix-like |
+| [gitwatch][gitwatch] | Yes | No | Git | No | No | Linux, macOS |
 
-**gitwatch** is a good fit if you already work with a repository and want to automate
-commits when saving files. It provides a straightforward monitoring and versioning script.
+fsledger takes the user and process from fanotify, `/proc`, and the Audit rules you already
+have, without installing any; a writer it cannot identify is recorded as unknown and the
+change is still kept. Wazuh adds its own Audit rules for who-data, and FIM needs auditd.
 
-**etckeeper** is a good fit if your priority is the history of `/etc` and its relationship
-with package updates. It also records metadata that Git does not preserve on its own,
-such as permissions.
+**FIM** and **Wazuh FIM** suit mixed Linux, Windows, and macOS estates, or teams that already
+collect security events in an indexer or SIEM. fsledger can run alongside them on Linux
+servers to keep contents and recovery points.
 
-**AIDE** is a good fit if your goal is to compare files and attributes against an integrity
-baseline. It checks the system against a database that you initialize and update explicitly,
-while fsledger compares each observation with the previous one and records every change it observes.
+**AIDE** suits periodic verification against a baseline that you initialize and update
+explicitly, while fsledger compares each observation with the previous one and records
+every change it observes.
 
-**fsledger** is a good fit when you need to manage multiple paths and services with their
-own policies, choose between content in Git and metadata inventories, and combine that
-tracking with process context, alerts, and reports. Git and DB profiles can monitor
-the same sources to cover both uses.
+**etckeeper** suits the history of `/etc` and its relationship with package updates, and
+**gitwatch** suits automatic commits of a working directory as you save files.
 
-The links in the table point to each project's official description.
+**fsledger** suits Linux servers where you want, in one self-contained tool, to know what
+changed, inspect and recover earlier contents, see who did it when possible, and receive
+grouped alerts, without running a server or an indexer. Git and DB profiles can monitor the
+same sources: contents where you want history, metadata only where contents are secret or
+too large to archive.
 
 ## Architecture
 
@@ -638,5 +663,7 @@ It is distributed without warranty. See [LICENSE](LICENSE).
 [gitwatch]: https://github.com/gitwatch/gitwatch
 [etckeeper]: https://etckeeper.branchable.com/
 [aide]: https://aide.github.io/
+[achiefs-fim]: https://github.com/Achiefs/fim
+[wazuh-fim]: https://documentation.wazuh.com/current/user-manual/capabilities/file-integrity/index.html
 [php2shell]: https://www.aikido.dev/blog/critical-vulnerabilities-in-php-php2shell
 [php-security]: https://www.php.net/archive/2026.php
