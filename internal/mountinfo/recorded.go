@@ -32,6 +32,18 @@ func Mounted(point string, table []Mount) bool {
 	return false
 }
 
+// Related reports a mount point that holds one of roots, or lies inside one and is not excluded: the points a
+// repository records.
+func Related(point string, roots []string, excluded func(string) bool) bool {
+	for _, root := range roots {
+		if pathutil.Contains(point, root) || pathutil.Contains(root, point) && !excluded(point) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Unmounted lists the points no filesystem is mounted at.
 func Unmounted(points []string, table []Mount) []string {
 	return slices.DeleteFunc(slices.Clone(points), func(point string) bool { return Mounted(point, table) })
