@@ -378,8 +378,14 @@ func (w *worker) finishIncoming(ctx context.Context) error {
 		return err
 	}
 
-	// The imported paths already match the mirror; refreshes pending from earlier stay for reconcileCatalog.
 	w.rememberChange(result)
+
+	// The import wrote the same bytes to the sources and the mirror; refreshes pending from earlier
+	// reconciliations stay for reconcileCatalog.
+	err = w.catalog.DropRefreshes(ctx, result.ID)
+	if err != nil {
+		return err
+	}
 
 	err = w.catalog.SaveIncoming(ctx, nil)
 	if err != nil {
