@@ -74,7 +74,8 @@ func TestKernelNamespace(t *testing.T) {
 }
 
 // WordPress moves each plugin it updates into the excluded wp-content/upgrade-temp-backup. The excluded parent
-// is not marked, so the kernel reports only the old name: the selection keeps its marks and loses nothing.
+// is not marked, so the kernel reports only the old name: the selection keeps its marks and loses nothing, and
+// observing that departed name prunes its descendants without a reconciliation.
 func TestKernelDirectoryMovedIntoExclusionKeepsCoverage(t *testing.T) {
 	t.Parallel()
 	source := t.TempDir()
@@ -114,8 +115,8 @@ func TestKernelDirectoryMovedIntoExclusionKeepsCoverage(t *testing.T) {
 
 	awaitNamespaceAny(t, detector, plugin, event.Rename, event.Remove)
 
-	if detector.Dirty() || detector.PollingRequired() || !detector.ReconciliationPending() {
-		t.Fatal("directory moved into an exclusion was reported as fanotify coverage loss")
+	if detector.Dirty() || detector.PollingRequired() || detector.ReconciliationPending() {
+		t.Fatal("directory moved into an exclusion was reported as coverage loss or reconciled")
 	}
 
 	// The moved directory keeps its marks; their events name excluded paths and must not surface.
