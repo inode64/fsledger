@@ -1,6 +1,6 @@
 [Unit]
 Description=Filesystem Git history with fsledger
-After=local-fs.target
+After=local-fs.target remote-fs.target
 
 [Service]
 Type=simple
