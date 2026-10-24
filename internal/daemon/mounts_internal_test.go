@@ -10,6 +10,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/inode64/fsledger/internal/config"
+	"github.com/inode64/fsledger/internal/event"
 	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/mirror"
 	"github.com/inode64/fsledger/internal/mountinfo"
@@ -157,13 +159,19 @@ func restart(t *testing.T, runner *worker) {
 }
 
 // After a restart with the source's filesystem unmounted, the source found is its empty mount point: the
-// recorded mount point makes it unavailable instead of recording its tree as deleted. A plain directory
-// recorded as a mount point stands for one that is no longer mounted.
+// recorded mount point sets it aside instead of recording its tree as deleted, while another source keeps
+// recording. A plain directory recorded as a mount point stands for one that is no longer mounted.
 func TestRestartOnAnUnmountedSourceKeepsItsTree(t *testing.T) {
 	t.Parallel()
 
 	runner := makeWorker(t)
 	file := writeSource(t, runner, "file", "kept")
+	source, other := runner.roots[0], t.TempDir()
+
+	runner.updateSources(config.Sources{Roots: []string{source, other}, Missing: nil, Skipped: nil, Incomplete: false})
+	runner.applySources(t.Context())
+
+	defer runner.stopWatching()
 
 	err := runner.reconcile(t.Context(), "mounted")
 	if err != nil {
@@ -175,23 +183,28 @@ func TestRestartOnAnUnmountedSourceKeepsItsTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = errors.Join(runner.catalog.RememberMounts(t.Context(), lostRecords(runner.roots...)), os.Remove(file))
+	err = errors.Join(runner.catalog.RememberMounts(t.Context(), lostRecords(source)), os.Remove(file))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	restart(t, runner)
 
-	err = runner.reconcile(t.Context(), "restarted")
-	if !errors.Is(err, integrity.ErrUnavailable) {
-		t.Fatal("the empty mount point was taken for the source", err)
+	err = os.WriteFile(filepath.Join(other, "added"), []byte("added"), 0o600)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	keptTree(t, runner, stats.Entries, file)
+	err = runner.reconcile(t.Context(), "restarted")
+	if err != nil || !slices.Equal(runner.status.UnmountedPaths, []string{source}) {
+		t.Fatal("the source on an unmounted filesystem was not set aside", runner.status.UnmountedPaths, err)
+	}
+
+	keptTree(t, runner, stats.Entries+1, file)
 }
 
 // A source below a recorded mount point that is no longer mounted is missing after a restart: it was lost
-// with its filesystem, so startup keeps it unavailable instead of pruning its tree.
+// with its filesystem, so startup keeps it unavailable, set aside, instead of pruning its tree.
 func TestRestartKeepsASourceMissingBelowAnUnmountedMountPoint(t *testing.T) {
 	t.Parallel()
 
@@ -228,8 +241,8 @@ func TestRestartKeepsASourceMissingBelowAnUnmountedMountPoint(t *testing.T) {
 	}
 
 	err = runner.reconcile(t.Context(), "restarted")
-	if !errors.Is(err, integrity.ErrUnavailable) {
-		t.Fatal("the lost source was reconciled", err)
+	if err != nil {
+		t.Fatal("the lost source was not set aside", err)
 	}
 
 	keptTree(t, runner, stats.Entries, file)
@@ -283,4 +296,73 @@ func TestRetiredNestedFilesystemIsForgotten(t *testing.T) {
 	if len(runner.status.UnmountedPaths) != 0 || len(runner.catalog.Mounts()) != 0 {
 		t.Fatal("a retired nested filesystem was kept", runner.status.UnmountedPaths, runner.catalog.Mounts())
 	}
+}
+
+// An event queued before an unmount finds its path missing because it went with the filesystem, not because
+// it was deleted: the catalog, the mirror and the history keep it.
+func TestEventBelowAnUnmountedFilesystemDeletesNothing(t *testing.T) {
+	t.Parallel()
+
+	runner := makeWorker(t)
+	nested := filepath.Join(runner.roots[0], "data")
+
+	err := os.Mkdir(nested, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	file := writeSource(t, runner, "data/file", "kept")
+
+	err = runner.reconcile(t.Context(), "mounted")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := runner.catalog.Stats(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.mounts = lostRecords(nested)
+
+	err = os.Remove(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	commitEvent(t, runner, file, event.Actor{})
+	keptTree(t, runner, stats.Entries, file)
+}
+
+// A filesystem mounted after the last reconciliation is recorded by the next commit, so its unmount before
+// the following reconciliation does not delete its tree.
+func TestKernelMountBetweenReconciliationsIsRecorded(t *testing.T) {
+	t.Parallel()
+
+	runner := makeWorker(t)
+
+	err := runner.reconcile(t.Context(), "before the mount")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nested := filepath.Join(runner.roots[0], "data")
+	mountNested(t, t.TempDir(), nested)
+	persistentMount(t, nested)
+
+	file := writeSource(t, runner, "data/file", "nested")
+	commitEvent(t, runner, file, event.Actor{})
+
+	stats, err := runner.catalog.Stats(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = unix.Unmount(nested, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	commitEvent(t, runner, file, event.Actor{})
+	keptTree(t, runner, stats.Entries, file)
 }

@@ -197,9 +197,6 @@ func (scanner *Scanner) CheckRoots(roots []string) error { return scanner.roots.
 // ForgetRoots releases sources that left the configured selection.
 func (scanner *Scanner) ForgetRoots(roots []string) { scanner.roots.Forget(roots) }
 
-// ExpectMounts adds mount points recorded for the sources before this process pinned them.
-func (scanner *Scanner) ExpectMounts(points []string) { scanner.roots.Expect(points) }
-
 // RootUnavailable reports a pinned source lost together with its filesystem rather than deleted.
 func (scanner *Scanner) RootUnavailable(root string) bool { return scanner.roots.Unavailable(root) }
 

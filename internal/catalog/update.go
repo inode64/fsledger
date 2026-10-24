@@ -95,6 +95,18 @@ func (store *Store) reconcile(
 		return result, operationErr1
 	}
 
+	// A tree lost with its filesystem is neither walked, where its empty mount point would be observed,
+	// nor deleted; neither is one lost during the walk. The scan is then not complete.
+	kept := store.kept(roots)
+	if len(paths) > 0 {
+		paths = pathutil.Outside(paths, kept)
+		if len(paths) == 0 {
+			return result, nil
+		}
+	}
+
+	roots, matcher = pathutil.Outside(roots, kept), matcher.Protect(kept...)
+
 	generation := store.generation()
 	batch := store.newBatcher(generation, &result, actor)
 
@@ -125,8 +137,7 @@ func (store *Store) reconcile(
 		return result, errors.Join(err, flushErr)
 	}
 
-	// A tree lost with its filesystem keeps its entries like an unstable path, and the scan is not complete.
-	unstable = append(unstable, store.retainedMounts(roots)...)
+	unstable = append(append(unstable, kept...), store.kept(roots)...)
 
 	result, finishErr := store.finishScan(ctx, generation, result, actor, full, paths, matcher, unstable)
 
@@ -268,6 +279,10 @@ func (store *Store) Observe(
 ) (Result, error) {
 	store.operation.Lock()
 	defer store.operation.Unlock()
+
+	// A path below a tree lost with its filesystem is missing because it went with it, not deleted.
+	kept := store.kept(roots)
+	paths, roots = pathutil.Outside(paths, kept), pathutil.Outside(roots, kept)
 
 	rootErr := scanner.CheckRoots(roots)
 	if rootErr != nil {

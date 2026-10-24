@@ -53,6 +53,44 @@ func Recordable(mount Mount, table []Mount) bool {
 	return !volatile(mount.Type) && !boundOntoItself(mount, table)
 }
 
+// Lost lists the paths to set aside while their recorded filesystem is not mounted: a recorded point within
+// a root, and every root a recorded point holds.
+func Lost(records []Record, roots []string, table []Mount) []string {
+	var kept []string
+
+	for _, record := range records {
+		if record.Mounted(table) {
+			continue
+		}
+
+		if pathutil.Within(roots, record.Point) {
+			kept = append(kept, record.Point)
+		}
+
+		for _, root := range roots {
+			if pathutil.Contains(record.Point, root) {
+				kept = append(kept, root)
+			}
+		}
+	}
+
+	return pathutil.CompactRoots(kept)
+}
+
+// Kept is Lost against the current mount table. Without a table every recorded path is set aside.
+func Kept(records []Record, roots []string) []string {
+	if len(records) == 0 {
+		return nil
+	}
+
+	table, err := Read()
+	if err != nil {
+		table = nil
+	}
+
+	return Lost(records, roots, table)
+}
+
 // Points lists the recorded mount points.
 func Points(records []Record) []string {
 	points := make([]string, 0, len(records))

@@ -214,7 +214,8 @@ func (w *worker) prepareIncoming(ctx context.Context, base, target string) error
 	err = w.scanner.Do(ctx, func() error {
 		var prepareErr error
 
-		plan, prepareErr = inbound.Prepare(ctx, w.repo, w.roots, w.matcher, base, target, policy, differences)
+		// A change below a tree set aside would land on its empty mount point; it waits for the filesystem.
+		plan, prepareErr = inbound.Prepare(ctx, w.repo, w.liveRoots(), w.matcher, base, target, policy, differences)
 
 		return prepareErr
 	})
