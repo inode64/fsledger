@@ -88,6 +88,19 @@ func Kept(records []Record, roots []string) []string {
 	return Lost(records, roots, table)
 }
 
+// Unmounted lists the recorded points whose filesystem is not the one mounted there now.
+func Unmounted(records []Record, table []Mount) []string {
+	var unmounted []string
+
+	for _, record := range records {
+		if !record.Mounted(table) {
+			unmounted = append(unmounted, record.Point)
+		}
+	}
+
+	return unmounted
+}
+
 // Points lists the recorded mount points.
 func Points(records []Record) []string {
 	points := make([]string, 0, len(records))
