@@ -170,6 +170,7 @@ func (w *worker) reconcileRun(ctx context.Context, message string) error {
 
 	w.announceError(ctx)
 	w.logger.Info("reconciliation started")
+	w.recordMounts()
 	// Pin catalog-side root identities before Git. Otherwise a failed initial Git
 	// commit leaves only the mirror guard initialized and later loss looks like deletion.
 	err = w.scanner.CheckRoots(w.roots)

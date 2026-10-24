@@ -75,6 +75,32 @@ func (guard *RootGuard) Check(roots []string) error {
 	return nil
 }
 
+// RetainedMounts lists the recorded mount points within roots that are no longer mounted. Their trees were
+// lost with their filesystem, not deleted, so nothing below them may be pruned. Without a mount table every
+// recorded point within roots is retained.
+func RetainedMounts(mounts, roots []string) []string {
+	var within []string
+
+	for _, point := range mounts {
+		if pathutil.Within(roots, point) {
+			within = append(within, point)
+		}
+	}
+
+	if len(within) == 0 {
+		return nil
+	}
+
+	table, err := mountinfo.Read()
+	if err != nil {
+		return within
+	}
+
+	return slices.DeleteFunc(within, func(point string) bool {
+		return slices.ContainsFunc(table, func(mount mountinfo.Mount) bool { return mount.Point == point })
+	})
+}
+
 // mountPoint is the deepest mount point holding a root, or its parent for a file root; "" without a mount
 // table, which leaves a remount unrecognized.
 func mountPoint(root string, directory bool, mounts []mountinfo.Mount, err error) string {

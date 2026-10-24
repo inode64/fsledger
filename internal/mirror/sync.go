@@ -45,6 +45,8 @@ type Sync struct {
 	walkDirectories *walkDirectories
 	roots           integrity.RootGuard
 	sources         []string
+	// mounts are the recorded mount points holding or inside the sources; see RememberMounts.
+	mounts []string
 	// unsynced lists mirror directories whose entries changed since SyncDirectories last synced them.
 	unsynced pathindex.Index[struct{}]
 	// syncDirectory makes the entries of one mirror directory durable; tests observe it.
@@ -125,6 +127,10 @@ func (s *Sync) RebindSources(sources []string) {
 		s.cache.DeleteSubtree(source)
 	}
 }
+
+// RememberMounts records the mount points that hold or lie inside the sources: one no longer mounted keeps
+// the copies below it.
+func (s *Sync) RememberMounts(mounts []string) { s.mounts = slices.Clone(mounts) }
 
 // Close releases the mirror directory descriptor.
 func (s *Sync) Close() error { return fault.Wrap("close mirror", s.root.Close()) }
@@ -616,7 +622,11 @@ func (s *Sync) reconcile(ctx context.Context, roots []string, mode copyMode) err
 		return errors.Join(err, failure)
 	}
 
-	return errors.Join(failure, s.prune(ctx, roots, seen, unstable))
+	// A tree lost with its filesystem keeps its copies like an unstable path.
+	return errors.Join(
+		failure,
+		s.prune(ctx, roots, seen, append(unstable, integrity.RetainedMounts(s.mounts, roots)...)),
+	)
 }
 
 // sourceWalk is shared by every step of one source walk; failure collects the unstable copies.

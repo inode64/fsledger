@@ -80,13 +80,15 @@ type worker struct {
 	errorReasons     []string
 	advisories       []string
 	roots            []string
-	nextRoots        []string
-	returnedRoots    []string
-	status           Status
-	publishDelay     time.Duration
-	fetchDelay       time.Duration
-	retryDelay       time.Duration
-	unstableDelay    time.Duration
+	// mounts are the recorded mount points holding or inside the roots; see recordMounts.
+	mounts        []string
+	nextRoots     []string
+	returnedRoots []string
+	status        Status
+	publishDelay  time.Duration
+	fetchDelay    time.Duration
+	retryDelay    time.Duration
+	unstableDelay time.Duration
 	// recoveryQuiet is how long a repository must stay free of new warnings before its recovery is
 	// announced; lastWarning starts that period again.
 	recoveryQuiet time.Duration
