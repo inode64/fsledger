@@ -18,18 +18,25 @@ func Recordable(mount Mount, table []Mount) bool {
 
 // Mounted reports whether a filesystem is visible at point: the mount no other one at the point sits on,
 // unless it shows the directory it covers, as a directory bound onto itself does even with a volume tucked
-// beneath it. Any other one counts, an automounter's own entry too, since reaching the point mounts what it
-// serves.
+// beneath it, or is an automounter's own entry, left when reaching the point mounted nothing.
 func Mounted(point string, table []Mount) bool {
 	for _, mount := range table {
 		if mount.Point == point && !slices.ContainsFunc(table, func(other Mount) bool {
 			return other.Point == point && other.Parent == mount.ID
 		}) {
-			return !shows(mount, table)
+			return mount.Type != "autofs" && !shows(mount, table)
 		}
 	}
 
 	return false
+}
+
+// OnRemote reports a path on a remote filesystem, where nothing may be probed: an unreachable server would
+// block the caller.
+func OnRemote(name string, table []Mount) bool {
+	holding := Resolve(name, table)
+
+	return len(holding) > 0 && holding[0].Remote()
 }
 
 // Related reports a mount point that holds one of roots, or lies inside one and is not excluded: the points a
@@ -42,26 +49,6 @@ func Related(point string, roots []string, excluded func(string) bool) bool {
 	}
 
 	return false
-}
-
-// UnmountedNow lists the points no filesystem is mounted at now. Without a mount table it lists every one, and
-// the error says why.
-func UnmountedNow(points []string) ([]string, error) {
-	if len(points) == 0 {
-		return nil, nil
-	}
-
-	table, err := Read()
-	if err != nil {
-		return slices.Clone(points), err
-	}
-
-	return Unmounted(points, table), nil
-}
-
-// Unmounted lists the points no filesystem is mounted at.
-func Unmounted(points []string, table []Mount) []string {
-	return slices.DeleteFunc(slices.Clone(points), func(point string) bool { return Mounted(point, table) })
 }
 
 // shows reports a mount whose tree is the directory it covers, found on the mount below every one stacked at
