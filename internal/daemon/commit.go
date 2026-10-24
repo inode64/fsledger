@@ -46,6 +46,10 @@ func (w *worker) commit(ctx context.Context, group event.Group) error {
 		return err
 	}
 
+	if w.contaminated {
+		return fault.New("filesystem mounted at a source; unknown reconciliation required")
+	}
+
 	ctx = filter.WithActors(ctx, func(path string) event.Actor { return groupActor(group, path) })
 
 	paths := make([]string, 0, len(group.Paths))
