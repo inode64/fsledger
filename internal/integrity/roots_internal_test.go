@@ -209,3 +209,34 @@ func TestRootGuardLearnsPreviouslyUnavailableMountID(t *testing.T) {
 		t.Fatal("mount ID was not learned")
 	}
 }
+
+// A mount point is reached as a walk reaches it: never through a symlink, and a point that is not a directory
+// has nothing to mount.
+func TestReachMountNeverFollowsSymlinks(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	directory, file, link := filepath.Join(base, "directory"), filepath.Join(base, "file"), filepath.Join(base, "link")
+
+	err := errors.Join(
+		os.MkdirAll(filepath.Join(directory, "below"), 0o700),
+		os.WriteFile(file, nil, 0o600),
+		os.Symlink(directory, link),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, point := range []string{directory, file, link} {
+		err = ReachMount(point)
+		if err != nil {
+			t.Fatal("an existing point was unreachable", point, err)
+		}
+	}
+
+	for _, point := range []string{filepath.Join(base, "missing"), filepath.Join(link, "below")} {
+		if ReachMount(point) == nil {
+			t.Fatal("a point that does not exist without following symlinks was reached", point)
+		}
+	}
+}

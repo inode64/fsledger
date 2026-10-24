@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -87,23 +88,52 @@ func (guard *RootGuard) Check(roots []string) error {
 }
 
 // CheckMounts fails while a recorded mount point has no filesystem mounted: its tree would read as empty, so
-// nothing may be deleted or pruned. Without a mount table every point counts as unmounted.
+// nothing may be deleted or pruned. Each point is reached first, as the walk did: an automount that failed
+// read as an empty directory there, though the automounter's own entry stays mounted. Without a mount table
+// every point counts as unmounted.
 func CheckMounts(points []string) error {
 	if len(points) == 0 {
 		return nil
 	}
+
+	unreachable := slices.DeleteFunc(slices.Clone(points), func(point string) bool { return ReachMount(point) == nil })
 
 	table, err := mountinfo.Read()
 	if err != nil {
 		table = nil
 	}
 
-	unmounted := mountinfo.Unmounted(points, table)
+	unmounted := slices.DeleteFunc(slices.Clone(points), func(point string) bool {
+		return !slices.Contains(unreachable, point) && mountinfo.Mounted(point, table)
+	})
 	if len(unmounted) == 0 {
 		return nil
 	}
 
 	return fmt.Errorf("%w: filesystem not mounted at %s", ErrUnavailable, strings.Join(unmounted, ", "))
+}
+
+// ReachMount opens a mount point as a walk does, without following symlinks, which mounts an automounted
+// filesystem there. A point that is not a directory has nothing to mount.
+func ReachMount(point string) error {
+	parent, name, err := OpenParent(point)
+	if err != nil {
+		return err
+	}
+	defer resource.FD(parent)
+
+	directory, err := unix.Openat(parent, name, DirectoryFlags, 0)
+	if errors.Is(err, unix.ENOTDIR) {
+		return nil
+	}
+
+	if err != nil {
+		return fault.Wrap("open mount point "+point, err)
+	}
+
+	resource.FD(directory)
+
+	return nil
 }
 
 // mountPoint is the deepest mount point holding a root, or its parent for a file root; "" without a mount

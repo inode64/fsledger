@@ -35,7 +35,7 @@ func (w *worker) waitForMounts(ctx context.Context) error {
 // relates to a root, even unmounted; a nested one whose directory is gone as well was retired with its
 // volume. The catalog keeps the points across restarts.
 func (w *worker) recordMounts(ctx context.Context) {
-	table, err := mountinfo.Read()
+	table, err := w.readMounts()
 	if err != nil {
 		w.logger.Warn("mount discovery failed; keeping the recorded mount points", "error", err)
 
@@ -105,6 +105,37 @@ func (w *worker) rebindMounted(table []mountinfo.Mount, waiting []string) {
 	w.sourcesPending, w.dirty = true, true
 }
 
+// readMounts reads the mount table once the recorded points it shows unmounted were reached, as a walk would:
+// that mounts again an automounted filesystem whose idle mount expired.
+func (w *worker) readMounts() ([]mountinfo.Mount, error) {
+	table, err := mountinfo.Read()
+	if err != nil {
+		return nil, err
+	}
+
+	reached := false
+
+	for _, point := range mountinfo.Unmounted(w.mounts, table) {
+		if !remoteMount(point, table) && integrity.ReachMount(point) == nil {
+			reached = true
+		}
+	}
+
+	if !reached {
+		return table, nil
+	}
+
+	return mountinfo.Read()
+}
+
+// remoteMount reports a path on a remote filesystem. Nothing there is probed: an unreachable server would
+// block the worker.
+func remoteMount(path string, table []mountinfo.Mount) bool {
+	holding := mountinfo.Resolve(path, table)
+
+	return len(holding) > 0 && holding[0].Remote()
+}
+
 // restoreMounts takes the points the catalog recorded before a restart, before anything walks a root: a
 // source found on an empty mount point waits instead of being recorded as an empty tree.
 func (w *worker) restoreMounts() {
@@ -152,8 +183,7 @@ func (w *worker) mergeMounts(table []mountinfo.Mount) []string {
 
 // retired reports an unmounted nested point whose directory is gone as well, as when a volume is
 // decommissioned. A point holding a root is never retired, nor one inside another unmounted point, whose
-// directory went with that filesystem. Nothing below a remote mount is probed: an unreachable server would
-// block the worker.
+// directory went with that filesystem, nor one on a remote filesystem.
 func (w *worker) retired(point string, table []mountinfo.Mount) bool {
 	if mountinfo.Mounted(point, table) || slices.ContainsFunc(w.roots, func(root string) bool {
 		return pathutil.Contains(point, root)
@@ -167,7 +197,7 @@ func (w *worker) retired(point string, table []mountinfo.Mount) bool {
 		}
 	}
 
-	if holding := mountinfo.Resolve(point, table); len(holding) > 0 && holding[0].Remote() {
+	if remoteMount(point, table) {
 		return false
 	}
 

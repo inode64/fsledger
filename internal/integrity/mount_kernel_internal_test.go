@@ -88,3 +88,24 @@ func TestKernelRemountedRootIsTheSameSource(t *testing.T) {
 		t.Fatal("the filesystem mounted again at the root stayed unavailable", err)
 	}
 }
+
+// CheckMounts reaches each recorded point before it reads the mount table: a mounted point passes, and its
+// empty mount point does not.
+func TestKernelCheckMountsReachesTheMountedPoint(t *testing.T) {
+	t.Parallel()
+
+	point := filepath.Join(t.TempDir(), "data")
+	mountAt(t, "fsledger-test", point, "tmpfs", 0)
+
+	err := CheckMounts([]string{point})
+	if err != nil {
+		t.Fatal("a mounted point was refused", err)
+	}
+
+	unmount(t, point)
+
+	err = CheckMounts([]string{point})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatal("the empty mount point was accepted", err)
+	}
+}
