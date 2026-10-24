@@ -140,7 +140,7 @@ func (w *worker) saveStatus(ctx context.Context) {
 	}
 
 	if !w.status.Scan.Initialized || w.pendingError || len(w.status.UnavailableSources) > 0 ||
-		len(w.status.SkippedSources) > 0 ||
+		len(w.status.UnmountedPaths) > 0 || len(w.status.SkippedSources) > 0 ||
 		len(w.unstable) > 0 {
 		gapErr := w.catalog.ReportGap(ctx)
 		if gapErr != nil {
