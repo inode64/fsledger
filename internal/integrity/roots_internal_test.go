@@ -56,6 +56,7 @@ func TestRootGuardAcceptsRootKindReplacementOnPinnedFilesystem(t *testing.T) {
 
 	identity := guard.roots[root]
 	identity.mount++
+	identity.point = filepath.Join(root, "lost")
 	guard.roots[root] = identity
 
 	err = guard.Check([]string{root})
@@ -100,6 +101,7 @@ func TestRootGuardUnavailableSeparatesDeletionFromLostFilesystem(t *testing.T) {
 	// Simulate the ancestor living on another mount; this is not a privileged unmount test.
 	identity := guard.roots[root]
 	identity.mount++
+	identity.point = filepath.Join(root, "lost")
 	guard.roots[root] = identity
 
 	if !guard.Unavailable(root) {

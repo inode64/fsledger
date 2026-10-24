@@ -167,9 +167,10 @@ by interval or cron, and on flush for Git repositories: new matches are
 adopted and
 deleted ones recorded as deletions without
 restarting. A selected source whose filesystem disappeared is kept, listed as
-unavailable_sources, and nothing is pruned until it returns; this memory does
-not
-survive a restart. An entry or pattern that cannot be read (permission denied,
+unavailable_sources, and nothing is pruned until it returns. A filesystem
+mounted again at the mount point that held the source returns it, whatever its
+mount ID; one stacked over the original at that point does not. This memory
+does not survive a restart. An entry or pattern that cannot be read (permission denied,
 I/O error, stale handle, too many symlinks) is listed as skipped_sources but
 proves no deletion: the daemon keeps every source it watched and, after a
 restart, every tree its catalog recorded outside the selection, until the entry

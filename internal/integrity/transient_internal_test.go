@@ -138,9 +138,11 @@ func TestRootGuardRejectsChangedMountIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Simulate a different pinned mount ID; this is not a privileged unmount test.
+	// Simulate a pinned mount whose point no longer holds the root, as after an unmount; this is not a
+	// privileged unmount test. A remount at the pinned point is accepted, see the kernel tests.
 	identity := guard.roots[root]
 	identity.mount++
+	identity.point = filepath.Join(root, "lost")
 
 	guard.roots[root] = identity
 
