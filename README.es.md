@@ -15,6 +15,7 @@ investigar posibles infecciones, cambios no autorizados y errores de despliegue.
 
 ## Contenido
 
+- [Por qué fsledger](#por-qué-fsledger)
 - [Para qué sirve](#para-qué-sirve)
 - [Qué aporta](#qué-aporta)
 - [Detección de malware y respuesta a incidentes](#detección-de-malware-y-respuesta-a-incidentes)
@@ -27,6 +28,27 @@ investigar posibles infecciones, cambios no autorizados y errores de despliegue.
 - [Uso diario](#uso-diario)
 - [Protección de datos](#protección-de-datos)
 - [Licencia](#licencia)
+
+## Por qué fsledger
+
+La mayoría de los verificadores de integridad te dicen que un archivo cambió. fsledger
+además te enseña cómo cambió y quién lo cambió cuando Linux puede saberlo, y te devuelve
+la versión anterior.
+
+- **Toda la respuesta en una sola herramienta.** Qué cambió y cuándo, el contenido de antes
+  y de después en Git, y el usuario y el proceso observados.
+- **Nada más que desplegar.** Dos binarios estáticos y un catálogo local: sin gestor de
+  agentes, indexador, servidor de base de datos ni panel. Publica el historial en el
+  servidor Git que ya usas.
+- **Deja tu sistema como estaba.** No añade `.git` a tus directorios y usa Audit de forma
+  pasiva: nunca instala reglas ni toma el control de auditd.
+- **Pensado para servidores en producción.** Detección en tiempo real con fanotify e
+  inotify, reconciliación para lo que los eventos no ven, recorridos programados para
+  árboles grandes y sistemas de archivos remotos, y colas que sobreviven a los reinicios.
+- **Avisos sin ruido.** Notificaciones agrupadas, filtros por usuario, comando o ruta,
+  commits diferidos para archivos que cambian a menudo e informes programados.
+- **Recuperación incluida.** Compara versiones y restaura una en un directorio aparte o
+  en su sitio.
 
 ## Para qué sirve
 
@@ -148,34 +170,41 @@ aplicación, logs y copias de seguridad independientes.
 
 ## Comparación con herramientas similares
 
-Estas herramientas cubren necesidades relacionadas. La elección depende de si buscas
-automatizar Git, gestionar `/etc` o verificar la integridad de los archivos.
+Cada herramienta cubre una parte de la misma necesidad. Este resumen sigue la
+documentación pública de cada proyecto en octubre de 2026; compruébala para la versión
+que uses.
 
-| Herramienta | Enfoque principal |
-| --- | --- |
-| [gitwatch][gitwatch] | Crear commits automáticos de un archivo o directorio y publicarlos opcionalmente. |
-| [etckeeper][etckeeper] | Versionar `/etc`, conservar metadatos e integrarse con gestores de paquetes. |
-| [AIDE][aide] | Comprobar contenido y atributos de archivos frente a una base de referencia. |
-| **fsledger** | Reunir mirrors Git, inventarios de integridad, atribución disponible, alertas e informes. |
+| Herramienta | Tiempo real | Quién lo cambió | Contenido anterior | Avisos | Servidor | Plataformas |
+| --- | --- | --- | --- | --- | --- | --- |
+| **fsledger** | Sí | Si Linux lo indica | Git, con restauración | Correo, Slack, informes | No | Linux |
+| [FIM][achiefs-fim] | Sí | Con auditd | No (historial de eventos) | Vía indexador | No | Linux, macOS, Windows |
+| [Wazuh FIM][wazuh-fim] | Sí | Who-data (Audit) | Diffs de texto | Servidor Wazuh | Sí | Linux, Windows, macOS y otros |
+| [AIDE][aide] | No | No | No | Informes | No | Tipo Unix |
+| [etckeeper][etckeeper] | No | No | `/etc` en Git | No | No | Tipo Unix |
+| [gitwatch][gitwatch] | Sí | No | Git | No | No | Linux, macOS |
 
-**gitwatch** encaja si ya trabajas con un repositorio y quieres automatizar los commits
-al guardar archivos. Su enfoque es un script de vigilancia y versionado sencillo.
+fsledger obtiene el usuario y el proceso de fanotify, `/proc` y las reglas de Audit que ya
+tengas, sin instalar ninguna; un escritor que no puede identificar queda como desconocido
+y el cambio se conserva igualmente. Wazuh añade sus propias reglas de Audit para who-data,
+y FIM necesita auditd.
 
-**etckeeper** encaja si tu prioridad es el historial de `/etc` y su relación con las
-actualizaciones de paquetes. También registra metadatos que Git no conserva por sí solo,
-como los permisos.
+**FIM** y **Wazuh FIM** encajan en entornos mixtos con Linux, Windows y macOS, o en equipos
+que ya reúnen los eventos de seguridad en un indexador o un SIEM. fsledger puede funcionar
+junto a ellos en los servidores Linux para conservar contenidos y puntos de recuperación.
 
-**AIDE** encaja si tu objetivo es contrastar archivos y atributos con una referencia
-de integridad. Comprueba el sistema frente a una base que inicializas y actualizas de forma
-explícita, mientras que fsledger compara cada observación con la anterior y registra cada
-cambio que observa.
+**AIDE** encaja si quieres verificaciones periódicas frente a una referencia que inicializas
+y actualizas de forma explícita, mientras que fsledger compara cada observación con la
+anterior y registra cada cambio que observa.
 
-**fsledger** encaja cuando necesitas gestionar varias rutas y servicios con políticas
-propias, elegir entre contenido en Git e inventario de metadatos, y reunir ese seguimiento
-con contexto de proceso, avisos e informes. Los perfiles Git y DB pueden vigilar las mismas
-fuentes para cubrir ambos usos.
+**etckeeper** encaja si te basta el historial de `/etc` y su relación con las actualizaciones
+de paquetes, y **gitwatch** si quieres commits automáticos de un directorio de trabajo al
+guardar archivos.
 
-Los enlaces de la tabla llevan a las descripciones oficiales de cada proyecto.
+**fsledger** encaja en servidores Linux donde quieres, con una sola herramienta autónoma,
+saber qué cambió, revisar y recuperar el contenido anterior, ver quién lo hizo cuando es
+posible y recibir avisos agrupados, sin mantener un servidor ni un indexador. Los perfiles
+Git y DB pueden vigilar las mismas fuentes: contenido donde quieres historial y solo
+metadatos donde el contenido es secreto o demasiado grande para archivarlo.
 
 ## Arquitectura
 
@@ -654,5 +683,7 @@ Se distribuye sin garantía. Consulta [LICENSE](LICENSE).
 [gitwatch]: https://github.com/gitwatch/gitwatch
 [etckeeper]: https://etckeeper.branchable.com/
 [aide]: https://aide.github.io/
+[achiefs-fim]: https://github.com/Achiefs/fim
+[wazuh-fim]: https://documentation.wazuh.com/current/user-manual/capabilities/file-integrity/index.html
 [php2shell]: https://www.aikido.dev/blog/critical-vulnerabilities-in-php-php2shell
 [php-security]: https://www.php.net/archive/2026.php
