@@ -177,7 +177,11 @@ func inspectRoot(cfg *config.Config, matcher *exclude.Matcher, name, root string
 			continue
 		}
 
-		result = append(result, inspectPath(cfg, name, path, mount))
+		// The daemon walks each boundary with its nested mount points protected; so does the diagnosis.
+		result = append(
+			result,
+			inspectPath(cfg, matcher.Protect(mountinfo.Nested(path, resolved)...), name, path, mount),
+		)
 	}
 
 	return result
@@ -185,22 +189,24 @@ func inspectRoot(cfg *config.Config, matcher *exclude.Matcher, name, root string
 
 // installedMode asks the watcher itself which representation it can install on this path, so the
 // diagnosis cannot drift from what the daemon will do. Capabilities only explain each separate flag.
-func installedMode(cfg *config.Config, name, path string) (string, bool) {
-	matcher, err := cfg.Matcher(name)
-	if err != nil {
-		return "", false
-	}
-
+// Like the daemon, it installs the recursive marks too: a directory below the root that cannot be
+// marked makes the daemon fall back, although the group and its root mark worked.
+func installedMode(matcher *exclude.Matcher, path string) (string, bool) {
 	detector, err := fanotify.New(path, matcher)
 	if err != nil {
 		return "", false
 	}
 	defer resource.Close(detector)
 
+	err = detector.Start(context.Background())
+	if err != nil {
+		return "", false
+	}
+
 	return detector.Mode(), detector.PIDFD()
 }
 
-func inspectPath(cfg *config.Config, name, path string, mount mountinfo.Mount) Path {
+func inspectPath(cfg *config.Config, matcher *exclude.Matcher, name, path string, mount mountinfo.Mount) Path {
 	var caps capabilities.Capabilities
 	if cfg.Watch.Backend != event.Polling {
 		caps = capabilities.Probe(path)
@@ -215,7 +221,7 @@ func inspectPath(cfg *config.Config, name, path string, mount mountinfo.Mount) P
 	}
 
 	if cfg.Watch.Backend == config.BackendAuto || cfg.Watch.Backend == event.Fanotify {
-		mode, pidfd = installedMode(cfg, name, path)
+		mode, pidfd = installedMode(matcher, path)
 	}
 
 	if mode != "" {
