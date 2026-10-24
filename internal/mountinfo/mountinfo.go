@@ -87,6 +87,20 @@ func Resolve(path string, mounts []Mount) []Mount {
 	return nested
 }
 
+// Nested lists the mount points below path among its boundaries. Each has a watcher of its own, so the
+// walk of path leaves them out.
+func Nested(path string, boundaries []Mount) []string {
+	var nested []string
+
+	for _, mount := range boundaries {
+		if mount.Point != path && pathutil.Contains(path, mount.Point) {
+			nested = append(nested, mount.Point)
+		}
+	}
+
+	return nested
+}
+
 // Remote marks filesystems where other clients' changes may be invisible locally:
 // network and cluster filesystems, host shares, and FUSE (fuse.<subtype>), whose
 // daemon may serve remote storage such as GlusterFS or sshfs.

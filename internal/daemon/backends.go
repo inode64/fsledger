@@ -4,8 +4,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/inode64/fsledger/internal/pathutil"
-
 	"github.com/inode64/fsledger/internal/event"
 
 	"github.com/inode64/fsledger/internal/config"
@@ -202,15 +200,7 @@ func (w *worker) recordPIDFDLifetime(result fanotify.PIDFDLifetime) {
 }
 
 func (w *worker) boundaryMatcher(path string, boundaries []mountinfo.Mount) *exclude.Matcher {
-	var nestedPaths []string
-
-	for _, nested := range boundaries {
-		if nested.Point != path && pathutil.Contains(path, nested.Point) {
-			nestedPaths = append(nestedPaths, nested.Point)
-		}
-	}
-
-	return w.matcher.Protect(nestedPaths...)
+	return w.matcher.Protect(mountinfo.Nested(path, boundaries)...)
 }
 
 // tryInotify starts inotify for path. Its mount follower tells fanotify, when it runs for the same path, of every

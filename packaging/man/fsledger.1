@@ -62,6 +62,8 @@ Audit
 transport access. Only sources that currently exist are probed; absent and
 skipped entries are listed as missing_sources and skipped_sources. Opening an
 Audit socket does not establish rule coverage.
+A fanotify detector is reported only when its marks install on the whole tree,
+as the daemon installs them, so probing a large tree takes as long as a start.
 When a selected fanotify group enables PIDFD, fanotify_pidfd_lifetime tests
 delivery after a writer is reaped. checked=false means the probe was
 inconclusive;
