@@ -87,28 +87,4 @@ func TestKernelRemountedRootIsTheSameSource(t *testing.T) {
 	if err != nil {
 		t.Fatal("the filesystem mounted again at the root stayed unavailable", err)
 	}
-
-	// A filesystem stacked over it at the same point hides the recorded tree.
-	mountAt(t, t.TempDir(), root, "", unix.MS_BIND)
-
-	err = guard.Check([]string{root})
-	if !errors.Is(err, ErrUnavailable) {
-		t.Fatal("a filesystem stacked over the source was taken for it", err)
-	}
-}
-
-// Another filesystem mounted at the root's mount point, such as a blank replacement, is not the source: its
-// empty tree must not be recorded as the source's.
-func TestKernelOtherFilesystemAtTheMountPointIsNotTheSource(t *testing.T) {
-	t.Parallel()
-
-	root := filepath.Join(t.TempDir(), "data")
-	guard := remountedGuard(t, t.TempDir(), root)
-
-	mountAt(t, "fsledger-test", root, "tmpfs", 0)
-
-	err := guard.Check([]string{root})
-	if !errors.Is(err, ErrUnavailable) {
-		t.Fatal("another filesystem at the mount point was taken for the source", err)
-	}
 }

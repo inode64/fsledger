@@ -95,29 +95,35 @@ func verifyCommand(ctx context.Context, writer io.Writer, cfg *config.Config, na
 		func(store *catalog.Store) error { return verifyInventory(ctx, writer, cfg, store, name, forget) })
 }
 
-// settleUnmounted refuses to verify sources set aside while their recorded filesystem is not mounted, which
-// the scan would skip although verify claims to rescan every source. With forget, those records go first, so
-// what is there now is recorded, deletions included.
-func settleUnmounted(ctx context.Context, store *catalog.Store, roots []string, forget bool) error {
-	records := store.Mounts()
-
-	kept := mountinfo.Kept(records, roots)
-	if len(kept) == 0 {
-		return nil
-	}
-
-	if !forget {
-		return fault.New("refuse manual verification while recorded filesystems are not mounted: " +
-			strings.Join(kept, "; ") + "; mount them, or run verify --forget-unmounted to record what is there now")
+// settleUnmounted refuses to verify while nothing is mounted at a recorded mount point: verify claims to
+// rescan every source, and that tree would read as deleted. With forget, those points are forgotten first and
+// returned, so what is there now is recorded, deletions included.
+func settleUnmounted(ctx context.Context, store *catalog.Store, forget bool) ([]string, error) {
+	recorded := store.Mounts()
+	if len(recorded) == 0 {
+		return nil, nil
 	}
 
 	table, err := mountinfo.Read()
 	if err != nil {
-		return fault.Wrap("read mount table", err)
+		return nil, fault.Wrap("read mount table", err)
 	}
 
-	return store.RememberMounts(ctx, slices.DeleteFunc(records, func(record mountinfo.Record) bool {
-		return !record.Mounted(table)
+	unmounted := mountinfo.Unmounted(recorded, table)
+	if len(unmounted) == 0 {
+		return nil, nil
+	}
+
+	if !forget {
+		return nil, fault.New("refuse manual verification while recorded filesystems are not mounted at " +
+			strings.Join(
+				unmounted,
+				", ",
+			) + "; mount them, or run verify --forget-unmounted to record what is there now")
+	}
+
+	return unmounted, store.RememberMounts(ctx, slices.DeleteFunc(recorded, func(point string) bool {
+		return slices.Contains(unmounted, point)
 	}))
 }
 
@@ -245,7 +251,7 @@ func verifyInventory(
 			strings.Join(sources.Skipped, "; "))
 	}
 
-	err := settleUnmounted(ctx, store, sources.Roots, forget)
+	forgotten, err := settleUnmounted(ctx, store, forget)
 	if err != nil {
 		return err
 	}
@@ -269,9 +275,10 @@ func verifyInventory(
 	}
 
 	err = json.NewEncoder(writer).Encode(struct {
-		Result catalog.Result `json:"result"`
-		Stats  catalog.Stats  `json:"status"`
-	}{result, stats})
+		Forgotten []string       `json:"forgotten_mounts,omitempty"`
+		Result    catalog.Result `json:"result"`
+		Stats     catalog.Stats  `json:"status"`
+	}{forgotten, result, stats})
 	if err != nil {
 		return fault.Wrap("write verification", err)
 	}
