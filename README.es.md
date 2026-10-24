@@ -327,8 +327,9 @@ sudo journalctl -u fsledger -f
 ```
 
 Para aplicar cambios de configuración, ejecuta `sudo systemctl restart fsledger`.
-La [unidad incluida](packaging/fsledger.service) restringe las rutas escribibles;
-si personalizas el almacenamiento o habilitas escrituras en las fuentes, adapta su configuración.
+La [unidad incluida](packaging/fsledger.service) arranca tras los sistemas de archivos locales y
+remotos y restringe las rutas escribibles; si personalizas el almacenamiento o habilitas escrituras
+en las fuentes, adapta su configuración.
 
 ### Actualización
 
