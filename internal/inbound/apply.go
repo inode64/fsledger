@@ -122,7 +122,9 @@ func (plan *Plan) applyOne(ctx context.Context, objects Objects, index int, chan
 	}
 
 	if actual.mode == change.After.Mode && bytes.Equal(actual.data, data) {
-		return nil
+		// A prior attempt may have renamed or unlinked the entry before its parent sync failed.
+		// Make that replacement durable before the caller records progress, even when no write remains.
+		return integrity.SyncDirectory(parent)
 	}
 
 	if index < plan.Done {
