@@ -4,11 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/mountinfo"
+	"github.com/inode64/fsledger/internal/pathutil"
 	"github.com/inode64/fsledger/internal/resource"
 )
 
@@ -23,12 +26,16 @@ type RootGuard struct {
 }
 
 type rootIdentity struct {
+	// point is the mount point holding the root (for a file root, its parent) when it was pinned.
+	point     string
 	device    uint64
 	mount     uint64
 	directory bool
 }
 
 // Check rejects missing directory roots and filesystem replacements before pruning.
+//
+//nolint:gocognit // One pass keeps each root's checks next to the identity it pins.
 func (guard *RootGuard) Check(roots []string) error {
 	guard.mutex.Lock()
 	defer guard.mutex.Unlock()
@@ -49,15 +56,52 @@ func (guard *RootGuard) Check(roots []string) error {
 			return fmt.Errorf("%w: mount identity unavailable at %s", ErrUnavailable, root)
 		}
 
-		if known && (expected.device != current.device ||
-			(expected.mount != 0 && expected.mount != current.mount)) {
-			return fmt.Errorf("%w: filesystem changed at %s", ErrUnavailable, root)
+		changed := known && (expected.device != current.device ||
+			(expected.mount != 0 && expected.mount != current.mount))
+		if known && !changed {
+			current.point = expected.point
+		} else {
+			mounts, readErr := mountinfo.Read()
+			current.point = mountPoint(root, current.directory, mounts, readErr)
+
+			if changed && !remounted(expected, current, mounts, readErr) {
+				return fmt.Errorf("%w: filesystem changed at %s", ErrUnavailable, root)
+			}
 		}
 
 		guard.roots[root] = current
 	}
 
 	return nil
+}
+
+// mountPoint is the deepest mount point holding a root, or its parent for a file root; "" without a mount
+// table, which leaves a remount unrecognized.
+func mountPoint(root string, directory bool, mounts []mountinfo.Mount, err error) string {
+	if !directory {
+		root = filepath.Dir(root)
+	}
+
+	resolved := mountinfo.Resolve(root, mounts)
+	if err != nil || len(resolved) == 0 || !pathutil.Contains(resolved[0].Point, root) {
+		return ""
+	}
+
+	return resolved[0].Point
+}
+
+// remounted recognizes a filesystem mounted again at the point the root was pinned on, which is the same
+// source although the kernel may give it another ID. The pinned mount must have left that point: one stacked
+// over it hides the recorded tree, and its empty contents must not be recorded. IDs are reused, so only the
+// pinned ID at that point, under another mount, means stacking.
+func remounted(expected, current rootIdentity, mounts []mountinfo.Mount, err error) bool {
+	if err != nil || expected.mount == 0 || expected.point == "" || current.point != expected.point {
+		return false
+	}
+
+	return current.mount == expected.mount || !slices.ContainsFunc(mounts, func(mount mountinfo.Mount) bool {
+		return mount.Point == expected.point && mount.ID >= 0 && uint64(mount.ID) == expected.mount
+	})
 }
 
 func inspectRoot(path string, expected rootIdentity, known bool) (rootIdentity, error) {
@@ -129,7 +173,9 @@ func identify(path string) (rootIdentity, error) {
 		mount = extended.Mnt_id
 	}
 
-	return rootIdentity{device: stat.Dev, mount: mount, directory: stat.Mode&unix.S_IFMT == unix.S_IFDIR}, nil
+	return rootIdentity{
+		point: "", device: stat.Dev, mount: mount, directory: stat.Mode&unix.S_IFMT == unix.S_IFDIR,
+	}, nil
 }
 
 // Forget releases pinned identities so a removed source may later return in another form.
