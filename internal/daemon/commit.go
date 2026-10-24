@@ -255,8 +255,9 @@ func (w *worker) reconcileCatalog(ctx context.Context, message, identifier strin
 
 	w.rememberChange(result)
 
-	if w.repo != nil && full && result.Changed > 0 {
-		err = w.refreshHashes(ctx, result.ID, message)
+	// Work left by a refresh that failed, or by a daemon that stopped before it, is pending here too.
+	if w.repo != nil {
+		err = w.refreshHashes(ctx, message)
 		if err != nil {
 			return err
 		}
@@ -272,11 +273,15 @@ func (w *worker) reconcileCatalog(ctx context.Context, message, identifier strin
 	return w.catalog.ClearOperation(ctx)
 }
 
-func (w *worker) refreshHashes(ctx context.Context, identifier, message string) error {
-	err := w.catalog.ChangedHashes(ctx, identifier, func(path string) error {
+func (w *worker) refreshHashes(ctx context.Context, message string) error {
+	pending := false
+
+	err := w.catalog.ChangedHashes(ctx, func(path string) error {
+		pending = true
+
 		return w.deferUnstable(w.scanner.Do(ctx, func() error { return w.mirror.RefreshContext(ctx, path) }))
 	})
-	if err != nil {
+	if err != nil || !pending {
 		return err
 	}
 

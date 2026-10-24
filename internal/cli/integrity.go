@@ -223,12 +223,8 @@ func verifyInventory(
 
 	scanner := integrity.NewScanner(cfg.Scan.Workers, cfg.Scan.MaxConcurrent)
 
+	// Mirror refreshes the daemon left pending stay for it: verify cannot copy them.
 	result, err := store.Reconcile(ctx, scanner, sources.Roots, matcher, true, "manual verification", "")
-	if err != nil {
-		return err
-	}
-
-	err = store.ClearOperation(ctx)
 	if err != nil {
 		return err
 	}

@@ -331,15 +331,10 @@ func snapshotFields(existing integrity.Record) []string {
 	return fields
 }
 
-// ChangedHashes streams temporary work for the current Git reconciliation.
-func (store *Store) ChangedHashes(ctx context.Context, identifier string, visit func(string) error) error {
-	return store.iterate(ctx, hashPrefix, func(path, operation []byte) error {
-		if string(operation) != identifier {
-			return nil
-		}
-
-		return visit(string(path))
-	})
+// ChangedHashes streams the mirror refreshes pending since the last ClearOperation: a full scan found new
+// content behind an unchanged signature, which only a forced copy brings to the mirror.
+func (store *Store) ChangedHashes(ctx context.Context, visit func(string) error) error {
+	return store.iterate(ctx, hashPrefix, func(path, _ []byte) error { return visit(string(path)) })
 }
 
 // ClearOperation removes transient hash refresh work after its consumer finishes.

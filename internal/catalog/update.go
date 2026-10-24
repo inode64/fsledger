@@ -71,7 +71,7 @@ func (store *Store) beginOperation(ctx context.Context) error {
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
 
-	transaction.clear(hashPrefix)
+	// Pending mirror refreshes outlive the operation: only their consumer clears them, once done.
 	transaction.state.Generation++
 
 	return transaction.commit()
