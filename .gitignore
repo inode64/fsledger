@@ -44,7 +44,3 @@ go.work.sum
 .vscode/
 .history
 .codex
-# Graphify's knowledge graph is a regenerable local cache. Keeping the complete
-# directory out of Git prevents hook/update churn from entering functional
-# commits while preserving graphify query/path/explain in each working copy.
-graphify-out/

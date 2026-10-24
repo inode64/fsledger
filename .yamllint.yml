@@ -5,7 +5,6 @@ ignore: |
   vendor/
   bin/
   reports/
-  graphify-out/
 
 rules:
   document-start: disable
