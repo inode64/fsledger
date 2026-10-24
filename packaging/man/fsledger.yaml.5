@@ -176,8 +176,9 @@ unmounted_paths, an error notice is sent, and the recovery follows once any
 filesystem is mounted there again; a reconciliation then catches up, without
 actors. Keep removable or automounted volumes in repositories of their own.
 Volatile filesystems such as tmpfs or overlay, whose contents go with the
-mount, and directories bound onto themselves, as systemd mounts ReadWritePaths
-for the service only, are never recorded. A nested point whose directory is
+mount, FUSE and eCryptfs, which users mount and unmount themselves, and
+directories bound onto themselves, as systemd mounts ReadWritePaths for the
+service only, are never recorded: their unmount reads as deletion. A nested point whose directory is
 removed as well is forgotten; any other goes once its sources leave the
 selection, or with verify --forget-unmounted.
 An entry or pattern that cannot be read (permission denied,

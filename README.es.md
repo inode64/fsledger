@@ -415,8 +415,9 @@ dentro de una, también entre reinicios: mientras no hay nada montado en uno de 
 repositorio espera en lugar de registrar su árbol como borrado, envía un aviso de error y
 `status` muestra el punto en `unmounted_paths`. Se reanuda cuando vuelve a haber un sistema de
 archivos montado ahí; `verify --forget-unmounted` acepta uno que ha desaparecido para siempre.
-Los sistemas de archivos volátiles, como tmpfs, no se registran. Conviene poner los volúmenes
-extraíbles en repositorios propios. La selección admite `*`, `?` y `[...]` dentro de cada componente;
+Los sistemas de archivos volátiles, como tmpfs, y los montajes FUSE o eCryptfs que hacen los
+propios usuarios no se registran, así que su desmontaje cuenta como borrado. Conviene poner los
+volúmenes extraíbles en repositorios propios. La selección admite `*`, `?` y `[...]` dentro de cada componente;
 los patrones recursivos `**` se reservan para exclusiones y otros filtros que los admiten.
 
 Puedes usar `${HOST}` o `$HOST` en valores y claves YAML. Se sustituyen por la variable
