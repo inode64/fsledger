@@ -178,3 +178,32 @@ func TestDirectorySyncFailureFailsMirrorOperation(t *testing.T) {
 		t.Fatal("event group ignored a failed directory sync", err)
 	}
 }
+
+// The copies stay cached after a failed directory sync, so the next pass touches nothing: the directories
+// must stay pending, or a later commit records entries that a crash can still lose.
+func TestFailedDirectorySyncIsRetried(t *testing.T) {
+	t.Parallel()
+
+	syncer, _, relative := directorySyncMirror(t)
+	failure := fault.New("directory sync failed")
+	syncer.syncDirectory = func(*os.Root, string) error { return failure }
+
+	err := syncer.ReconcileContext(t.Context())
+	if !errors.Is(err, failure) {
+		t.Fatal("reconciliation ignored a failed directory sync", err)
+	}
+
+	synced := recordDirectorySyncs(syncer)
+
+	err = syncer.ReconcileContext(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"."}
+	for name := filepath.Join(relative, "directory", "nested"); name != "."; name = filepath.Dir(name) {
+		want = append(want, name)
+	}
+
+	checkDirectorySyncs(t, synced, want...)
+}
