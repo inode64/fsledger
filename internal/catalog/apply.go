@@ -212,6 +212,8 @@ func persistEntry(transaction *transaction, path, data, oldData []byte, generati
 	if data == nil {
 		transaction.remove(key(currentPrefix, path))
 		transaction.remove(key(seenPrefix, path))
+		// A deleted entry has nothing left to refresh, and its path may no longer be a source.
+		transaction.remove(key(hashPrefix, path))
 
 		if oldData != nil {
 			transaction.state.Stats.Entries--
@@ -331,8 +333,8 @@ func snapshotFields(existing integrity.Record) []string {
 	return fields
 }
 
-// ChangedHashes streams the mirror refreshes pending since the last ClearOperation: a full scan found new
-// content behind an unchanged signature, which only a forced copy brings to the mirror.
+// ChangedHashes streams the mirror refreshes pending since the last ClearOperation: every hash change a
+// full scan found, which a forced copy brings to the mirror even when the file's signature did not change.
 func (store *Store) ChangedHashes(ctx context.Context, visit func(string) error) error {
 	return store.iterate(ctx, hashPrefix, func(path, _ []byte) error { return visit(string(path)) })
 }
