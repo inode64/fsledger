@@ -618,7 +618,9 @@ También con el daemon detenido, `outbox clear` descarta sin enviarlos todos los
 encolados de un repositorio, por ejemplo cuando su relay de correo no puede aceptarlos.
 Un aviso que sigue fallando deja de reintentarse tras un día aproximadamente: `status`
 lo advierte y sigue encolado hasta que un reinicio del daemon lo reintente o `outbox clear`
-lo descarte. Los cambios registrados se conservan en el catálogo:
+lo descarte. Los avisos agrupados en un mensaje de Slack parcialmente enviado se reintentan
+juntos; si uno agota sus reintentos, todo el grupo queda encolado hasta el reinicio.
+Los cambios registrados se conservan en el catálogo:
 
 ```sh
 fsledger outbox clear --repository system

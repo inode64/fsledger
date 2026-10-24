@@ -291,7 +291,9 @@ other deliveries or the Slack pace, is logged once as a warning, and is
 counted in catalog.exhausted_notifications, which adds a status warning. A
 daemon restart, which configuration and template changes require anyway,
 retries it from the first attempt while its notifier is unchanged; outbox
-clear discards it. Saturation increments
+clear discards it. Notifications grouped in a partly sent Slack message resume
+together; if one exhausts its retries, the whole group stays queued until restart.
+Saturation increments
 notification_overflow and records a warning. New notices are retained; the
 watermark does not discard evidence. Backlogs can grow until delivery succeeds.
 Changing/removing destinations defers old deliveries without redirecting them:
