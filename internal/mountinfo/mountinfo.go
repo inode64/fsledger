@@ -24,7 +24,12 @@ type Mount struct {
 	Point  string `json:"point"`
 	Type   string `json:"type"`
 	Device string `json:"device"`
+	// Source is the mount's origin (a device, server:/export or a share tag), Root the directory of its
+	// filesystem it shows, and Parent the ID of the mount it sits on.
+	Source string `json:"-"`
+	Root   string `json:"-"`
 	ID     int    `json:"id"`
+	Parent int    `json:"-"`
 }
 
 // Read reads /proc/self/mountinfo directly, without external commands.
@@ -53,7 +58,10 @@ func Parse(reader io.Reader) ([]Mount, error) {
 				Point:  entry.Mountpoint,
 				Type:   entry.FSType,
 				Device: fmt.Sprintf("%d:%d", entry.Major, entry.Minor),
+				Source: entry.Source,
+				Root:   entry.Root,
 				ID:     entry.ID,
+				Parent: entry.Parent,
 			},
 		)
 	}
