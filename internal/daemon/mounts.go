@@ -29,8 +29,9 @@ func (w *worker) waitForMounts(ctx context.Context) error {
 		return nil
 	}
 
-	return fmt.Errorf("%w at %s; the repository waits for it", errFilesystemMissing,
-		strings.Join(w.status.UnmountedPaths, ", "))
+	return fmt.Errorf("%w at %s; the repository waits until it is mounted again, or until "+
+		"fsledger verify --repository %s --forget-unmounted forgets it with the daemon stopped",
+		errFilesystemMissing, strings.Join(w.status.UnmountedPaths, ", "), w.name)
 }
 
 // recordMounts refreshes the recordable mount points that hold a root or are mounted inside one and are not

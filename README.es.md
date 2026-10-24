@@ -413,11 +413,15 @@ conserva lo que registró ahí, y `verify` se niega a ejecutarse hasta que vuelv
 leerse. Del mismo modo, se registran los puntos de montaje que contienen una fuente o están
 dentro de una, también entre reinicios: mientras no hay nada montado en uno de ellos, el
 repositorio espera en lugar de registrar su árbol como borrado, envía un aviso de error y
-`status` muestra el punto en `unmounted_paths`. Se reanuda cuando vuelve a haber un sistema de
-archivos montado ahí; `verify --forget-unmounted` acepta uno que ha desaparecido para siempre.
-Los sistemas de archivos volátiles, como tmpfs, y los montajes FUSE o eCryptfs que hacen los
-propios usuarios no se registran, así que su desmontaje cuenta como borrado. Conviene poner los
-volúmenes extraíbles en repositorios propios. La selección admite `*`, `?` y `[...]` dentro de cada componente;
+`status` muestra el punto en `unmounted_paths`. Se reanuda cuando vuelve a haber cualquier
+sistema de archivos montado ahí, aunque sea otro distinto o uno vacío, y registra lo que
+contiene, borrados incluidos, mientras Git conserva el historial; `verify --forget-unmounted`
+olvida un punto que ha desaparecido para siempre. Los sistemas de archivos volátiles, como
+tmpfs, y los montajes FUSE o eCryptfs que hacen los propios usuarios no se registran, así que
+su desmontaje cuenta como borrado. Cualquier otro sistema de archivos montado durante un
+tiempo, como una imagen montada por loop, una instantánea o un home de systemd-homed, hace
+esperar al repositorio cuando se desmonta: excluye su punto de montaje. Conviene poner los
+volúmenes extraíbles o automontados en repositorios propios. La selección admite `*`, `?` y `[...]` dentro de cada componente;
 los patrones recursivos `**` se reservan para exclusiones y otros filtros que los admiten.
 
 Puedes usar `${HOST}` o `$HOST` en valores y claves YAML. Se sustituyen por la variable

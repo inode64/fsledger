@@ -85,8 +85,8 @@ systemctl enable --now fsledger
 journalctl -u fsledger -f
 .fi
 .PP
-The unit permits the default state, runtime and /var/log/fsledger log
-directory.
+The unit starts after local and remote filesystems are mounted and permits
+the default state, runtime and /var/log/fsledger log directory.
 Custom writable locations require corresponding unit overrides. It allows 300
 seconds for shutdown. Sources are read-only under ProtectSystem=strict; optional
 bidirectional Git requires explicit ReadWritePaths for authorized sources.
