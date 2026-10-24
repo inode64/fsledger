@@ -89,3 +89,39 @@ func TestSetSourcesPrunesDroppedRootAndAdoptsNewOne(t *testing.T) {
 		t.Fatal("source change not reflected in the mirror")
 	}
 }
+
+// A file or symlink selected as a root is its own content: once deleted, the reconciliation that no longer
+// sees it prunes its copy, like the catalog records the deletion in the same pass.
+func TestDeletedFileAndSymlinkRootsArePruned(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	repository := t.TempDir()
+	file, link := filepath.Join(base, "file"), filepath.Join(base, "link")
+
+	writeFiles(t, file)
+	must(t, os.Symlink("target", link))
+
+	allow, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	syncer, err := mirror.Open(repository, []string{file, link}, allow, "sha256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(syncer)
+
+	err = syncer.ReconcileContext(t.Context())
+	if err != nil || !mirrored(t, repository, file) || !mirrored(t, repository, link) {
+		t.Fatal("roots were not mirrored", err)
+	}
+
+	must(t, errors.Join(os.Remove(file), os.Remove(link)))
+
+	err = syncer.ReconcileContext(t.Context())
+	if err != nil || mirrored(t, repository, file) || mirrored(t, repository, link) {
+		t.Fatal("deleted file or symlink roots stayed in the mirror", err)
+	}
+}
