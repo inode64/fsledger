@@ -167,9 +167,11 @@ by interval or cron, and on flush for Git repositories: new matches are
 adopted and
 deleted ones recorded as deletions without
 restarting. A selected source whose filesystem disappeared is kept, listed as
-unavailable_sources, and nothing is pruned until it returns. A filesystem
+unavailable_sources, and nothing is pruned until it returns. The filesystem
 mounted again at the mount point that held the source returns it, whatever its
-mount ID; one stacked over the original at that point does not. A filesystem
+mount ID, when it is the same one: same type and root, and same fsid, or same
+mount source for a network filesystem. Another filesystem mounted there, or one
+stacked over it, does not. A filesystem
 mounted inside a source is recorded too: once unmounted, its tree is kept and
 listed as unmounted_paths, and scans count as partial, until it is mounted
 again or leaves the selection. The catalog keeps these mount points across

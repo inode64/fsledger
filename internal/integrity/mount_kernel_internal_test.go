@@ -9,28 +9,28 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// mountTmpfs mounts a private tmpfs on a new directory at path, for tests that opted in, and unmounts it
-// at cleanup unless the test already did.
-func mountTmpfs(t *testing.T, path string) {
+// mountAt mounts source on target, a directory it creates, for tests that opted in, and unmounts it at
+// cleanup unless the test already did. A bind mount passes fstype "" and unix.MS_BIND.
+func mountAt(t *testing.T, source, target, fstype string, flags uintptr) {
 	t.Helper()
 
 	if os.Getenv("FSLEDGER_KERNEL_MOUNT") != "1" {
 		t.Skip("opt in with FSLEDGER_KERNEL_MOUNT=1; mounts a tmpfs, as root or under unshare -rm")
 	}
 
-	err := os.MkdirAll(path, 0o700)
+	err := os.MkdirAll(target, 0o700)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = unix.Mount("fsledger-test", path, "tmpfs", 0, "")
+	err = unix.Mount(source, target, fstype, flags, "")
 	if err != nil {
-		t.Skipf("cannot mount tmpfs: %v", err)
+		t.Skipf("cannot mount %s: %v", source, err)
 	}
 
 	t.Cleanup(func() {
 		// EINVAL: the test already unmounted it.
-		unmountErr := unix.Unmount(path, 0)
+		unmountErr := unix.Unmount(target, 0)
 		if unmountErr != nil && !errors.Is(unmountErr, unix.EINVAL) {
 			t.Error(unmountErr)
 		}
@@ -46,15 +46,13 @@ func unmount(t *testing.T, path string) {
 	}
 }
 
-// A filesystem unmounted from a root is lost, and one mounted again at the same point is the same source,
-// although the kernel gives it a new mount ID: the root must not stay unavailable until the daemon exits.
-func TestKernelRemountedRootIsTheSameSource(t *testing.T) {
-	t.Parallel()
+// remountedGuard pins a root bound from data, unmounts it and checks that the empty mount point is rejected.
+func remountedGuard(t *testing.T, data, root string) *RootGuard {
+	t.Helper()
 
-	root := filepath.Join(t.TempDir(), "data")
-	mountTmpfs(t, root)
+	mountAt(t, data, root, "", unix.MS_BIND)
 
-	guard := RootGuard{}
+	guard := &RootGuard{}
 
 	err := guard.Check([]string{root})
 	if err != nil {
@@ -68,20 +66,49 @@ func TestKernelRemountedRootIsTheSameSource(t *testing.T) {
 		t.Fatal("the empty mount point was taken for the source", err)
 	}
 
-	// Another mount takes the identifiers the first one released, so the remount gets new ones.
-	mountTmpfs(t, filepath.Join(t.TempDir(), "other"))
-	mountTmpfs(t, root)
+	// Another mount takes the identifiers the first one released, so the next one gets new ones.
+	mountAt(t, "fsledger-test", filepath.Join(t.TempDir(), "other"), "tmpfs", 0)
 
-	err = guard.Check([]string{root})
+	return guard
+}
+
+// The filesystem mounted again at the root's mount point is the same source although the kernel gives it a
+// new mount ID: the root must not stay unavailable until the daemon exits.
+func TestKernelRemountedRootIsTheSameSource(t *testing.T) {
+	t.Parallel()
+
+	data := t.TempDir()
+	root := filepath.Join(t.TempDir(), "data")
+	guard := remountedGuard(t, data, root)
+
+	mountAt(t, data, root, "", unix.MS_BIND)
+
+	err := guard.Check([]string{root})
 	if err != nil {
 		t.Fatal("the filesystem mounted again at the root stayed unavailable", err)
 	}
 
-	// A filesystem stacked over the pinned one at the same point hides the recorded tree.
-	mountTmpfs(t, root)
+	// A filesystem stacked over it at the same point hides the recorded tree.
+	mountAt(t, t.TempDir(), root, "", unix.MS_BIND)
 
 	err = guard.Check([]string{root})
 	if !errors.Is(err, ErrUnavailable) {
 		t.Fatal("a filesystem stacked over the source was taken for it", err)
+	}
+}
+
+// Another filesystem mounted at the root's mount point, such as a blank replacement, is not the source: its
+// empty tree must not be recorded as the source's.
+func TestKernelOtherFilesystemAtTheMountPointIsNotTheSource(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(t.TempDir(), "data")
+	guard := remountedGuard(t, t.TempDir(), root)
+
+	mountAt(t, "fsledger-test", root, "tmpfs", 0)
+
+	err := guard.Check([]string{root})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatal("another filesystem at the mount point was taken for the source", err)
 	}
 }
