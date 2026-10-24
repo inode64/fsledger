@@ -57,7 +57,9 @@ func (w *worker) recordMounts(ctx context.Context) {
 		}
 	}
 
+	waiting := w.status.UnmountedPaths
 	w.mounts, w.status.UnmountedPaths = recorded, unmounted
+	w.rebindMounted(table, waiting)
 
 	err = w.catalog.RememberMounts(ctx, recorded)
 	if err != nil {
@@ -67,6 +69,40 @@ func (w *worker) recordMounts(ctx context.Context) {
 	if w.mirror != nil {
 		w.mirror.RememberMounts(recorded)
 	}
+}
+
+// rebindMounted restarts the watchers of a root once a recorded filesystem is mounted over it, as when the
+// repository waited for it or it appears over the directory they watch: they still follow what was there, and
+// a pinned empty directory would read as a replaced filesystem. Mount IDs are reused, so a mount that differs
+// from the one they started with is only one of the signs.
+func (w *worker) rebindMounted(table []mountinfo.Mount, waiting []string) {
+	var mounted []string
+
+	for _, root := range w.roots {
+		holding := mountinfo.Resolve(root, table)
+		if len(holding) == 0 || !slices.Contains(w.mounts, holding[0].Point) ||
+			slices.Contains(w.status.UnmountedPaths, holding[0].Point) || slices.Contains(w.returnedRoots, root) {
+			continue
+		}
+
+		watched := mountinfo.Resolve(root, w.watchedMounts)
+		if slices.Contains(waiting, holding[0].Point) || len(watched) > 0 && watched[0] != holding[0] {
+			mounted = append(mounted, root)
+		}
+	}
+
+	if len(mounted) == 0 {
+		return
+	}
+
+	w.logger.Info("recorded filesystem mounted at a source; restarting its watchers", "paths", mounted)
+	w.rebindRoots(mounted)
+
+	if !w.sourcesPending {
+		w.nextRoots = slices.Clone(w.roots)
+	}
+
+	w.sourcesPending, w.dirty = true, true
 }
 
 // restoreMounts takes the points the catalog recorded before a restart, before anything walks a root: a

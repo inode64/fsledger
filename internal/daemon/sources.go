@@ -67,18 +67,11 @@ func (w *worker) updateSources(sources config.Sources) bool {
 	returned := selectedRoots(w.status.UnavailableSources, resolved)
 
 	if len(returned) > 0 {
-		w.scanner.ForgetRoots(returned)
-
-		if w.mirror != nil {
-			w.mirror.RebindSources(returned)
-		}
+		w.rebindRoots(returned)
 	}
 
 	w.recordSources(sources)
 	w.status.UnavailableSources = unavailable
-	// Watchers of a returned source still follow the previous filesystem. A later refresh no longer
-	// sees it return, so the rebind stays pending until applySources restarts them.
-	w.returnedRoots = pathutil.CompactRoots(append(w.returnedRoots, returned...))
 
 	// An empty selection is a change too, so the pending state cannot live in the slice itself.
 	w.nextRoots, w.sourcesPending = nil, !slices.Equal(next, w.roots) || len(w.returnedRoots) > 0
@@ -87,6 +80,19 @@ func (w *worker) updateSources(sources config.Sources) bool {
 	}
 
 	return w.sourcesPending
+}
+
+// rebindRoots forgets the identities of roots whose filesystem returned or changed. Their watchers still
+// follow the previous filesystem, and a later refresh no longer sees the change, so the restart stays pending
+// until applySources.
+func (w *worker) rebindRoots(roots []string) {
+	w.scanner.ForgetRoots(roots)
+
+	if w.mirror != nil {
+		w.mirror.RebindSources(roots)
+	}
+
+	w.returnedRoots = pathutil.CompactRoots(append(w.returnedRoots, roots...))
 }
 
 func (w *worker) retainedSources(resolved []string, incomplete bool) ([]string, []string) {
