@@ -173,14 +173,20 @@ keeps them across restarts. While nothing is mounted at one of them the whole
 repository waits: no reconciliation, commit, incoming change or verify runs,
 since that tree would read as deleted. Status lists the point as
 unmounted_paths, an error notice is sent, and the recovery follows once any
-filesystem is mounted there again; a reconciliation then catches up, without
-actors. Keep removable or automounted volumes in repositories of their own.
+filesystem is mounted there again, even a different or blank one: a
+reconciliation then records what it holds, deletions included, without actors,
+and Git keeps the history. An automounted point is reached as a walk reaches
+it, and one whose automount fails waits too. Keep removable or automounted
+volumes in repositories of their own. Any other filesystem mounted for a
+while, such as a loop-mounted image, a snapshot or a systemd-homed home, makes
+the repository wait once unmounted; exclude its mount point.
 Volatile filesystems such as tmpfs or overlay, whose contents go with the
 mount, FUSE and eCryptfs, which users mount and unmount themselves, and
 directories bound onto themselves, as systemd mounts ReadWritePaths for the
-service only, are never recorded: their unmount reads as deletion. A nested point whose directory is
-removed as well is forgotten; any other goes once its sources leave the
-selection, or with verify --forget-unmounted.
+service only, are never recorded: their unmount reads as deletion. A nested
+point whose directory is removed as well is forgotten, and any other once no
+source relates to it. A source lost with its filesystem still does, so
+verify --forget-unmounted forgets a point that is gone for good.
 An entry or pattern that cannot be read (permission denied,
 I/O error, stale handle, too many symlinks) is listed as skipped_sources but
 proves no deletion: the daemon keeps every source it watched and, after a

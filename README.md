@@ -396,10 +396,14 @@ recorded there, and `verify` refuses to run until it can be read again.
 Likewise, the mount points that hold a source or lie inside one are recorded, across
 restarts too: while nothing is mounted at one of them, the repository waits instead of
 recording its tree as deleted, sends an error notice, and `status` lists the point under
-`unmounted_paths`. It resumes once a filesystem is mounted there again;
-`verify --forget-unmounted` accepts one that is gone for good. Volatile filesystems such
-as tmpfs, and FUSE or eCryptfs mounts that users make themselves, are not recorded, so
-their unmount reads as deletion. Keep removable volumes in repositories of their own.
+`unmounted_paths`. It resumes once any filesystem is mounted there again, even a
+different or blank one, and records what it holds, deletions included, while Git keeps the
+history; `verify --forget-unmounted` forgets a point that is gone for good. Volatile
+filesystems such as tmpfs, and FUSE or eCryptfs mounts that users make themselves, are not
+recorded, so their unmount reads as deletion. Any other filesystem mounted for a while,
+such as a loop-mounted image, a snapshot or a systemd-homed home, makes the repository wait
+once unmounted: exclude its mount point. Keep removable or automounted volumes in
+repositories of their own.
 Selection supports `*`, `?`, and `[...]` within each path component;
 recursive `**` patterns are reserved for exclusions and other filters that support them.
 

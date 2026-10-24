@@ -1,8 +1,10 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,8 +43,9 @@ func rememberLost(t *testing.T, root string, points ...string) {
 	})
 }
 
-// verify rescans every source, so it refuses while a recorded filesystem is not mounted: the scan would skip
-// its tree. --forget-unmounted drops that record and records what is there now, deletions included.
+// verify rescans every source, so it refuses while a recorded filesystem is not mounted: its tree would read
+// as deleted. --forget-unmounted drops that record, lists it, and records what is there now, deletions
+// included.
 func TestVerifyRefusesWhileARecordedFilesystemIsNotMounted(t *testing.T) {
 	t.Parallel()
 
@@ -60,10 +63,25 @@ func TestVerifyRefusesWhileARecordedFilesystemIsNotMounted(t *testing.T) {
 		t.Fatal("verify ran over a filesystem that is not mounted", err)
 	}
 
+	var output string
+
 	if changed := verifiedChanges(t, func(args ...string) (string, error) {
-		return run(append(args, "--forget-unmounted")...)
+		var runErr error
+
+		output, runErr = run(append(args, "--forget-unmounted")...)
+
+		return output, runErr
 	}); changed != 1 {
 		t.Fatalf("forgetting the filesystem recorded %d changes, want the deletion", changed)
+	}
+
+	var report struct {
+		Forgotten []string `json:"forgotten_mounts"`
+	}
+
+	err = json.Unmarshal([]byte(output), &report)
+	if err != nil || !slices.Equal(report.Forgotten, []string{filepath.Dir(file)}) {
+		t.Fatal("the forgotten mount point was not listed", output, err)
 	}
 
 	if changed := verifiedChanges(t, run); changed != 0 {
