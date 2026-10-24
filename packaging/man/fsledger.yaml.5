@@ -174,7 +174,10 @@ mount source for a network filesystem. Another filesystem mounted there, or one
 stacked over it, does not. A filesystem
 mounted inside a source is recorded too: once unmounted, its tree is kept and
 listed as unmounted_paths, and scans count as partial, until it is mounted
-again or leaves the selection. The catalog keeps these mount points across
+again or leaves the selection. One whose mount point directory is removed as
+well is forgotten. Volatile filesystems such as tmpfs or overlay, whose
+contents go with the mount, and directories bound onto themselves, as systemd
+mounts ReadWritePaths for the service only, are never recorded. The catalog keeps these mount points across
 restarts: a source found on one that is no longer mounted, or missing below
 it, stays unavailable instead of being recorded as an empty tree, and verify
 fails meanwhile. To retire a mount point for good, take its sources out of the

@@ -12,12 +12,13 @@ import (
 
 	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/mirror"
+	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/resource"
 )
 
-// mountNested mounts a private tmpfs on a new directory, for tests that opted in, and unmounts it at
-// cleanup unless the test already did.
-func mountNested(t *testing.T, path string) {
+// mountNested binds source onto path, a directory it creates, for tests that opted in, and unmounts it at
+// cleanup unless the test already did. With source "" it mounts a tmpfs instead.
+func mountNested(t *testing.T, source, path string) {
 	t.Helper()
 
 	if os.Getenv("FSLEDGER_KERNEL_MOUNT") != "1" {
@@ -29,9 +30,14 @@ func mountNested(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 
-	err = unix.Mount("fsledger-test", path, "tmpfs", 0, "")
+	if source == "" {
+		err = unix.Mount("fsledger-test", path, "tmpfs", 0, "")
+	} else {
+		err = unix.Mount(source, path, "", unix.MS_BIND, "")
+	}
+
 	if err != nil {
-		t.Skipf("cannot mount tmpfs: %v", err)
+		t.Skipf("cannot mount: %v", err)
 	}
 
 	t.Cleanup(func() {
@@ -41,6 +47,22 @@ func mountNested(t *testing.T, path string) {
 			t.Error(unmountErr)
 		}
 	})
+}
+
+// persistentMount skips a test whose bound directory lives on a volatile filesystem, which is not recorded.
+func persistentMount(t *testing.T, path string) {
+	t.Helper()
+
+	table, err := mountinfo.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, mount := range mountinfo.Resolve(path, table) {
+		if mount.Point == path && !mountinfo.Recordable(mount, table) {
+			t.Skipf("%s is %s; set TMPDIR on a persistent filesystem", path, mount.Type)
+		}
+	}
 }
 
 // keptTree fails unless the catalog still counts entries, and the mirror and HEAD still hold path.
@@ -67,7 +89,9 @@ func TestKernelUnmountedNestedFilesystemKeepsItsTree(t *testing.T) {
 
 	runner := makeWorker(t)
 	nested := filepath.Join(runner.roots[0], "data")
-	mountNested(t, nested)
+	data := t.TempDir()
+	mountNested(t, data, nested)
+	persistentMount(t, nested)
 
 	file := writeSource(t, runner, "data/file", "nested")
 
@@ -97,8 +121,7 @@ func TestKernelUnmountedNestedFilesystemKeepsItsTree(t *testing.T) {
 		t.Fatal("status does not list the unmounted filesystem", runner.status.UnmountedPaths)
 	}
 
-	mountNested(t, nested)
-	writeSource(t, runner, "data/file", "nested")
+	mountNested(t, data, nested)
 
 	err = runner.reconcile(t.Context(), "mounted again")
 	if err != nil || len(runner.status.UnmountedPaths) != 0 {
@@ -106,6 +129,16 @@ func TestKernelUnmountedNestedFilesystemKeepsItsTree(t *testing.T) {
 	}
 
 	keptTree(t, runner, stats.Entries, file)
+}
+
+// lostRecords records plain directories as mount points: none is in the mount table, as after an unmount.
+func lostRecords(points ...string) []mountinfo.Record {
+	records := make([]mountinfo.Record, 0, len(points))
+	for _, point := range points {
+		records = append(records, mountinfo.Record{Point: point, Type: "ext4", Root: "/", Source: "/dev/sdb1", FSID: 0})
+	}
+
+	return records
 }
 
 // restart drops what the process pinned, as a new daemon starts with only the catalog's records.
@@ -142,7 +175,7 @@ func TestRestartOnAnUnmountedSourceKeepsItsTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = errors.Join(runner.catalog.RememberMounts(t.Context(), runner.roots), os.Remove(file))
+	err = errors.Join(runner.catalog.RememberMounts(t.Context(), lostRecords(runner.roots...)), os.Remove(file))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +209,10 @@ func TestRestartKeepsASourceMissingBelowAnUnmountedMountPoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = errors.Join(runner.catalog.RememberMounts(t.Context(), []string{filepath.Dir(source)}), os.RemoveAll(source))
+	err = errors.Join(
+		runner.catalog.RememberMounts(t.Context(), lostRecords(filepath.Dir(source))),
+		os.RemoveAll(source),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,4 +233,54 @@ func TestRestartKeepsASourceMissingBelowAnUnmountedMountPoint(t *testing.T) {
 	}
 
 	keptTree(t, runner, stats.Entries, file)
+}
+
+// A volatile filesystem loses its contents with the mount, so its unmount is a deletion, not a lost tree.
+func TestKernelUnmountedVolatileFilesystemIsNotKept(t *testing.T) {
+	t.Parallel()
+
+	runner := makeWorker(t)
+	nested := filepath.Join(runner.roots[0], "scratch")
+	mountNested(t, "", nested)
+
+	err := runner.reconcile(t.Context(), "mounted")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if slices.Contains(mountinfo.Points(runner.mounts), nested) {
+		t.Fatal("a tmpfs was recorded", runner.mounts)
+	}
+}
+
+// An unmounted nested filesystem whose mount point is gone too was retired: its record goes, and its tree
+// is no longer kept.
+func TestRetiredNestedFilesystemIsForgotten(t *testing.T) {
+	t.Parallel()
+
+	runner := makeWorker(t)
+	nested := filepath.Join(runner.roots[0], "volume")
+
+	err := os.Mkdir(nested, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.mounts = lostRecords(nested)
+	runner.recordMounts(t.Context())
+
+	if !slices.Equal(runner.status.UnmountedPaths, []string{nested}) {
+		t.Fatal("an unmounted nested filesystem was not kept", runner.status.UnmountedPaths)
+	}
+
+	err = os.Remove(nested)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.recordMounts(t.Context())
+
+	if len(runner.status.UnmountedPaths) != 0 || len(runner.catalog.Mounts()) != 0 {
+		t.Fatal("a retired nested filesystem was kept", runner.status.UnmountedPaths, runner.catalog.Mounts())
+	}
 }

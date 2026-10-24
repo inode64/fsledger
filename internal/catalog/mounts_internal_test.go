@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inode64/fsledger/internal/config"
+	"github.com/inode64/fsledger/internal/mountinfo"
 )
 
 // The recorded mount points outlive the process: after a restart they are the only memory of a filesystem
@@ -16,7 +17,10 @@ func TestRecordedMountsSurviveReopening(t *testing.T) {
 	path := filepath.Join(t.TempDir(), config.CatalogDirectory)
 	cfg := testStoreConfig(t)
 	store := openTestStore(t, path, cfg.Integrity, cfg.Notifications)
-	mounts := []string{"/srv/data", "/var/www"}
+	mounts := []mountinfo.Record{
+		{Point: "/srv/data", Type: "xfs", Root: "/", Source: "/dev/sdb1", FSID: 7},
+		{Point: "/var/www", Type: "virtiofs", Root: "/", Source: "web", FSID: 0},
+	}
 
 	err := store.RememberMounts(t.Context(), mounts)
 	if err != nil {
