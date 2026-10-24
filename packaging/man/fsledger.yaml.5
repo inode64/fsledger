@@ -180,7 +180,8 @@ or one stacked over it, does not. Volatile filesystems such as tmpfs or
 overlay, whose contents go with the mount, and directories bound onto
 themselves, as systemd mounts ReadWritePaths for the service only, are never
 recorded. A nested filesystem whose mount point directory is removed as well
-is forgotten; any other record goes once its sources leave the selection.
+is forgotten; any other record goes once its sources leave the selection, or
+with verify --forget-unmounted, which verify needs while a record is lost.
 An entry or pattern that cannot be read (permission denied,
 I/O error, stale handle, too many symlinks) is listed as skipped_sources but
 proves no deletion: the daemon keeps every source it watched and, after a

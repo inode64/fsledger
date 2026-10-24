@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -15,6 +16,7 @@ import (
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/integrity"
+	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/notify"
 	"github.com/inode64/fsledger/internal/resource"
 )
@@ -77,7 +79,7 @@ func printEffective(writer io.Writer, cfg *config.Config) error {
 }
 
 // verifyCommand runs a manual full scan with the repository lock, so the daemon must be stopped.
-func verifyCommand(ctx context.Context, writer io.Writer, cfg *config.Config, name string) error {
+func verifyCommand(ctx context.Context, writer io.Writer, cfg *config.Config, name string, forget bool) error {
 	_, err := selectRepository(cfg, name)
 	if err != nil {
 		return err
@@ -90,7 +92,33 @@ func verifyCommand(ctx context.Context, writer io.Writer, cfg *config.Config, na
 
 	return withRepositoryStore(ctx, cfg, name,
 		func() error { return initializeInventoryGit(ctx, cfg, name) },
-		func(store *catalog.Store) error { return verifyInventory(ctx, writer, cfg, store, name) })
+		func(store *catalog.Store) error { return verifyInventory(ctx, writer, cfg, store, name, forget) })
+}
+
+// settleUnmounted refuses to verify sources set aside while their recorded filesystem is not mounted, which
+// the scan would skip although verify claims to rescan every source. With forget, those records go first, so
+// what is there now is recorded, deletions included.
+func settleUnmounted(ctx context.Context, store *catalog.Store, roots []string, forget bool) error {
+	records := store.Mounts()
+
+	kept := mountinfo.Kept(records, roots)
+	if len(kept) == 0 {
+		return nil
+	}
+
+	if !forget {
+		return fault.New("refuse manual verification while recorded filesystems are not mounted: " +
+			strings.Join(kept, "; ") + "; mount them, or run verify --forget-unmounted to record what is there now")
+	}
+
+	table, err := mountinfo.Read()
+	if err != nil {
+		return fault.Wrap("read mount table", err)
+	}
+
+	return store.RememberMounts(ctx, slices.DeleteFunc(records, func(record mountinfo.Record) bool {
+		return !record.Mounted(table)
+	}))
 }
 
 // withRepositoryStore opens a repository's catalog under the repository lock, so the daemon must be
@@ -208,12 +236,18 @@ func verifyInventory(
 	cfg *config.Config,
 	store *catalog.Store,
 	name string,
+	forget bool,
 ) error {
 	sources := cfg.ResolveRepository(name)
 	if sources.Incomplete {
 		// The skipped sources say which one must become readable again.
 		return fault.New("refuse manual verification with incomplete source selection: " +
 			strings.Join(sources.Skipped, "; "))
+	}
+
+	err := settleUnmounted(ctx, store, sources.Roots, forget)
+	if err != nil {
+		return err
 	}
 
 	matcher, err := cfg.Matcher(name)

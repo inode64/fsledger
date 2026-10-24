@@ -51,6 +51,8 @@ func runConfigured(command string, arguments []string, stdout, stderr io.Writer)
 
 	effective := flags.Bool("effective", false, "show resolved configuration without credentials")
 	repository := flags.String("repository", "", "repository name for flush, verify, report preview and outbox clear")
+	forget := flags.Bool("forget-unmounted", false,
+		"verify: forget recorded filesystems that are not mounted and record what is there now")
 
 	operands, done, err := parseCommand(flags, arguments, stdout)
 	if done {
@@ -92,7 +94,14 @@ func runConfigured(command string, arguments []string, stdout, stderr io.Writer)
 		return err
 	}
 
-	return dispatch(stdout, stderr, cfg, command, action, *repository, *debug, *effective)
+	return dispatch(stdout, stderr, cfg, command, action, *repository, options{
+		debug: *debug, effective: *effective, forgetUnmounted: *forget,
+	})
+}
+
+// options are the switches a command may accept; misplacedFlag rejects the others.
+type options struct {
+	debug, effective, forgetUnmounted bool
 }
 
 // misplacedFlag rejects an option given to a command that would ignore it silently.
@@ -109,6 +118,8 @@ func misplacedFlag(flags *flag.FlagSet, command string) error {
 			accepted = command == commandCheck
 		case "repository":
 			accepted = slices.Contains([]string{commandFlush, commandReport, commandOutbox, commandVerify}, command)
+		case "forget-unmounted":
+			accepted = command == commandVerify
 		}
 
 		if !accepted && err == nil {
@@ -123,7 +134,7 @@ func dispatch(
 	stdout, stderr io.Writer,
 	cfg *config.Config,
 	command, action, repository string,
-	debug, effective bool,
+	switches options,
 ) error {
 	var err error
 
@@ -134,7 +145,7 @@ func dispatch(
 			return err
 		}
 
-		if effective {
+		if switches.effective {
 			return printEffective(stdout, cfg)
 		}
 
@@ -153,7 +164,7 @@ func dispatch(
 
 		return fault.Wrap("write flush result", err)
 	case commandRun:
-		return serve(stderr, cfg, debug)
+		return serve(stderr, cfg, switches.debug)
 	case commandReport:
 		if action != "preview" {
 			return fault.New("report requires preview")
@@ -167,7 +178,7 @@ func dispatch(
 
 		return clearOutbox(context.Background(), stdout, cfg, repository)
 	case commandVerify:
-		return verifyCommand(context.Background(), stdout, cfg, repository)
+		return verifyCommand(context.Background(), stdout, cfg, repository, switches.forgetUnmounted)
 	default:
 		return fault.New(fmt.Sprintf("unknown command %q", command))
 	}
