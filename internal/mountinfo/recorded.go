@@ -44,6 +44,21 @@ func Related(point string, roots []string, excluded func(string) bool) bool {
 	return false
 }
 
+// UnmountedNow lists the points no filesystem is mounted at now. Without a mount table it lists every one, and
+// the error says why.
+func UnmountedNow(points []string) ([]string, error) {
+	if len(points) == 0 {
+		return nil, nil
+	}
+
+	table, err := Read()
+	if err != nil {
+		return slices.Clone(points), err
+	}
+
+	return Unmounted(points, table), nil
+}
+
 // Unmounted lists the points no filesystem is mounted at.
 func Unmounted(points []string, table []Mount) []string {
 	return slices.DeleteFunc(slices.Clone(points), func(point string) bool { return Mounted(point, table) })

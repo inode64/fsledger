@@ -87,30 +87,32 @@ func (guard *RootGuard) Check(roots []string) error {
 	return nil
 }
 
-// CheckMounts fails while a recorded mount point has no filesystem mounted: its tree would read as empty, so
-// nothing may be deleted or pruned. Each point is reached first, as the walk did: an automount that failed
-// read as an empty directory there, though the automounter's own entry stays mounted. Without a mount table
-// every point counts as unmounted.
+// CheckMounts fails while a recorded mount point has no filesystem mounted, or the mount table cannot tell:
+// its tree would read as empty, so nothing may be deleted or pruned.
 func CheckMounts(points []string) error {
-	if len(points) == 0 {
+	missing, err := MissingMounts(points)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+
+	if len(missing) == 0 {
 		return nil
 	}
 
+	return fmt.Errorf("%w: filesystem not mounted at %s", ErrUnavailable, strings.Join(missing, ", "))
+}
+
+// MissingMounts lists the recorded mount points with no filesystem mounted once each was reached, as a walk
+// reaches it: an automount that failed reads as an empty directory there, though the automounter's own entry
+// stays mounted. Without a mount table it lists every point, and the error says why.
+func MissingMounts(points []string) ([]string, error) {
 	unreachable := slices.DeleteFunc(slices.Clone(points), func(point string) bool { return ReachMount(point) == nil })
 
-	table, err := mountinfo.Read()
-	if err != nil {
-		table = nil
-	}
+	unmounted, err := mountinfo.UnmountedNow(points)
 
-	unmounted := slices.DeleteFunc(slices.Clone(points), func(point string) bool {
-		return !slices.Contains(unreachable, point) && mountinfo.Mounted(point, table)
-	})
-	if len(unmounted) == 0 {
-		return nil
-	}
-
-	return fmt.Errorf("%w: filesystem not mounted at %s", ErrUnavailable, strings.Join(unmounted, ", "))
+	return slices.DeleteFunc(slices.Clone(points), func(point string) bool {
+		return !slices.Contains(unreachable, point) && !slices.Contains(unmounted, point)
+	}), err
 }
 
 // ReachMount opens a mount point as a walk does, without following symlinks, which mounts an automounted

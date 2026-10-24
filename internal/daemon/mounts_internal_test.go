@@ -254,18 +254,16 @@ func TestRetiredNestedFilesystemIsForgotten(t *testing.T) {
 	}
 
 	runner.mounts = []string{nested}
-	runner.recordMounts(t.Context())
 
-	if !slices.Equal(runner.status.UnmountedPaths, []string{nested}) {
-		t.Fatal("an unmounted nested filesystem was not kept", runner.status.UnmountedPaths)
+	err = runner.recordMounts(t.Context())
+	if err != nil || !slices.Equal(runner.status.UnmountedPaths, []string{nested}) {
+		t.Fatal("an unmounted nested filesystem was not kept", runner.status.UnmountedPaths, err)
 	}
 
-	err = os.Remove(nested)
+	err = errors.Join(os.Remove(nested), runner.recordMounts(t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	runner.recordMounts(t.Context())
 
 	if len(runner.status.UnmountedPaths) != 0 || len(runner.catalog.Mounts()) != 0 {
 		t.Fatal("a retired nested filesystem was kept", runner.status.UnmountedPaths, runner.catalog.Mounts())

@@ -122,12 +122,11 @@ func settleUnmounted(
 		return !mountinfo.Related(point, trees, matcher.Match)
 	})
 
-	table, err := mountinfo.Read()
+	unmounted, err := integrity.MissingMounts(related)
 	if err != nil {
-		return nil, fault.Wrap("read mount table", err)
+		return nil, err
 	}
 
-	unmounted := mountinfo.Unmounted(related, table)
 	if len(unmounted) > 0 && !forget {
 		return nil, fault.New("refuse manual verification while recorded filesystems are not mounted at " +
 			strings.Join(

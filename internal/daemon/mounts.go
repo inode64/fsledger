@@ -20,7 +20,10 @@ var errFilesystemMissing = errors.New("recorded filesystem not mounted")
 // repository is analysed meanwhile: the tree of a missing filesystem would read as deleted. The failure
 // takes the usual path, an error notice and retries, and the recovery follows once it is mounted again.
 func (w *worker) waitForMounts(ctx context.Context) error {
-	w.recordMounts(ctx)
+	err := w.recordMounts(ctx)
+	if err != nil {
+		return err
+	}
 
 	if len(w.status.UnmountedPaths) == 0 {
 		return nil
@@ -30,16 +33,20 @@ func (w *worker) waitForMounts(ctx context.Context) error {
 		strings.Join(w.status.UnmountedPaths, ", "))
 }
 
-// recordMounts refreshes the mount points that hold a root or are mounted inside one and are not excluded,
-// unless their filesystem is volatile or a directory bound onto itself. A point stays recorded while it
-// relates to a root, even unmounted; a nested one whose directory is gone as well was retired with its
-// volume. The catalog keeps the points across restarts.
-func (w *worker) recordMounts(ctx context.Context) {
+// recordMounts refreshes the recordable mount points that hold a root or are mounted inside one and are not
+// excluded. A point stays recorded while it relates to a root, even unmounted; a nested one whose directory is
+// gone as well was retired with its volume. The catalog keeps the points across restarts. Without a mount
+// table it fails while points are recorded: none of them can be told mounted.
+func (w *worker) recordMounts(ctx context.Context) error {
 	table, err := w.readMounts()
-	if err != nil {
-		w.logger.Warn("mount discovery failed; keeping the recorded mount points", "error", err)
+	if err != nil && len(w.mounts) > 0 {
+		return fmt.Errorf("%w: %w", errFilesystemMissing, err)
+	}
 
-		return
+	if err != nil {
+		w.logger.Warn("mount discovery failed; no mount point recorded", "error", err)
+
+		return nil
 	}
 
 	recorded := w.mergeMounts(table)
@@ -69,6 +76,8 @@ func (w *worker) recordMounts(ctx context.Context) {
 	if w.mirror != nil {
 		w.mirror.RememberMounts(recorded)
 	}
+
+	return nil
 }
 
 // rebindMounted restarts the watchers of a root once a recorded filesystem is mounted over it, as when the
@@ -146,18 +155,14 @@ func (w *worker) restoreMounts() {
 	}
 }
 
-// lostMounts lists the recorded mount points that nothing is mounted at now.
+// lostMounts lists the recorded mount points that nothing is mounted at now, every one without a mount table.
 func (w *worker) lostMounts() []string {
-	if len(w.mounts) == 0 {
-		return nil
-	}
-
-	table, err := mountinfo.Read()
+	lost, err := mountinfo.UnmountedNow(w.mounts)
 	if err != nil {
-		return slices.Clone(w.mounts)
+		w.logger.Warn("mount discovery failed; every recorded mount point counts as lost", "error", err)
 	}
 
-	return mountinfo.Unmounted(w.mounts, table)
+	return lost
 }
 
 // mergeMounts keeps the points that still relate to a root and were not retired, and adds the recordable

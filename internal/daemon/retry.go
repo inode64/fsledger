@@ -14,10 +14,12 @@ func (w *worker) flushReconciliation(ctx context.Context, now time.Time) {
 	}
 
 	// A filesystem mounted at a source since the last attempt restarts its watchers before the walk.
-	w.recordMounts(ctx)
-	w.applySources(ctx)
+	err := w.recordMounts(ctx)
+	if err == nil {
+		w.applySources(ctx)
+		err = w.reconcile(ctx, reconciliationMessage("overflow or retry"))
+	}
 
-	err := w.reconcile(ctx, reconciliationMessage("overflow or retry"))
 	if err != nil {
 		if !w.interruptedByStop(ctx, err) {
 			w.failedReconciliation(err)

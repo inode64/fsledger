@@ -140,3 +140,15 @@ func TestMountedJudgesTheVisibleMountAtThePoint(t *testing.T) {
 		}
 	}
 }
+
+// The mount table read now tells which points nothing is mounted at.
+func TestUnmountedNowListsThePointsNothingIsMountedAt(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	unmounted, err := mountinfo.UnmountedNow([]string{"/", directory})
+	if err != nil || len(unmounted) != 1 || unmounted[0] != directory {
+		t.Fatal("wrong unmounted points", unmounted, err)
+	}
+}
