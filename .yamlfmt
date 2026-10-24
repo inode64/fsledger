@@ -16,4 +16,3 @@ include:
 exclude:
   - .git/**
   - vendor/**
-  - graphify-out/**

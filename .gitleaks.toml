@@ -6,7 +6,7 @@ useDefault = true
 [[allowlists]]
 description = "Local build output and generated caches, never source files"
 paths = [
-  '''^(?:\./)?(?:bin|graphify-out|\.git)/''',
+  '''^(?:\./)?(?:bin|\.git)/''',
 ]
 
 [[allowlists]]

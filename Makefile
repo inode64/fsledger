@@ -123,7 +123,7 @@ secrets-history:
 publication-check:
 	@set -eu; paths=$$(git ls-files -- \
 		':(top)AGENTS.md' ':(top)CLAUDE.md' ':(top)hosts' ':(top)docs' ':(top)scripts' \
-		':(top)reports' ':(top)graphify-out' ':(top)bin' \
+		':(top)reports' ':(top)bin' \
 		':(top).idea' ':(top).vscode' ':(top).history' ':(top).codex' ':(top).claude' \
 		':(top).env' ':(top).env.*' ':(top,exclude).env.example'); \
 		if [ -n "$$paths" ]; then \
@@ -167,7 +167,7 @@ yaml:
 	yamllint --strict . .yamlfmt
 
 markdown:
-	markdownlint --config .markdownlint.yml '**/*.md' --ignore bin --ignore vendor --ignore graphify-out
+	markdownlint --config .markdownlint.yml '**/*.md' --ignore bin --ignore vendor
 
 # Example: make fuzz FUZZ_PACKAGE=./internal/parser FUZZ_TARGET=FuzzParse
 FUZZ_TIME ?= 30s
