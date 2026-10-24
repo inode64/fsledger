@@ -19,6 +19,7 @@ import (
 	"github.com/inode64/fsledger/internal/fault"
 	"github.com/inode64/fsledger/internal/filter"
 	"github.com/inode64/fsledger/internal/integrity"
+	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/reportclock"
 	"github.com/inode64/fsledger/internal/resource"
 )
@@ -128,12 +129,12 @@ type Stats struct {
 
 type diskState struct {
 	// Mounts are the mount points recorded for the sources; see RememberMounts.
-	Mounts                 []string    `json:"mounts,omitempty"`
-	Reports                reportState `json:"reports"`
-	Stats                  Stats       `json:"stats"`
-	Generation             uint64      `json:"generation"`
-	NextDelivery           int64       `json:"next_delivery"`
-	InitialSnapshotPending bool        `json:"initial_snapshot_pending,omitempty"`
+	Mounts                 []mountinfo.Record `json:"mounts,omitempty"`
+	Reports                reportState        `json:"reports"`
+	Stats                  Stats              `json:"stats"`
+	Generation             uint64             `json:"generation"`
+	NextDelivery           int64              `json:"next_delivery"`
+	InitialSnapshotPending bool               `json:"initial_snapshot_pending,omitempty"`
 }
 
 // Open opens the current directory format.
@@ -236,7 +237,7 @@ func (store *Store) Stats(ctx context.Context) (Stats, error) {
 
 // RememberMounts records the mount points that hold or lie inside the sources, kept across restarts: one no
 // longer mounted keeps the entries below it, which its filesystem took away rather than deleted.
-func (store *Store) RememberMounts(ctx context.Context, mounts []string) error {
+func (store *Store) RememberMounts(ctx context.Context, mounts []mountinfo.Record) error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
@@ -258,7 +259,7 @@ func (store *Store) RememberMounts(ctx context.Context, mounts []string) error {
 }
 
 // Mounts returns the recorded mount points, those of the previous process after a restart.
-func (store *Store) Mounts() []string {
+func (store *Store) Mounts() []mountinfo.Record {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
@@ -269,7 +270,7 @@ func (store *Store) Mounts() []string {
 func (store *Store) BindCopiedHashes(source integrity.HashSource) { store.copiedHashes = source }
 
 func (store *Store) retainedMounts(roots []string) []string {
-	return integrity.RetainedMounts(store.Mounts(), roots)
+	return integrity.RetainedMounts(mountinfo.Points(store.Mounts()), roots)
 }
 
 func (store *Store) initialize(ctx context.Context) error {
