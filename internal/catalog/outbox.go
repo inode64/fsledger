@@ -241,14 +241,14 @@ func (store *Store) Announce(ctx context.Context, event, reason string) error {
 	return transaction.commit()
 }
 
-// Due returns at most 1024 due messages without scanning a delayed backlog.
+// Due selects up to 1024 due messages, then completes any partly delivered digest crossing that boundary.
 func (store *Store) Due(ctx context.Context) ([]Delivery, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 
 	const limit = 1024
 
-	var deliveries []Delivery
+	deliveries := make([]Delivery, 0)
 
 	err := store.iterate(ctx, duePrefix, func(suffix, _ []byte) error {
 		if len(suffix) != 2*numberBytes {
@@ -274,7 +274,12 @@ func (store *Store) Due(ctx context.Context) ([]Delivery, error) {
 		return nil
 	})
 
-	return deliveries, withoutStop(err)
+	err = withoutStop(err)
+	if err != nil {
+		return nil, err
+	}
+
+	return store.resumeDigests(ctx, deliveries)
 }
 
 // DeliveredMany acknowledges every delivery in one durable transaction.
