@@ -11,7 +11,7 @@ require (
 	github.com/elastic/go-libaudit/v2 v2.6.2
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-co-op/gocron/v2 v2.23.0
-	github.com/moby/sys/mountinfo v0.7.2
+	github.com/moby/sys/mountinfo v0.7.3
 	github.com/prometheus/procfs v0.23.0
 	github.com/tmc/langchaingo v0.1.15
 	github.com/wneessen/go-mail v0.8.1
