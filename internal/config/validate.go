@@ -228,6 +228,12 @@ func (c *Config) validateNotifications() error {
 		return fault.New("invalid notification batching or queue limit")
 	}
 
+	// Without a batch window every change is delivered on its own at once: there is no window to extend.
+	if c.Notifications.Debounce < 0 || c.Notifications.Debounce > c.Notifications.MaxBatchWindow ||
+		(c.Notifications.Debounce > 0 && c.Notifications.BatchWindow == 0) {
+		return fault.New("notification debounce must be between 0 and max_batch_window and requires batch_window")
+	}
+
 	seen := make(map[string]bool, len(c.Notifications.Use))
 	for _, name := range c.Notifications.Use {
 		if seen[name] {

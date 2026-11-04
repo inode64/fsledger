@@ -43,6 +43,11 @@ func TestParse(t *testing.T) {
 		{"notification digest defaults", "{}", true},
 		{"notification maximum below window", "notifications: {batch_window: 2m, max_batch_window: 1m}", false},
 		{"notification maximum equals window", "notifications: {batch_window: 2m, max_batch_window: 2m}", true},
+		{"notification debounce", "notifications: {debounce: 5m}", true},
+		{"notification debounce equals maximum", "notifications: {debounce: 15m}", true},
+		{"notification debounce above maximum", "notifications: {debounce: 16m}", false},
+		{"negative notification debounce", "notifications: {debounce: -1s}", false},
+		{"notification debounce without window", "notifications: {batch_window: 0s, debounce: 5m}", false},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()

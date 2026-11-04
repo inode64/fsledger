@@ -105,6 +105,7 @@ type Notifications struct {
 	Events         []string      `yaml:"events"`
 	BatchWindow    time.Duration `yaml:"batch_window"`
 	MaxBatchWindow time.Duration `yaml:"max_batch_window"`
+	Debounce       time.Duration `yaml:"debounce"`
 	MaxPending     int           `yaml:"max_pending"`
 }
 

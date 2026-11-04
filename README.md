@@ -491,6 +491,10 @@ sudo fsledger verify --repository system
 ### Alerts and reports
 
 Immediate alerts support email and Slack, templates, and change grouping.
+Change alerts of one repository and destination share a delivery window
+(`notifications.batch_window`, growing up to `max_batch_window`). With
+`notifications.debounce: 5m` an alert also waits until five minutes pass without another
+change, but never longer than `max_batch_window` after the first one.
 Every email, alert or report, ends with a signature naming the fsledger version and
 the project URL; Slack messages carry none.
 `notifications.ignore` filters change alerts by user, command, or path; it does not alter

@@ -52,6 +52,7 @@ func defaults() *Config {
 		Events:         notificationEvents(),
 		BatchWindow:    defaultBatchWindow,
 		MaxBatchWindow: defaultMaxBatchWindow,
+		Debounce:       0,
 		MaxPending:     defaultMaxPending,
 	}
 	cfg.Server.Name = "localhost"

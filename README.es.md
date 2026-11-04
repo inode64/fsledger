@@ -510,6 +510,10 @@ sudo fsledger verify --repository system
 ### Avisos e informes
 
 Los avisos inmediatos admiten correo y Slack, plantillas y agrupación de cambios.
+Los avisos de cambios de un repositorio y destino comparten una ventana de entrega
+(`notifications.batch_window`, que crece hasta `max_batch_window`). Con
+`notifications.debounce: 5m` un aviso espera además a que pasen cinco minutos sin otro
+cambio, pero nunca más de `max_batch_window` desde el primero.
 Todo correo, sea aviso o informe, termina con una firma con la versión de fsledger y
 la URL del proyecto; los mensajes de Slack no la llevan.
 `notifications.ignore` filtra avisos de cambios por usuario, comando o ruta; no altera
