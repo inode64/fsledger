@@ -107,6 +107,7 @@ func TestRepositoryRejections(t *testing.T) {
 		"paths: [/etc]\nname: ignored", "paths: [/etc]\ntype: unknown",
 		"paths: [/etc]\nwatch: {reconcile: {interval: 0s}}",
 		"paths: [/etc]\nnotifications: {use: [missing]}",
+		"paths: [/etc]\nnotifications: {debounce: 16m}",
 		"paths: ['/etc/**']", "paths: ['/etc/{ssh,ssl}']", "paths: ['/*/config']", "paths: ['/etc/[a']",
 		"paths: ['/var/lib/fsledger/repos/*']", "paths: ['/etc/*/.git']",
 	} {
