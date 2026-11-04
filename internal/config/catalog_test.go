@@ -47,14 +47,14 @@ func TestCatalogInheritance(t *testing.T) {
   excludes: [excludes, excludes.apache]
   templates: templates
 exclude: [common]
-notifications: {use: [email], events: [change], max_batch_window: 12m}
+notifications: {use: [email], events: [change], max_batch_window: 12m, debounce: 5m}
 watch: {reconcile: {enabled: true, interval: 30s}}
 storage: {git: {timeout: 20m}}
 `,
 		"web.yaml": `paths: [/srv/web]
 exclude: [excludes.apache]
 watch: {reconcile: {enabled: false}}
-notifications: {use: []}
+notifications: {use: [], debounce: 10m}
 storage: {path: /srv/history}`,
 		"services/db.yml": `type: db
 paths: [/srv/database]
@@ -95,6 +95,10 @@ body: 'Changed paths: {{.Count}}'`,
 		t.Fatal("false/list inheritance lost")
 	}
 
+	if web.Notifications.Debounce != 10*time.Minute || web.Notifications.MaxBatchWindow != 12*time.Minute {
+		t.Fatal("repository notification debounce not applied")
+	}
+
 	if web.Storage.Path != "/srv/history" ||
 		web.Storage.Git.Timeout != 20*time.Minute {
 		t.Fatal("storage inheritance lost")
@@ -106,7 +110,8 @@ body: 'Changed paths: {{.Count}}'`,
 	}
 
 	if database.Watch.Backend != "polling" || !database.Watch.Reconcile.Enabled || database.Attribution.Audit.Enabled ||
-		len(database.Notifications.Use) != 1 || database.Notifications.MaxBatchWindow != 12*time.Minute {
+		len(database.Notifications.Use) != 1 || database.Notifications.MaxBatchWindow != 12*time.Minute ||
+		database.Notifications.Debounce != 5*time.Minute {
 		t.Fatal("repository overrides leaked")
 	}
 

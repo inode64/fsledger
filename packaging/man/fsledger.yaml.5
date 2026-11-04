@@ -285,7 +285,8 @@ setting both windows equal disables growth. debounce, 0 by default, holds a
 change window until that long passes without another change notice for the
 same repository and destination, but never beyond max_batch_window after the
 window's first notice; it must not exceed max_batch_window and requires
-batch_window. Error and recovery notices keep the
+batch_window. A repository file may set its own debounce, 0s disabling the
+inherited one. Error and recovery notices keep the
 base delay and remain separate. A restart resets only the volatile window size;
 queued evidence remains in Pebble and is delivered on its own schedule.
 max_pending defaults 10000.
