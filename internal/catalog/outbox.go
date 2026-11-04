@@ -92,10 +92,14 @@ type Delivery struct {
 // until a daemon restart retries it or outbox clear discards it.
 const MaxDeliveryAttempts = 32
 
+// notificationWindow is the open change window of one destination. Delivery IDs only grow, so first tells
+// the deliveries that joined this window from older ones still queued, such as a deferred earlier window.
 type notificationWindow struct {
 	due      time.Time
 	last     time.Time
+	opened   time.Time
 	duration time.Duration
+	first    int64
 }
 
 const (
@@ -132,8 +136,9 @@ func deliveryDue(delivery Delivery) []byte {
 // enqueueTo persists message for one destination; its callers have already dropped events that are not
 // enabled.
 func (store *Store) enqueueTo(transaction *transaction, message Message, route notificationRoute) {
-	transaction.enqueueDelivery(message, route.Destination, route.Version,
-		store.notificationDue(route.Destination, message.Event))
+	// enqueueDelivery allocates the next identifier to this message.
+	due := store.notificationDue(route.Destination, message.Event, transaction.state.NextDelivery+1)
+	transaction.enqueueDelivery(message, route.Destination, route.Version, due)
 }
 
 func (store *Store) notificationMessage(event, identifier, reason string, details []Detail) Message {
@@ -185,7 +190,8 @@ func (transaction *transaction) enqueueDelivery(message Message, destination, ve
 	transaction.state.Stats.PendingNotifications++
 }
 
-func (store *Store) notificationDue(destination, event string) time.Time {
+// notificationDue schedules a message whose delivery will receive the identifier next.
+func (store *Store) notificationDue(destination, event string, next int64) time.Time {
 	now, base := store.now(), store.Notifications.BatchWindow
 	if base <= 0 {
 		return now
@@ -195,24 +201,55 @@ func (store *Store) notificationDue(destination, event string) time.Time {
 		return now.Add(base)
 	}
 
-	// Validation keeps max_batch_window at or above batch_window.
+	// Validation keeps max_batch_window at or above batch_window and debounce.
 	maximum := store.Notifications.MaxBatchWindow
 
 	window, exists := store.windows[destination]
 	switch {
 	case !exists || now.Sub(window.last) > maximum:
-		window = notificationWindow{due: now.Add(base), last: now, duration: base}
+		window = notificationWindow{due: now.Add(base), last: now, opened: now, duration: base, first: next}
 	case now.Before(window.due):
 		window.last = now
 	default:
 		window.duration = min(windowGrowthFactor*window.duration, maximum)
 		window.due = now.Add(window.duration)
 		window.last = now
+		window.opened, window.first = now, next
+	}
+
+	// Every notice holds the open window until debounce passes without another one, but never beyond
+	// max_batch_window after its first notice. Due moves the deliveries queued earlier in the window.
+	if debounce := store.Notifications.Debounce; debounce > 0 {
+		quiet := now.Add(debounce)
+		if limit := window.opened.Add(maximum); quiet.After(limit) {
+			quiet = limit
+		}
+
+		if quiet.After(window.due) {
+			window.due = quiet
+		}
 	}
 
 	store.windows[destination] = window
 
 	return window.due
+}
+
+// debounced returns the later time when the open window that delivery joined is now due. Only change
+// deliveries never attempted move: a retried or partly sent digest keeps its own schedule.
+func (store *Store) debounced(delivery Delivery, now time.Time) (time.Time, bool) {
+	if store.Notifications.Debounce <= 0 || !digestible(delivery.Message.Event) ||
+		delivery.Attempts > 0 || delivery.Progress.Fingerprint != "" {
+		return time.Time{}, false
+	}
+
+	window, exists := store.windows[delivery.Destination]
+	if !exists || delivery.ID < window.first || !window.due.After(now) ||
+		window.due.UnixNano() <= delivery.NextAttempt {
+		return time.Time{}, false
+	}
+
+	return window.due, true
 }
 
 // Announce queues an operational event in a durable transaction. The reason names the warnings behind an
@@ -248,14 +285,17 @@ func (store *Store) Due(ctx context.Context) ([]Delivery, error) {
 
 	const limit = 1024
 
+	now := store.now()
 	deliveries := make([]Delivery, 0)
+
+	var postponed []postponement
 
 	err := store.iterate(ctx, duePrefix, func(suffix, _ []byte) error {
 		if len(suffix) != 2*numberBytes {
 			return fault.New("invalid delivery schedule key")
 		}
 
-		if binary.BigEndian.Uint64(suffix[:8]) > uint64(store.now().UnixNano()) || len(deliveries) == limit {
+		if binary.BigEndian.Uint64(suffix[:8]) > uint64(now.UnixNano()) || len(deliveries) == limit {
 			return errStop
 		}
 
@@ -269,6 +309,12 @@ func (store *Store) Due(ctx context.Context) ([]Delivery, error) {
 			return err
 		}
 
+		if due, later := store.debounced(delivery, now); later {
+			postponed = append(postponed, postponement{delivery: delivery, due: due})
+
+			return nil
+		}
+
 		deliveries = append(deliveries, delivery)
 
 		return nil
@@ -279,7 +325,38 @@ func (store *Store) Due(ctx context.Context) ([]Delivery, error) {
 		return nil, err
 	}
 
+	err = store.postpone(postponed)
+	if err != nil {
+		return nil, err
+	}
+
 	return store.resumeDigests(ctx, deliveries)
+}
+
+type postponement struct {
+	due      time.Time
+	delivery Delivery
+}
+
+// postpone moves deliveries to the later due time of their open window without counting an attempt.
+// The caller holds store.mutex.
+func (store *Store) postpone(postponed []postponement) error {
+	if len(postponed) == 0 {
+		return nil
+	}
+
+	transaction := store.begin()
+	defer resource.Close(transaction.batch)
+
+	for _, item := range postponed {
+		delivery := item.delivery
+		transaction.remove(deliveryDue(delivery))
+		delivery.NextAttempt = item.due.UnixNano()
+		transaction.put(numberKey(outboxPrefix, delivery.ID), delivery)
+		transaction.set(deliveryDue(delivery), nil)
+	}
+
+	return transaction.commit()
 }
 
 // DeliveredMany acknowledges every delivery in one durable transaction.

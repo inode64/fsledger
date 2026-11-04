@@ -74,6 +74,8 @@ notifications:
   events: [change, error, recovery]
   batch_window: 30s
   max_batch_window: 15m
+  # 0 disables it; 5m sends a change digest once five minutes pass without another change.
+  debounce: 0s
   max_pending: 10000
 reports:
   # Disabled globally; services/web-polling.yaml enables its own scheduled email.
