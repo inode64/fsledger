@@ -618,7 +618,7 @@ func (s *Sync) reconcile(ctx context.Context, roots []string, mode copyMode) err
 	unstable, fatal := integrity.SplitUnstable(failure)
 
 	// A recorded filesystem unmounted during the walk left an empty mount point: prune nothing then.
-	err = errors.Join(ctx.Err(), s.roots.Check(s.sources), integrity.CheckMounts(s.mounts))
+	err = errors.Join(ctx.Err(), s.roots.Confirm(s.sources), integrity.CheckMounts(s.mounts))
 	if err != nil || fatal != nil {
 		return errors.Join(err, failure)
 	}

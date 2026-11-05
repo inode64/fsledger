@@ -241,7 +241,7 @@ func (s *Sync) ApplyPaths(ctx context.Context, paths []string) error {
 		}
 	}
 
-	return errors.Join(failure, s.SyncDirectories(), s.roots.Check(s.sources))
+	return errors.Join(failure, s.SyncDirectories(), s.roots.Confirm(s.sources))
 }
 
 func verifyCopiedContent(source *os.File, sig signature, count int64) error {

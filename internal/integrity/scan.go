@@ -141,7 +141,7 @@ func (scanner *Scanner) ScanPaths(
 
 	failure := consume(results, visit, cancel)
 
-	return errors.Join(failure, <-walkDone, ctx.Err(), scanner.CheckRoots(roots))
+	return errors.Join(failure, <-walkDone, ctx.Err(), scanner.roots.Confirm(roots))
 }
 
 func withinRoots(roots []string, path string) bool {
