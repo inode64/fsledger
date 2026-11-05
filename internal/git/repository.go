@@ -171,7 +171,7 @@ func (r *Repository) CommitVersions(ctx context.Context, message string, version
 	}
 
 	// Stdin avoids ARG_MAX for snapshots containing many paths; no shell is used.
-	_, err = r.runInput(
+	err = r.runQuiet(
 		ctx,
 		AppendBeforeTrailer(message, "Changes (paths relative to /):\n"+changes),
 		"commit",
@@ -189,24 +189,37 @@ func (r *Repository) run(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 func (r *Repository) runInput(ctx context.Context, input string, args ...string) ([]byte, error) {
-	git := r.command(ctx, args)
-	git.cmd.Stdin = strings.NewReader(input)
-
 	var stdout bytes.Buffer
 
-	git.cmd.Stdout = &stdout
-
-	err := git.start()
-	if err != nil {
-		return nil, err
-	}
-
-	err = git.wait()
+	err := r.execute(ctx, input, &stdout, args)
 	if err != nil {
 		return nil, err
 	}
 
 	return stdout.Bytes(), nil
+}
+
+// runQuiet runs a command whose output nobody reads. Without a pipe left to drain, Wait returns as soon as
+// Git exits: a late EOF can no longer turn a completed write into a reported failure.
+func (r *Repository) runQuiet(ctx context.Context, input string, args ...string) error {
+	return r.execute(ctx, input, nil, args)
+}
+
+// execute pipes only what a caller supplies or reads; a nil stdout is /dev/null.
+func (r *Repository) execute(ctx context.Context, input string, stdout io.Writer, args []string) error {
+	git := r.command(ctx, args)
+	if input != "" {
+		git.cmd.Stdin = strings.NewReader(input)
+	}
+
+	git.cmd.Stdout = stdout
+
+	err := git.start()
+	if err != nil {
+		return err
+	}
+
+	return git.wait()
 }
 
 // process is a prepared Git subprocess whose timeout and error shaping are shared by every caller.
@@ -256,8 +269,9 @@ func (r *Repository) command(ctx context.Context, args []string) process {
 		"GIT_COMMITTER_EMAIL=fsledger@"+r.Host,
 	)
 
-	// Hooks and helpers may print credentials. Keep their output out of errors and persistent diagnostics.
-	command.Stderr = io.Discard
+	// Hooks and helpers may print credentials. Keep their output out of errors and persistent diagnostics:
+	// nil is /dev/null, without a pipe whose late EOF Wait would have to wait for.
+	command.Stderr = nil
 
 	// Restores read a mirror the daemon owns; only the owner may delete locks.
 	release := func() error { return nil }
@@ -317,7 +331,7 @@ func (r *Repository) initializeEmpty(ctx context.Context) error {
 		return fault.New("refuse to initialize nonempty directory: " + r.Path)
 	}
 
-	_, err = r.run(ctx, "init", "--initial-branch=main")
+	err = r.runQuiet(ctx, "", "init", "--initial-branch=main")
 
 	return err
 }

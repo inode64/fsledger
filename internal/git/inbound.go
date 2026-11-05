@@ -124,9 +124,8 @@ func (r *Repository) AdoptIncoming(ctx context.Context, base, target string) err
 		return ErrIncomingTreeChanged
 	}
 
-	_, err = r.run(ctx, "-c", "core.hooksPath=/dev/null", "update-ref", "-m", "fsledger incoming", "HEAD", target, base)
-
-	return err
+	return r.runQuiet(ctx, "",
+		"-c", "core.hooksPath=/dev/null", "update-ref", "-m", "fsledger incoming", "HEAD", target, base)
 }
 
 // PinIncoming keeps a resumable operation reachable independently of later fetches.
@@ -135,9 +134,7 @@ func (r *Repository) PinIncoming(ctx context.Context, target string) error {
 		return fault.New("incoming pin requires a full object ID")
 	}
 
-	_, err := r.run(ctx, "-c", "core.hooksPath=/dev/null", "update-ref", "refs/fsledger/pending", target)
-
-	return err
+	return r.runQuiet(ctx, "", "-c", "core.hooksPath=/dev/null", "update-ref", "refs/fsledger/pending", target)
 }
 
 func objectID(value string) bool {

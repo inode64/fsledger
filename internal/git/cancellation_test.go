@@ -39,8 +39,11 @@ func TestTimeoutBoundsDetachedHookPipes(t *testing.T) {
 			started := time.Now()
 
 			_, err = repository.CommitPaths(t.Context(), "detached hook", []string{testFile})
-			if err == nil {
-				t.Fatal("detached pipe owner did not fail the command")
+
+			// A hook that exits leaves its escaped child holding no pipe of Git's: the commit it let through
+			// is recorded and must not be reported as failed. A hook that waits outlives the timeout.
+			if (err == nil) != (ending == "exit 0") {
+				t.Fatal("hook ending", ending, "gave", err)
 			}
 
 			if time.Since(started) > 4*time.Second {
