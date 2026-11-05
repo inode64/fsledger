@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -53,6 +55,79 @@ func TestLocalRemoteStaysOutsideSourcesAndState(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Git publishes through a trusted link. The lexical path can sit outside state and sources while the
+// target is reserved, or two links can name one branch.
+func TestTrustedRemoteLinkIsThePublishedPath(t *testing.T) {
+	t.Parallel()
+
+	tree := t.TempDir()
+	state := filepath.Join(tree, "state")
+	repo := filepath.Join(tree, "repo.git")
+
+	for _, dir := range []string{filepath.Join(state, "web"), repo} {
+		err := os.MkdirAll(dir, 0o700)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	intoState := filepath.Join(tree, "into-state.git")
+	alias := filepath.Join(tree, "alias.git")
+
+	for _, link := range []struct{ name, target string }{
+		{intoState, filepath.Join(state, "web")},
+		{alias, repo},
+	} {
+		err := os.Symlink(link.target, link.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	err := loadPathRemote(t, tree, state, intoState)
+	if err == nil || !strings.Contains(err.Error(), "reserved state") {
+		t.Fatal("trusted link into state was accepted", err)
+	}
+
+	err = loadPathRemote(t, tree, state, filepath.Join(tree, "missing.git"))
+	if err != nil {
+		t.Fatal("missing remote was rejected before publication", err)
+	}
+
+	err = loadSharedBranch(t, tree, state, repo, alias)
+	if err == nil || !strings.Contains(err.Error(), "same Git branch") {
+		t.Fatal("links to one repository were accepted", err)
+	}
+}
+
+func loadPathRemote(t *testing.T, tree, state, remote string) error {
+	t.Helper()
+
+	path := writeConfiguration(t, tree, mainFile, "paths: {repositories: [web.yaml]}\nstorage: {path: '"+
+		state+"'}")
+	writeConfiguration(t, tree, "web.yaml", "paths: ['"+filepath.Join(tree, "www")+"']\nstorage: {git: {remote: '"+
+		remote+"'}}")
+
+	_, err := config.Load(path)
+
+	return err
+}
+
+func loadSharedBranch(t *testing.T, tree, state, direct, link string) error {
+	t.Helper()
+
+	path := writeConfiguration(t, tree, mainFile, "paths: {repositories: [one.yaml, two.yaml]}\nstorage: {path: '"+
+		state+"'}")
+	writeConfiguration(t, tree, "one.yaml", "paths: ['"+filepath.Join(tree, "www")+"']\nstorage: {git: {remote: '"+
+		direct+"'}}")
+	writeConfiguration(t, tree, "two.yaml", "paths: ['"+filepath.Join(tree, "other")+"']\nstorage: {git: {remote: '"+
+		link+"'}}")
+
+	_, err := config.Load(path)
+
+	return err
 }
 
 // Unrelated histories cannot share a branch: the remote would reject one repository's pushes forever.
