@@ -71,6 +71,33 @@ func TestCommitBeforeSelectsLatestCommitAtOrBeforeDate(t *testing.T) {
 	}
 }
 
+// A date before 1973-03-03 must not be handed to Git as a bare @N: Git reads that as an approxidate
+// and returns HEAD instead of the commit at that instant.
+func TestCommitBeforeKeepsDatesNearTheEpoch(t *testing.T) {
+	t.Parallel()
+
+	repository := newRepository(t)
+	when := time.Unix(1000, 0).UTC()
+	later := time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
+
+	writeRepositoryFile(t, repository, "etc/motd", "old")
+
+	old := commitDated(t, repository, when, "old")
+
+	writeRepositoryFile(t, repository, "etc/motd", "new")
+	commitDated(t, repository, later, "new")
+
+	commit, committed, err := repository.CommitBefore(t.Context(), when)
+	if err != nil || commit != old || !committed.Equal(when) {
+		t.Fatal(commit, committed, err)
+	}
+
+	_, _, err = repository.CommitBefore(t.Context(), when.Add(-time.Second))
+	if err == nil || !strings.Contains(err.Error(), "no commit at or before") {
+		t.Fatal(err)
+	}
+}
+
 func TestArchiveStreamsTreeAndReportsMissingPath(t *testing.T) {
 	t.Parallel()
 
