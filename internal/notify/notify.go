@@ -367,11 +367,19 @@ func (sender *Sender) slack(ctx context.Context, endpoint, body string) (time.Du
 		}
 	}()
 
-	_, err = io.Copy(io.Discard, io.LimitReader(response.Body, responseLimit))
-	if err != nil {
-		return 0, fault.New("Slack response read failed")
+	// The status is the delivery. Reading the body afterwards must not replace it: a 2xx whose body
+	// fails was still accepted, and a 429 has to keep Retry-After instead of becoming a read error.
+	retry, statusErr := slackStatus(response)
+
+	_, readErr := io.Copy(io.Discard, io.LimitReader(response.Body, responseLimit))
+	if readErr != nil {
+		slog.Warn("read Slack response", "error", readErr)
 	}
 
+	return retry, statusErr
+}
+
+func slackStatus(response *http.Response) (time.Duration, error) {
 	if response.StatusCode == http.StatusTooManyRequests {
 		seconds, parseErr := strconv.Atoi(response.Header.Get("Retry-After"))
 		if parseErr != nil || seconds < 1 {
