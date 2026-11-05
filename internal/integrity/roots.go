@@ -34,58 +34,13 @@ type rootIdentity struct {
 	directory bool
 }
 
-// Check rejects missing directory roots and filesystem replacements before pruning.
-//
-//nolint:gocognit // One pass keeps each root's checks next to the identity it pins.
-func (guard *RootGuard) Check(roots []string) error {
-	guard.mutex.Lock()
-	defer guard.mutex.Unlock()
+// Check rejects missing directory roots and filesystem replacements before pruning. It accepts a filesystem
+// mounted again at the point a root was pinned on: the daemon waited while it was away.
+func (guard *RootGuard) Check(roots []string) error { return guard.check(roots, true) }
 
-	if guard.roots == nil {
-		guard.roots = make(map[string]rootIdentity)
-	}
-
-	var (
-		mounts  []mountinfo.Mount
-		readErr error
-		read    bool
-	)
-
-	for _, root := range roots {
-		expected, known := guard.roots[root]
-
-		current, err := inspectRoot(root, expected, known)
-		if err != nil {
-			return fmt.Errorf("%w: %s: %w", ErrUnavailable, root, err)
-		}
-
-		if expected.mount != 0 && current.mount == 0 {
-			return fmt.Errorf("%w: mount identity unavailable at %s", ErrUnavailable, root)
-		}
-
-		changed := known && (expected.device != current.device ||
-			(expected.mount != 0 && expected.mount != current.mount))
-		if known && !changed {
-			current.point = expected.point
-		} else {
-			// One table serves every root this call pins or rechecks.
-			if !read {
-				mounts, readErr = mountinfo.Read()
-				read = true
-			}
-
-			current.point = mountPoint(root, current.directory, mounts, readErr)
-
-			if changed && !remounted(expected, current, mounts, readErr) {
-				return fmt.Errorf("%w: filesystem changed at %s", ErrUnavailable, root)
-			}
-		}
-
-		guard.roots[root] = current
-	}
-
-	return nil
-}
+// Confirm rejects any filesystem change since the last Check: after a walk, a filesystem unmounted and mounted
+// again meanwhile left the part of the tree walked while it was away unseen.
+func (guard *RootGuard) Confirm(roots []string) error { return guard.check(roots, false) }
 
 // CheckMounts fails while a recorded mount point has no filesystem mounted, or the mount table cannot tell:
 // its tree would read as empty, so nothing may be deleted or pruned.
@@ -250,12 +205,13 @@ func identify(path string) (rootIdentity, error) {
 
 	mount := uint64(0)
 
-	err = statxRetry(parent, name, unix.STATX_MNT_ID, &extended)
+	// The unique ID (Linux 6.8) is never reused: the plain one returns to a filesystem mounted again at once.
+	err = statxRetry(parent, name, unix.STATX_MNT_ID|unix.STATX_MNT_ID_UNIQUE, &extended)
 	if err != nil && !errors.Is(err, unix.ENOSYS) && !errors.Is(err, unix.EOPNOTSUPP) {
 		return rootIdentity{}, fault.Wrap("stat source mount", err)
 	}
 
-	if err == nil && extended.Mask&unix.STATX_MNT_ID != 0 {
+	if err == nil && extended.Mask&(unix.STATX_MNT_ID|unix.STATX_MNT_ID_UNIQUE) != 0 {
 		mount = extended.Mnt_id
 	}
 
@@ -303,6 +259,57 @@ func (guard *RootGuard) Unavailable(root string) bool {
 			return true
 		}
 	}
+}
+
+//nolint:gocognit // One pass keeps each root's checks next to the identity it pins.
+func (guard *RootGuard) check(roots []string, remount bool) error {
+	guard.mutex.Lock()
+	defer guard.mutex.Unlock()
+
+	if guard.roots == nil {
+		guard.roots = make(map[string]rootIdentity)
+	}
+
+	var (
+		mounts  []mountinfo.Mount
+		readErr error
+		read    bool
+	)
+
+	for _, root := range roots {
+		expected, known := guard.roots[root]
+
+		current, err := inspectRoot(root, expected, known)
+		if err != nil {
+			return fmt.Errorf("%w: %s: %w", ErrUnavailable, root, err)
+		}
+
+		if expected.mount != 0 && current.mount == 0 {
+			return fmt.Errorf("%w: mount identity unavailable at %s", ErrUnavailable, root)
+		}
+
+		changed := known && (expected.device != current.device ||
+			(expected.mount != 0 && expected.mount != current.mount))
+		if known && !changed {
+			current.point = expected.point
+		} else {
+			// One table serves every root this call pins or rechecks.
+			if !read {
+				mounts, readErr = mountinfo.Read()
+				read = true
+			}
+
+			current.point = mountPoint(root, current.directory, mounts, readErr)
+
+			if changed && (!remount || !remounted(expected, current, mounts, readErr)) {
+				return fmt.Errorf("%w: filesystem changed at %s", ErrUnavailable, root)
+			}
+		}
+
+		guard.roots[root] = current
+	}
+
+	return nil
 }
 
 func statxRetry(parent int, name string, mask int, stat *unix.Statx_t) error {
