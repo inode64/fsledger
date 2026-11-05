@@ -157,11 +157,12 @@ func (w *worker) flush(ctx context.Context, now time.Time) {
 
 	w.checkLosses()
 
+	// An unstable-path retry is a reconciliation too: it waits for pending groups like a scheduled one.
 	if len(w.unstable) > 0 && !now.Before(w.unstableRetry) && !w.scheduledPolling() {
-		w.dirty = true
+		w.scheduleReconciliation(now)
+	} else {
+		w.settleScheduledReconciliation(now)
 	}
-
-	w.settleScheduledReconciliation(now)
 
 	for _, group := range w.manager.DueWithAttributionDelay(now, w.dirty, w.auditDelay()) {
 		w.checkLosses()
