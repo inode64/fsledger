@@ -166,12 +166,40 @@ func finishObservation(parent int, name, path string, before *unix.Stat_t, recor
 		return fmt.Errorf("%w: %s", ErrUnstable, path)
 	}
 
+	// The parent fd still names the inode opened at the start. Replacing an ancestor, on the same
+	// device, leaves that fd — and this stat — on the old tree while path now names another inode.
+	err = pathStillNames(path, before)
+	if err != nil {
+		return err
+	}
+
 	// Hashing without O_NOATIME may have advanced access time. Persist the
 	// post-read value rather than stale metadata from before our own access.
 	record.Atime = after.Atim.Nano()
 	// Zero marks an access time the mount does not maintain: it is not shown.
 	if !accessTimesMaintained(parent, anchored, record.Type) {
 		record.Atime = 0
+	}
+
+	return nil
+}
+
+// pathStillNames reports whether path, walked again without following a final symlink, still names the
+// inode observed through the parent fd pinned at the start.
+func pathStillNames(path string, before *unix.Stat_t) error {
+	var now unix.Stat_t
+
+	err := unix.Lstat(path, &now)
+	if err != nil {
+		if Missing(err) {
+			return fmt.Errorf("%w: %s", ErrUnstable, path)
+		}
+
+		return fault.Wrap("restat source path", err)
+	}
+
+	if now.Dev != before.Dev || now.Ino != before.Ino {
+		return fmt.Errorf("%w: %s", ErrUnstable, path)
 	}
 
 	return nil
