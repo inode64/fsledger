@@ -163,3 +163,66 @@ func assertExhaustedCounts(t *testing.T, store *Store, pending, exhausted int64)
 			stats.PendingNotifications, stats.ExhaustedNotifications, err, pending, exhausted)
 	}
 }
+
+// A digest member stopped only because another one exhausted its retries must be counted, so it is
+// logged once like the deliveries the sender's own failure exhausted.
+func TestExhaustDigestCountsOnlyNewlyStoppedMembers(t *testing.T) {
+	t.Parallel()
+
+	store := testStore(t)
+	store.Notifications.Use = []string{fixtureDestinationFirst}
+
+	for range 2 {
+		err := store.Announce(t.Context(), config.NotificationError, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	deliveries, err := store.Due(t.Context())
+	if err != nil || len(deliveries) != 2 {
+		t.Fatalf("deliveries=%d error=%v", len(deliveries), err)
+	}
+
+	for range MaxDeliveryAttempts {
+		_, err = store.RetryMany(t.Context(), []int64{deliveries[0].ID}, time.Millisecond, "down")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, want := range []int{1, 0} {
+		stopped, exhaustErr := store.exhaustDigest(storedDeliveries(t, store, deliveries))
+		if exhaustErr != nil || stopped != want {
+			t.Fatalf("stopped=%d error=%v, want %d", stopped, exhaustErr, want)
+		}
+	}
+
+	stats, err := store.Stats(t.Context())
+	if err != nil || stats.ExhaustedNotifications != 2 {
+		t.Fatalf("exhausted=%d error=%v", stats.ExhaustedNotifications, err)
+	}
+}
+
+// storedDeliveries reloads deliveries as the outbox holds them now.
+func storedDeliveries(t *testing.T, store *Store, deliveries []Delivery) []Delivery {
+	t.Helper()
+
+	stored := make([]Delivery, 0, len(deliveries))
+
+	for _, delivery := range deliveries {
+		data, err := get(store.database, numberKey(outboxPrefix, delivery.ID))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		decoded, err := decodeDelivery(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		stored = append(stored, decoded)
+	}
+
+	return stored
+}
