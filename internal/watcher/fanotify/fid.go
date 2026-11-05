@@ -183,8 +183,11 @@ func transientFIDError(err error) bool {
 }
 
 func (w *Watcher) unresolvedFID(mask uint64) {
-	if mask&unix.FAN_ONDIR != 0 && mask&(unix.FAN_RENAME|unix.FAN_MOVED_FROM) != 0 {
-		w.loss("fanotify could not resolve moved directory coverage")
+	// A deleted directory's mark dies with its inode. Without a path, forgetMarks cannot drop the
+	// remembered identity, and a recreated directory that reuses the inode (no birth time) would then
+	// look covered while the kernel has no mark. The same already applies to a rename.
+	if mask&unix.FAN_ONDIR != 0 && mask&(unix.FAN_DELETE|unix.FAN_RENAME|unix.FAN_MOVED_FROM) != 0 {
+		w.loss("fanotify could not resolve departed directory coverage")
 
 		return
 	}
