@@ -3,6 +3,7 @@ package catalog
 import (
 	"cmp"
 	"context"
+	"log/slog"
 	"slices"
 
 	"github.com/inode64/fsledger/internal/config"
@@ -141,7 +142,7 @@ func (store *Store) resumeDigests(ctx context.Context, due []Delivery) ([]Delive
 		if slices.ContainsFunc(group, func(member Delivery) bool { return member.Exhausted }) {
 			// Sending only the remaining members changes the rendering. Keep the whole group
 			// queued until a restart retries it, just as for an exhausted individual delivery.
-			err = store.exhaustDigest(group)
+			_, err = store.exhaustDigest(group)
 			if err != nil {
 				return nil, err
 			}
@@ -155,9 +156,13 @@ func (store *Store) resumeDigests(ctx context.Context, due []Delivery) ([]Delive
 	return result, nil
 }
 
-func (store *Store) exhaustDigest(deliveries []Delivery) error {
+// exhaustDigest stops every member of a digest that still retried and returns how many it stopped. The
+// sender logs only the deliveries its own failure exhausted, so these are logged here, once.
+func (store *Store) exhaustDigest(deliveries []Delivery) (int, error) {
 	transaction := store.begin()
 	defer resource.Close(transaction.batch)
+
+	exhausted := 0
 
 	for _, delivery := range deliveries {
 		if delivery.Exhausted {
@@ -168,9 +173,18 @@ func (store *Store) exhaustDigest(deliveries []Delivery) error {
 		delivery.Exhausted = true
 		transaction.put(numberKey(outboxPrefix, delivery.ID), delivery)
 		transaction.state.Stats.ExhaustedNotifications++
+		exhausted++
 	}
 
-	return transaction.commit()
+	err := transaction.commit()
+	if err != nil || exhausted == 0 {
+		return 0, err
+	}
+
+	slog.Warn("notification retries exhausted with their digest; deliveries kept queued",
+		"repository", store.Repository, "destination", deliveries[0].Destination, "deliveries", exhausted)
+
+	return exhausted, nil
 }
 
 func digestible(event string) bool {
