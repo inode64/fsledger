@@ -295,7 +295,8 @@ func (store *Store) Due(ctx context.Context) ([]Delivery, error) {
 			return fault.New("invalid delivery schedule key")
 		}
 
-		if binary.BigEndian.Uint64(suffix[:8]) > uint64(now.UnixNano()) || len(deliveries) == limit {
+		// Postponed deliveries are decoded and rewritten too: they count toward the same bound.
+		if binary.BigEndian.Uint64(suffix[:8]) > uint64(now.UnixNano()) || len(deliveries)+len(postponed) == limit {
 			return errStop
 		}
 

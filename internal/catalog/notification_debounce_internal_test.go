@@ -169,3 +169,45 @@ func TestNotificationDebounceKeepsRetriesScheduled(t *testing.T) {
 		t.Fatalf("new change after its quiet period: %v", later)
 	}
 }
+
+// A backlog postponed by debounce is rewritten in bounded pages, as Due reads any other.
+func TestNotificationDebouncePostponesInPages(t *testing.T) {
+	t.Parallel()
+
+	clock := newDebounceClock(t)
+	transaction := clock.store.begin()
+
+	for index := range 1100 {
+		identifier := strconv.Itoa(index)
+		clock.store.enqueueChange(transaction, identifier, []Detail{notificationTestDetail("/path/" + identifier)},
+			clock.store.notificationRoutes()[0])
+	}
+
+	err := transaction.commit()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resource.Close(transaction.batch)
+	// A later change extends the window past the backlog's due time.
+	clock.queue(4 * time.Minute)
+
+	for _, want := range []int{76, 0} {
+		if deliveries := clock.poll(5 * time.Minute); len(deliveries) != 0 {
+			t.Fatalf("handed out %d deliveries inside the quiet period", len(deliveries))
+		}
+
+		waiting := 0
+
+		err = clock.store.iterate(t.Context(), duePrefix, func(suffix, _ []byte) error {
+			if keyNumber(suffix) == clock.started.Add(5*time.Minute).UnixNano() {
+				waiting++
+			}
+
+			return nil
+		})
+		if err != nil || waiting != want {
+			t.Fatalf("deliveries left at the old due time: %d, want %d (%v)", waiting, want, err)
+		}
+	}
+}
