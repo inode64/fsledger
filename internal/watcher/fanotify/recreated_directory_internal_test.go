@@ -129,6 +129,11 @@ func TestUnresolvedDirectoryDeletionDropsCoverage(t *testing.T) {
 	if detector.Covers(filepath.Join(detector.path, "conf.d", "file")) {
 		t.Fatal("stale coverage still suppresses events under the deleted directory")
 	}
+
+	// A recursive removal resolves none of its nested directories: each must not raise a loss alert.
+	if detector.Dirty() || !detector.ReconciliationPending() {
+		t.Fatal("an unresolved directory deletion reported a loss instead of requesting reconciliation")
+	}
 }
 
 // rememberedTree returns a rootless watcher that remembers the current identity of each directory.
