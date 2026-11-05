@@ -183,13 +183,25 @@ func transientFIDError(err error) bool {
 }
 
 func (w *Watcher) unresolvedFID(mask uint64) {
-	// A deleted directory's mark dies with its inode. Without a path, forgetMarks cannot drop the
-	// remembered identity, and a recreated directory that reuses the inode (no birth time) would then
-	// look covered while the kernel has no mark. The same already applies to a rename.
-	if mask&unix.FAN_ONDIR != 0 && mask&(unix.FAN_DELETE|unix.FAN_RENAME|unix.FAN_MOVED_FROM) != 0 {
-		w.loss("fanotify could not resolve departed directory coverage")
+	if mask&unix.FAN_ONDIR == 0 {
+		w.transientPath()
 
 		return
+	}
+
+	if mask&(unix.FAN_RENAME|unix.FAN_MOVED_FROM) != 0 {
+		w.loss("fanotify could not resolve moved directory coverage")
+
+		return
+	}
+
+	// A deleted directory's mark dies with its inode. Without a path, forgetMarks cannot drop the
+	// remembered identity, and a recreated directory that reuses the inode (no birth time) would then
+	// look covered while the kernel has no mark: mark the tree again. A deletion left nothing unwatched
+	// behind, though, and the parent is usually gone too after a recursive removal, so a reconciliation
+	// covers it without reporting a loss on every rm -r.
+	if mask&unix.FAN_DELETE != 0 {
+		w.invalidateCoverage()
 	}
 
 	w.transientPath()
