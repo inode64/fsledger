@@ -81,16 +81,38 @@ func (c *Config) validateLocalRemotes() error {
 			continue
 		}
 
-		if pathutil.Within(reserved, remote) {
-			return fault.New("repository " + name + ": Git remote is inside reserved state: " + remote)
+		err := reservedRemote(name, c.remoteLocations(name), reserved)
+		if err != nil {
+			return err
 		}
 
-		for _, other := range c.Names() {
-			for _, source := range c.Repositories[other].Paths {
-				if sourcesMayOverlap(remote, source) {
-					return fault.New("repository " + name + ": Git remote overlaps source: " +
-						remote + " and " + source)
-				}
+		err = overlappingRemote(name, remote, c)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// reservedRemote rejects a path remote that is, or whose trusted target is, inside state.
+// Source patterns stay on the path as written: a trusted link that lands in a source is skipped when
+// that source is resolved. State is not a source, so nothing later would notice the target.
+func reservedRemote(name string, locations, reserved []string) error {
+	for _, candidate := range locations {
+		if pathutil.Within(reserved, candidate) {
+			return fault.New("repository " + name + ": Git remote is inside reserved state: " + candidate)
+		}
+	}
+
+	return nil
+}
+
+func overlappingRemote(name, remote string, cfg *Config) error {
+	for _, other := range cfg.Names() {
+		for _, source := range cfg.Repositories[other].Paths {
+			if sourcesMayOverlap(remote, source) {
+				return fault.New("repository " + name + ": Git remote overlaps source: " + remote + " and " + source)
 			}
 		}
 	}
@@ -110,7 +132,7 @@ func (c *Config) validateDistinctRemotes() error {
 			continue
 		}
 
-		remote, local := c.pathRemote(name)
+		remote, local := c.publishedPath(name)
 		if !local {
 			remote = settings.Remote
 		}
@@ -125,6 +147,41 @@ func (c *Config) validateDistinctRemotes() error {
 	}
 
 	return nil
+}
+
+// remoteLocations is the clean path remote plus the path Git publishes to when a trusted link resolves.
+// A missing or untrusted link stays as written: publication already fails those, and following an
+// untrusted link here could be aimed at a reserved path to skip this check.
+func (c *Config) remoteLocations(name string) []string {
+	remote, local := c.pathRemote(name)
+	if !local {
+		return nil
+	}
+
+	locations := []string{remote}
+
+	resolved, err := gitRemote(remote, trustedOwner)
+	if err == nil && resolved != remote {
+		locations = append(locations, resolved)
+	}
+
+	return locations
+}
+
+// publishedPath is the path Git pushes to. A trusted link uses its target, so two links to one
+// repository collide; a missing or untrusted link keeps the path as written.
+func (c *Config) publishedPath(name string) (string, bool) {
+	remote, local := c.pathRemote(name)
+	if !local {
+		return "", false
+	}
+
+	resolved, err := gitRemote(remote, trustedOwner)
+	if err != nil {
+		return remote, true
+	}
+
+	return resolved, true
 }
 
 // pathRemote returns the clean path remote of a Git repository; other repositories and remotes report false.
