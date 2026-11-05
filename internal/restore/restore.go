@@ -484,7 +484,7 @@ func writeRegular(reader io.Reader, header *tar.Header, parent int, name string,
 
 	if existing == nil {
 		// A destination created during the copy has not passed the overwrite policy check.
-		err = unix.Renameat2(parent, temporary, parent, name, unix.RENAME_NOREPLACE)
+		err = integrity.RenameNoReplace(parent, temporary, name)
 	} else {
 		err = unix.Renameat(parent, temporary, parent, name)
 	}

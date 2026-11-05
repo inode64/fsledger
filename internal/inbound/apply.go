@@ -163,7 +163,7 @@ func (plan *Plan) replace(parent int, name, temp string, change Change, actual o
 	case change.After.Mode == absent:
 		err = unix.Unlinkat(parent, name, 0)
 	case actual.mode == absent:
-		err = unix.Renameat2(parent, temp, parent, name, unix.RENAME_NOREPLACE)
+		err = integrity.RenameNoReplace(parent, temp, name)
 	default:
 		err = unix.Renameat(parent, temp, parent, name)
 	}
