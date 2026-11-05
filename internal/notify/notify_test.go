@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -79,6 +80,83 @@ func TestSlackTransportAndRateLimit(t *testing.T) {
 	if err == nil {
 		t.Fatal("cancelled rate limiter sent")
 	}
+}
+
+// A body that fails after Slack has answered must not change that answer. Retrying a 2xx would send
+// the message again, and a 429 still waits for Retry-After.
+func TestSlackBodyReadDoesNotReplaceTheStatus(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepted", func(t *testing.T) {
+		t.Parallel()
+
+		delay, err := sendBrokenSlack(t, http.StatusOK, "")
+		if err != nil || delay != 0 {
+			t.Fatal(delay, err)
+		}
+	})
+
+	t.Run("rate limit", func(t *testing.T) {
+		t.Parallel()
+
+		delay, err := sendBrokenSlack(t, http.StatusTooManyRequests, "2")
+		if err == nil || delay != 2*time.Second || !strings.Contains(err.Error(), "rate limit") ||
+			strings.Contains(err.Error(), "secret") {
+			t.Fatal(delay, err)
+		}
+	})
+}
+
+// sendBrokenSlack promises a body and closes before it arrives, so the client read fails after the status.
+func sendBrokenSlack(t *testing.T, status int, after string) (time.Duration, error) {
+	t.Helper()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, err := io.Copy(io.Discard, request.Body)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if after != "" {
+			writer.Header().Set("Retry-After", after)
+		}
+
+		writer.Header().Set("Content-Length", "8")
+		writer.WriteHeader(status)
+
+		hijacker, ok := writer.(http.Hijacker)
+		if !ok {
+			t.Error("cannot close the Slack body early")
+
+			return
+		}
+
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			t.Error(err)
+
+			return
+		}
+
+		err = conn.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	sender := notify.New(map[string]config.Template{
+		transportTemplate: parsedTemplate(t, "Subject {{.Repository}}", "Body {{.Repository}}"),
+	})
+	sender.HTTP = server.Client()
+
+	return sender.Send(
+		t.Context(),
+		config.Notifier{
+			Type: testSlackType, URL: server.URL + "/secret", DSN: "", From: "", To: nil, Template: transportTemplate,
+		},
+		catalog.Message{Repository: "repo", Event: testChangeEvent, Count: 1}, nil,
+	)
 }
 
 func TestEmailImplicitTLS(t *testing.T) {
