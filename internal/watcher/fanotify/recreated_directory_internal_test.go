@@ -99,6 +99,38 @@ func TestRemountedDirectoryIsMarkedAgain(t *testing.T) {
 	}
 }
 
+// An unresolved directory deletion cannot name the mark to forget. Coverage has to be dropped, or a
+// recreated directory that reuses the inode stays unmarked while Covers suppresses its events.
+func TestUnresolvedDirectoryDeletionDropsCoverage(t *testing.T) {
+	t.Parallel()
+
+	detector := new(Watcher)
+	detector.mode = ModeDFIDName
+	detector.path = t.TempDir()
+	detector.queue = watcher.NewQueue(4)
+	detector.refreshAll = make(chan struct{}, 1)
+
+	detector.unresolvedFID(unix.FAN_DELETE)
+
+	if detector.coverageLost.Load() || len(detector.refreshAll) != 0 {
+		t.Fatal("an unresolved file deletion dropped directory marks")
+	}
+
+	detector.unresolvedFID(unix.FAN_ONDIR | unix.FAN_DELETE)
+
+	if !detector.coverageLost.Load() || len(detector.refreshAll) != 1 {
+		t.Fatal(
+			"an unresolved directory deletion kept stale marks",
+			detector.coverageLost.Load(),
+			len(detector.refreshAll),
+		)
+	}
+
+	if detector.Covers(filepath.Join(detector.path, "conf.d", "file")) {
+		t.Fatal("stale coverage still suppresses events under the deleted directory")
+	}
+}
+
 // rememberedTree returns a rootless watcher that remembers the current identity of each directory.
 func rememberedTree(t *testing.T, root string, directories ...string) *Watcher {
 	t.Helper()
