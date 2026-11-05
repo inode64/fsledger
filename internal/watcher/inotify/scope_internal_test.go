@@ -409,3 +409,52 @@ func TestDirectoryRenamedBackStaysWatched(t *testing.T) {
 	writeFile(t, filepath.Join(directory, "after"))
 	waitEvent(t, detector, filepath.Join(directory, "after"), "")
 }
+
+// A failed identity lookup is not a directory that left: skipping it would leave the tree unwatched.
+func TestIdentityFailureIsNotASkippedDirectory(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector, err := New(parent, matcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(detector)
+
+	err = detector.watchDirectory(parent, -1)
+	if err == nil || errors.Is(err, filepath.SkipDir) {
+		t.Fatal("identity failure was treated as a directory that left", err)
+	}
+}
+
+// A create that cannot be stated, and is not gone, has to be walked again. Ignoring it leaves the directory
+// without a watch and without a loss that would install one.
+func TestUnstatedCreateReportsCoverageLoss(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detector, err := New(root, matcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close(detector)
+
+	// A NUL in the name makes Lstat fail with EINVAL, which is not "the name disappeared".
+	detector.maintainCoverage(fsnotify.Event{Name: root + "/new\x00dir", Op: fsnotify.Create})
+
+	if !detector.Dirty() {
+		t.Fatal("create that could not be stated was ignored")
+	}
+}

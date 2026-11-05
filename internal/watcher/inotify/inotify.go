@@ -16,6 +16,7 @@ import (
 	"github.com/inode64/fsledger/internal/pathutil"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/mountinfo"
 	"github.com/inode64/fsledger/internal/resource"
 
@@ -242,9 +243,9 @@ func (w *Watcher) unwatched(name string) bool {
 //
 //nolint:cyclop,gocognit,gocyclo // Each check guards one registration hazard listed above; split, they lose order.
 func (w *Watcher) watchDirectory(name string, directory int) error {
-	identity, err := watcher.IdentifyDescriptor(directory)
-	if err != nil || !w.holds(name, identity) {
-		return fs.SkipDir
+	identity, err := w.boundDirectory(name, directory)
+	if err != nil {
+		return err
 	}
 
 	if watched, known := w.directories.get(name); known && watched == identity {
@@ -254,7 +255,12 @@ func (w *Watcher) watchDirectory(name string, directory int) error {
 	// A previous name still holding the directory is a bind mount, which the mount follower turns into a
 	// boundary: its watches are still correct.
 	if previous, moved := w.directories.nameOf(identity); moved {
-		if w.holds(previous, identity) {
+		held, holdErr := w.holds(previous, identity)
+		if holdErr != nil {
+			return holdErr
+		}
+
+		if held {
 			return fs.SkipDir
 		}
 
@@ -281,10 +287,17 @@ func (w *Watcher) watchDirectory(name string, directory int) error {
 	}
 
 	var resolved unix.Stat_t
-	if unix.Stat(name, &resolved) != nil || resolved.Dev != identity.Device || resolved.Ino != identity.Inode {
+
+	statErr := unix.Stat(name, &resolved)
+	if statErr != nil || resolved.Dev != identity.Device || resolved.Ino != identity.Inode {
 		removeErr := w.native.Remove(name)
 		if removeErr != nil && !staleWatch(removeErr) {
 			return fmt.Errorf("remove misdirected watch %s: %w", name, removeErr)
+		}
+
+		// A transient stat failure is not "this name left". Skipping it would drop the directory for good.
+		if statErr != nil && !integrity.Missing(statErr) {
+			return fault.Wrap("stat watched directory "+name, statErr)
 		}
 
 		return fs.SkipDir
@@ -295,11 +308,45 @@ func (w *Watcher) watchDirectory(name string, directory int) error {
 	return nil
 }
 
-// holds reports whether name, not followed, still names the directory identity describes.
-func (*Watcher) holds(name string, identity watcher.DirectoryIdentity) bool {
-	current, err := watcher.IdentifyPath(name)
+// boundDirectory identifies the directory the walk opened and confirms name still refers to it.
+// A missing name is skipped: the parent watch reports it. Any other lookup error is returned so the
+// walk is not treated as success and the directory left unwatched.
+func (w *Watcher) boundDirectory(name string, directory int) (watcher.DirectoryIdentity, error) {
+	identity, err := watcher.IdentifyDescriptor(directory)
+	if err != nil {
+		if integrity.Missing(err) {
+			return watcher.DirectoryIdentity{}, fs.SkipDir
+		}
 
-	return err == nil && current == identity
+		return watcher.DirectoryIdentity{}, err
+	}
+
+	held, err := w.holds(name, identity)
+	if err != nil {
+		return watcher.DirectoryIdentity{}, err
+	}
+
+	if !held {
+		return watcher.DirectoryIdentity{}, fs.SkipDir
+	}
+
+	return identity, nil
+}
+
+// holds reports whether name, not followed, still names the directory identity describes.
+// A name that is gone is not held. Any other lookup error is returned: treating it as absence would
+// leave the directory unwatched without a loss to walk it again.
+func (*Watcher) holds(name string, identity watcher.DirectoryIdentity) (bool, error) {
+	current, err := watcher.IdentifyPath(name)
+	if integrity.Missing(err) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	return current == identity, nil
 }
 
 // dropTree removes paths fsnotify still associates with the old name of a
@@ -513,12 +560,20 @@ func (w *Watcher) maintainCoverage(native fsnotify.Event) {
 
 	created := false
 
-	// A name too long to stat may be a directory: addTree records it as left unwatched.
 	if native.Has(fsnotify.Create) {
 		var stat unix.Stat_t
 
 		err := unix.Lstat(native.Name, &stat)
-		created = err == nil && stat.Mode&unix.S_IFMT == unix.S_IFDIR || errors.Is(err, unix.ENAMETOOLONG)
+		switch {
+		case err == nil:
+			created = stat.Mode&unix.S_IFMT == unix.S_IFDIR
+		case errors.Is(err, unix.ENAMETOOLONG):
+			// A name too long to stat may be a directory: addTree records it as left unwatched.
+			created = true
+		case !integrity.Missing(err):
+			// ESTALE, EIO or EACCES is not "the name is gone". Without a loss the directory stays unwatched.
+			w.reportCoverageError(err)
+		}
 	}
 
 	if !removed && !created {
@@ -533,7 +588,14 @@ func (w *Watcher) maintainCoverage(native fsnotify.Event) {
 	// dropped the watch of the moved directory itself. Another directory there has its own Create to come.
 	if removed {
 		recorded, known := w.directories.get(native.Name)
-		created = created || known && w.holds(native.Name, recorded)
+		if known {
+			held, holdErr := w.holds(native.Name, recorded)
+			if holdErr != nil {
+				w.reportCoverageError(holdErr)
+			}
+
+			created = created || held
+		}
 
 		w.reportCoverageError(w.dropTree(native.Name))
 	}
