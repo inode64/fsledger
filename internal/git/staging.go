@@ -41,7 +41,7 @@ func (r *Repository) stage(ctx context.Context, paths []string) error {
 	}
 
 	if present != "" {
-		_, err = r.runInput(ctx, present, "add", "--all", "--force", "--pathspec-from-file=-", "--pathspec-file-nul")
+		err = r.runQuiet(ctx, present, "add", "--all", "--force", "--pathspec-from-file=-", "--pathspec-file-nul")
 		if err != nil {
 			return err
 		}
@@ -49,7 +49,7 @@ func (r *Repository) stage(ctx context.Context, paths []string) error {
 
 	if missing != "" {
 		// An event can refer to a transient file that never reached the index.
-		_, err = r.runInput(ctx, missing, "rm", "--cached", "--force", "--ignore-unmatch", "-r",
+		err = r.runQuiet(ctx, missing, "rm", "--cached", "--force", "--ignore-unmatch", "-r",
 			"--pathspec-from-file=-", "--pathspec-file-nul")
 		if err != nil {
 			return err

@@ -17,9 +17,7 @@ func (r *Repository) Stage(ctx context.Context, paths []string) error {
 		return r.stage(ctx, paths)
 	}
 
-	_, err := r.run(ctx, "add", "--all", "--force", "--", ".")
-
-	return err
+	return r.runQuiet(ctx, "", "add", "--all", "--force", "--", ".")
 }
 
 // PruneUnreachable deletes loose objects that no ref, reflog or index entry reaches.
@@ -27,9 +25,7 @@ func (r *Repository) Stage(ctx context.Context, paths []string) error {
 // automatic gc never runs and its default expiry would keep those blobs for weeks.
 // The caller must serialize repository access: an immediate expiry is unsafe otherwise.
 func (r *Repository) PruneUnreachable(ctx context.Context) error {
-	_, err := r.run(ctx, "prune", "--expire=now")
-
-	return err
+	return r.runQuiet(ctx, "", "prune", "--expire=now")
 }
 
 // StagedVersions returns exact index changes, including modes and deletions.
