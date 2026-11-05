@@ -52,3 +52,26 @@ func SyncDirectory(fd int) error {
 
 	return fault.Wrap("sync directory", unix.Fsync(readable))
 }
+
+// RenameNoReplace moves temporary to name in the directory parent unless name exists.
+func RenameNoReplace(parent int, temporary, name string) error {
+	return renameNoReplace(parent, temporary, name, unix.Renameat2)
+}
+
+// renameNoReplace falls back to a hard link where the filesystem rejects renameat2 flags with EINVAL, as
+// NFS does: linkat fails with EEXIST just as exclusively, and the temporary name is removed afterwards.
+func renameNoReplace(
+	parent int, temporary, name string, rename func(int, string, int, string, uint) error,
+) error {
+	err := rename(parent, temporary, parent, name, unix.RENAME_NOREPLACE)
+	if !errors.Is(err, unix.EINVAL) {
+		return fault.Wrap("rename without replacing", err)
+	}
+
+	err = unix.Linkat(parent, temporary, parent, name, 0)
+	if err != nil {
+		return fault.Wrap("link without replacing", err)
+	}
+
+	return fault.Wrap("remove linked temporary file", unix.Unlinkat(parent, temporary, 0))
+}
