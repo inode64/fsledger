@@ -58,7 +58,8 @@ func shows(mount Mount, table []Mount) bool {
 
 	for below.Point == mount.Point {
 		index := slices.IndexFunc(table, func(parent Mount) bool { return parent.ID == below.Parent })
-		if index < 0 {
+		// The top of the mount tree is its own parent.
+		if index < 0 || table[index].ID == below.ID {
 			return false
 		}
 

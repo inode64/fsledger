@@ -3,6 +3,7 @@ package mountinfo_test
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/inode64/fsledger/internal/mountinfo"
 )
@@ -156,5 +157,29 @@ func TestOnRemoteFindsTheFilesystemHoldingAPath(t *testing.T) {
 
 	if !mountinfo.OnRemote(sharePoint+"/data", table) || mountinfo.OnRemote("/srv/local", table) {
 		t.Fatal("wrong remote judgement")
+	}
+}
+
+// proc(5): the top of the mount tree is its own parent. Judging a point stacked on it must still end, or
+// the scanner's root guard, which every repository shares, would stay locked.
+func TestMountedEndsAtTheTopOfTheMountTree(t *testing.T) {
+	t.Parallel()
+
+	table := []mountinfo.Mount{
+		{Point: "/", Type: "rootfs", Device: "0:2", Source: "rootfs", Root: "/", ID: 1, Parent: 1},
+		{Point: "/", Type: typeExt4, Device: diskDevice, Source: diskSource, Root: "/", ID: 22, Parent: 1},
+	}
+
+	judged := make(chan bool, 1)
+
+	go func() { judged <- mountinfo.Mounted("/", table) }()
+
+	select {
+	case mounted := <-judged:
+		if !mounted {
+			t.Fatal("the root filesystem stacked on rootfs was not taken as mounted")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Mounted never returned")
 	}
 }
