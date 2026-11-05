@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -125,7 +126,7 @@ type worker struct {
 // Run starts repository workers and waits for bounded graceful shutdown. Sources are resolved here and
 // re-read by each worker, so absent entries never prevent starting.
 func Run(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
-	err := preparePaths(cfg)
+	err := preparePaths(cfg, logger)
 	if err != nil {
 		return err
 	}
@@ -245,7 +246,7 @@ func runRepository(
 	sources config.Sources,
 	probe pidfdProbe,
 ) error {
-	lock, err := resource.LockDirectory(cfg.RepositoryPath(name))
+	lock, err := lockRepository(cfg, name, logger)
 	if err != nil {
 		return err
 	}
@@ -366,19 +367,11 @@ func (w *worker) run(ctx context.Context, initial bool) error {
 	stopped := context.AfterFunc(ctx, func() { w.stopRequested.Store(time.Now().UnixNano()) })
 	defer stopped()
 
-	// A snapshot left by a previous process must not look current while this one starts.
-	snapshot := filepath.Join(w.cfg.Runtime, w.name+".json")
-
-	err := os.Remove(snapshot)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		w.logger.Warn("remove previous status snapshot", "error", err)
-	}
-
-	stopRefresh := keepStatusAlive(snapshot, w.logger)
+	stopRefresh := keepStatusAlive(filepath.Join(w.cfg.Runtime, w.name+".json"), w.logger)
 	defer stopRefresh()
 
 	// Validated before any watcher starts: returning afterwards would leave them and their forwarders running.
-	err = w.prepareScanSchedule(time.Now())
+	err := w.prepareScanSchedule(time.Now())
 	if err != nil {
 		return err
 	}
@@ -462,7 +455,7 @@ func repositoryMatchers(cfg *config.Config) (map[string]*exclude.Matcher, error)
 	return matchers, nil
 }
 
-func preparePaths(cfg *config.Config) error {
+func preparePaths(cfg *config.Config, logger *slog.Logger) error {
 	// Loading only parses templates. One that cannot render an event would keep every alert to its
 	// notifier retrying in the outbox, so it is rejected before any state is created.
 	err := notify.CheckTemplates(cfg)
@@ -483,5 +476,52 @@ func preparePaths(cfg *config.Config) error {
 		}
 	}
 
+	forgetUnconfigured(cfg, logger)
+
 	return nil
+}
+
+// forgetUnconfigured removes the status snapshots and flush requests of repositories no longer configured.
+// A runtime directory that outlives the daemon, as under OpenRC, would otherwise keep them until a reboot.
+func forgetUnconfigured(cfg *config.Config, logger *slog.Logger) {
+	entries, err := os.ReadDir(cfg.Runtime)
+	if err != nil {
+		logger.Warn("list runtime directory", "error", err)
+
+		return
+	}
+
+	for _, entry := range entries {
+		name, found := strings.CutSuffix(entry.Name(), ".json")
+		if !found {
+			name, found = strings.CutSuffix(entry.Name(), flushRequestSuffix)
+		}
+
+		if _, configured := cfg.Repositories[name]; !found || configured || !entry.Type().IsRegular() ||
+			strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		removeSnapshot(cfg.Runtime, entry.Name(), logger)
+	}
+}
+
+// lockRepository takes the repository and drops the snapshot a previous process left: it must not look
+// current while this one starts, nor stay in place when this attempt fails before writing one. Only the
+// holder of the lock may remove it.
+func lockRepository(cfg *config.Config, name string, logger *slog.Logger) (*resource.DirectoryLock, error) {
+	lock, err := resource.LockDirectory(cfg.RepositoryPath(name))
+	if err == nil {
+		removeSnapshot(cfg.Runtime, name+".json", logger)
+	}
+
+	return lock, err
+}
+
+// removeSnapshot removes a runtime file a previous process left.
+func removeSnapshot(runtime, name string, logger *slog.Logger) {
+	err := os.Remove(filepath.Join(runtime, name))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Warn("remove previous runtime file", "file", name, "error", err)
+	}
 }
