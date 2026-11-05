@@ -13,7 +13,9 @@ import (
 
 // CommitBefore returns the last commit reachable from HEAD whose committer date is at or before when.
 func (r *Repository) CommitBefore(ctx context.Context, when time.Time) (string, time.Time, error) {
-	before := "--before=@" + strconv.FormatInt(when.Unix(), 10)
+	// Git treats @N as a Unix time only from 100000000 (1973-03-03). A smaller N is an approxidate and
+	// matches HEAD. The explicit UTC offset keeps the instant, including dates near the epoch.
+	before := "--before=@" + strconv.FormatInt(when.Unix(), 10) + " +0000"
 
 	out, err := r.run(ctx, "log", "-1", "--format=%H %ct", before, "HEAD")
 	if err != nil {
