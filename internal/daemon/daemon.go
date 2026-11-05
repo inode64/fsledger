@@ -63,6 +63,7 @@ type worker struct {
 	unstable         map[string]struct{}
 	incoming         *inbound.Plan
 	stopForwarding   func()
+	refreshPath      refreshFunc
 	probePIDFD       pidfdProbe
 	deferred         map[string]catalog.Deferred
 	audit            *audit.Provider

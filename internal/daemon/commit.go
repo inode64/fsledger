@@ -266,8 +266,11 @@ func (w *worker) reconcileCatalog(ctx context.Context, message, identifier strin
 	w.rememberChange(result)
 
 	// Work left by a refresh that failed, or by a daemon that stopped before it, is pending here too.
+	// complete is false when a forced copy was postponed: its hash key must survive this pass.
+	complete := true
+
 	if w.repo != nil {
-		err = w.refreshHashes(ctx, message)
+		complete, err = w.refreshHashes(ctx, message)
 		if err != nil {
 			return err
 		}
@@ -280,27 +283,63 @@ func (w *worker) reconcileCatalog(ctx context.Context, message, identifier strin
 		}
 	}
 
+	if !complete {
+		return nil
+	}
+
 	return w.catalog.ClearOperation(ctx)
 }
 
-func (w *worker) refreshHashes(ctx context.Context, message string) error {
+// refreshFunc copies one path into the mirror during a hash refresh. A test sets worker.refreshPath
+// to fail that copy; production leaves the field nil.
+type refreshFunc func(context.Context, string) error
+
+func (w *worker) refreshOne(ctx context.Context, path string) error {
+	if w.refreshPath != nil {
+		return w.refreshPath(ctx, path)
+	}
+
+	return w.mirror.RefreshContext(ctx, path)
+}
+
+// refreshHashes copies paths whose content hash changed without a signature change. It reports
+// complete only when every such copy finished: ClearOperation would otherwise drop the marker of a
+// copy postponed as unstable, and a later pass trusts the unchanged signature and never retries it.
+func (w *worker) refreshHashes(ctx context.Context, message string) (bool, error) {
 	pending := false
+	incomplete := false
 
 	err := w.catalog.ChangedHashes(ctx, func(path string) error {
 		pending = true
 
-		return w.deferUnstable(w.scanner.Do(ctx, func() error { return w.mirror.RefreshContext(ctx, path) }))
+		refreshErr := w.scanner.Do(ctx, func() error { return w.refreshOne(ctx, path) })
+
+		err := w.deferUnstable(refreshErr)
+		if err != nil {
+			return err
+		}
+
+		if refreshErr != nil {
+			incomplete = true
+		}
+
+		return nil
 	})
 	if err != nil || !pending {
-		return err
+		return err == nil, err
 	}
 
 	err = w.scanner.Do(ctx, w.mirror.SyncDirectories)
 	if err != nil {
-		return fmt.Errorf("refresh mirror: %w", err)
+		return false, fmt.Errorf("refresh mirror: %w", err)
 	}
 
-	return w.commitGit(ctx, message, nil)
+	err = w.commitGit(ctx, message, nil)
+	if err != nil {
+		return false, err
+	}
+
+	return !incomplete, nil
 }
 
 func (w *worker) recoverIntents(ctx context.Context) error {
