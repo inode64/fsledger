@@ -515,6 +515,9 @@ Los avisos de cambios de un repositorio y destino comparten una ventana de entre
 `notifications.debounce: 5m` un aviso espera además a que pasen cinco minutos sin otro
 cambio, pero nunca más de `max_batch_window` desde el primero. Un perfil de repositorio
 puede fijar su propio `notifications.debounce`, o `0s` para desactivar el heredado.
+`commit.debounce` y `commit.max_delay`, que un perfil también puede redefinir, hacen lo mismo
+con los commits: los cambios de cada actor se confirman cuando pasan `debounce` sin otro, como
+mucho `max_delay` después del primero. Una reconciliación programada los espera.
 Todo correo, sea aviso o informe, termina con una firma con la versión de fsledger y
 la URL del proyecto; los mensajes de Slack no la llevan.
 `notifications.ignore` filtra avisos de cambios por usuario, comando o ruta; no altera
