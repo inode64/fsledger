@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -305,8 +306,14 @@ func (w *worker) loseAttribution(reason string) {
 }
 
 func (w *worker) finishShutdown(ctx, shutdown context.Context, err error) error {
-	if stoppedBy(shutdown, err) {
+	switch {
+	case stoppedBy(shutdown, err):
 		w.warn("shutdown grace period exhausted; startup reconciliation will resume unfinished work")
+
+		err = nil
+	case errors.Is(err, errFilesystemMissing):
+		// The repository was waiting, not failing: the next start waits for the filesystem as this one did.
+		w.logger.Warn("shutdown reconciliation skipped while a recorded filesystem is not mounted", "error", err)
 
 		err = nil
 	}
