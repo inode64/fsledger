@@ -101,7 +101,9 @@ requires 1-31 letters, digits, dots, underscores or hyphens.
 Quiet interval before committing a group, default 2s; must be positive.
 .TP
 .B commit.max_delay
-Maximum group delay, default 30s; must be at least debounce.
+Maximum group delay, default 30s; must be at least debounce. A scheduled
+reconciliation or full scan waits for pending groups to commit on their own,
+at most max_delay; event loss, flush and retries still commit them at once.
 .TP
 .B commit.grouping.by_process
 Group by observed PID and verified start time, default true.

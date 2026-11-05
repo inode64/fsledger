@@ -123,13 +123,34 @@ func (w *worker) checkScanSchedule(now time.Time) {
 		w.refreshSources()
 
 		if full || w.periodicReconciliation() {
-			w.dirty = true
+			w.scheduleReconciliation(now)
 		}
 
 		w.fullScanRequested = w.fullScanRequested || full
 	}
 
 	w.updateScanSchedule()
+}
+
+// scheduleReconciliation requests a scheduled reconciliation, at once when no group is pending.
+func (w *worker) scheduleReconciliation(now time.Time) {
+	if w.scheduledSince.IsZero() {
+		w.scheduledSince = now
+	}
+
+	w.settleScheduledReconciliation(now)
+}
+
+// settleScheduledReconciliation starts a scheduled reconciliation once no group is pending. Walking
+// earlier would record the paths of pending groups without their actors, and draining them would cut
+// commit.debounce short, so it waits for them to commit on their own, but never beyond commit.max_delay.
+func (w *worker) settleScheduledReconciliation(now time.Time) {
+	if w.scheduledSince.IsZero() ||
+		(w.manager.HasPending() && now.Sub(w.scheduledSince) < w.cfg.Commit.MaxDelay) {
+		return
+	}
+
+	w.dirty, w.scheduledSince = true, time.Time{}
 }
 
 func (w *worker) updateScanSchedule() {

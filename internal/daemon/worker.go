@@ -161,6 +161,8 @@ func (w *worker) flush(ctx context.Context, now time.Time) {
 		w.dirty = true
 	}
 
+	w.settleScheduledReconciliation(now)
+
 	for _, group := range w.manager.DueWithAttributionDelay(now, w.dirty, w.auditDelay()) {
 		w.checkLosses()
 

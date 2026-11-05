@@ -48,6 +48,8 @@ const (
 )
 
 type worker struct {
+	// scheduledSince is when a scheduled reconciliation began waiting for pending groups; zero otherwise.
+	scheduledSince   time.Time
 	gitStatusNext    time.Time
 	retryAt          time.Time
 	publishNext      time.Time

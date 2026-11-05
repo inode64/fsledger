@@ -9,6 +9,7 @@ import (
 
 	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/event"
+	"github.com/inode64/fsledger/internal/grouping"
 )
 
 func TestScanClockSkipsMissedSlotsAndLeavesIntervalAfterCompletion(t *testing.T) {
@@ -146,5 +147,61 @@ func TestPollingDeferredStartupAndShutdownDoNotScan(t *testing.T) {
 
 	if !runner.status.Scan.Started.IsZero() || runner.status.Scan.Initialized {
 		t.Fatal("deferred polling scanned on startup or shutdown", runner.status.Scan)
+	}
+}
+
+// A scheduled reconciliation must not drain a group inside commit.debounce, yet commit.max_delay bounds
+// the wait while changes never pause.
+func TestScheduledReconciliationWaitsForPendingGroups(t *testing.T) {
+	t.Parallel()
+
+	runner := makeWorker(t)
+	runner.cfg.Commit.Debounce, runner.cfg.Commit.MaxDelay = 5*time.Minute, 15*time.Minute
+	runner.manager = grouping.New(runner.cfg.Commit.Grouping, runner.cfg.Commit.Debounce, runner.cfg.Commit.MaxDelay)
+	runner.dirty = false
+	start := time.Now()
+	path := filepath.Join(runner.roots[0], "edited")
+	change := func(offset time.Duration) {
+		runner.manager.Add(event.Raw{
+			Time: start.Add(offset), Path: path, Operation: event.Write, Backend: event.Inotify,
+		})
+	}
+
+	change(0)
+	runner.scheduleReconciliation(start.Add(time.Minute))
+	runner.settleScheduledReconciliation(start.Add(4 * time.Minute))
+
+	if runner.dirty {
+		t.Fatal("scheduled reconciliation drained a group inside its quiet period")
+	}
+
+	if groups := runner.manager.DueWithAttributionDelay(start.Add(5*time.Minute), runner.dirty, 0); len(groups) != 1 {
+		t.Fatalf("groups due after the quiet period: %d", len(groups))
+	}
+
+	runner.settleScheduledReconciliation(start.Add(5 * time.Minute))
+
+	if !runner.dirty {
+		t.Fatal("scheduled reconciliation did not start once the group committed")
+	}
+
+	runner.dirty = false
+
+	change(10 * time.Minute)
+	runner.scheduleReconciliation(start.Add(10 * time.Minute))
+
+	for minute := 11; minute < 25; minute++ {
+		change(time.Duration(minute) * time.Minute)
+		runner.settleScheduledReconciliation(start.Add(time.Duration(minute) * time.Minute))
+
+		if runner.dirty {
+			t.Fatalf("scheduled reconciliation started after %d minutes of activity", minute-10)
+		}
+	}
+
+	runner.settleScheduledReconciliation(start.Add(25 * time.Minute))
+
+	if !runner.dirty {
+		t.Fatal("commit.max_delay did not bound the wait")
 	}
 }
