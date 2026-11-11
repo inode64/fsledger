@@ -22,7 +22,9 @@ Configured sources that do not exist are skipped and adopted when they appear;
 see paths in
 .BR fsledger.yaml (5).
 .PP
-Files changing during observation are retried up to three times. Persistently
+Files changing during observation are retried up to three times, and so are
+files that cannot be read while another process holds a lease on them, such as
+a Samba oplock or an NFS delegation. Persistently
 unstable paths retain their previous valid copies while other changes can be
 committed. Pending paths appear in the status field unstable_paths and are
 retried

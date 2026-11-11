@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/resource"
@@ -177,6 +179,79 @@ func TestUnstableCopiesPreservePreviousVersionAndOtherChanges(t *testing.T) {
 				checkMirrorContent(t, syncer, hot, string(make([]byte, 3)))
 			})
 		}
+	}
+}
+
+// leaseSource takes a write lease on path, as Samba does for a kernel oplock and nfsd for a delegation,
+// and returns the descriptor that holds it.
+func leaseSource(t *testing.T, path string) int {
+	t.Helper()
+
+	holder, err := unix.Open(path, unix.O_RDWR|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { resource.FD(holder) })
+
+	_, err = unix.FcntlInt(uintptr(holder), unix.F_SETLEASE, unix.F_WRLCK)
+	if err != nil {
+		if errors.Is(err, unix.EINVAL) {
+			t.Skip("temporary filesystem lacks leases")
+		}
+
+		t.Fatal(err)
+	}
+
+	return holder
+}
+
+// A write lease refuses the non-blocking open of the source until its holder gives it up.
+func TestLeasedSourceKeepsPreviousVersionAndOtherChanges(t *testing.T) {
+	t.Parallel()
+
+	operations := map[string]func(ctx context.Context, syncer *Sync, hot, stable string) error{
+		"ReconcileContext": func(ctx context.Context, syncer *Sync, _, _ string) error {
+			return syncer.ReconcileContext(ctx)
+		},
+		"ApplyPaths": func(ctx context.Context, syncer *Sync, hot, stable string) error {
+			return syncer.ApplyPaths(ctx, []string{hot, stable})
+		},
+		"RefreshContext": func(ctx context.Context, syncer *Sync, hot, _ string) error {
+			return syncer.RefreshContext(ctx, hot)
+		},
+	}
+	for name, operation := range operations {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			syncer, hot, previous := unstableMirror(t, false)
+			stable := filepath.Join(filepath.Dir(hot), "stable")
+			holder := leaseSource(t, hot)
+
+			paths, fatal := integrity.SplitUnstable(operation(t.Context(), syncer, hot, stable))
+			if fatal != nil || len(paths) != 1 || paths[0] != hot {
+				t.Fatal("leased source was not deferred", paths, fatal)
+			}
+
+			checkMirrorContent(t, syncer, previous, "previous")
+
+			// A refresh copies nothing but the leased source.
+			if name != "RefreshContext" {
+				checkMirrorContent(t, syncer, stable, "stable")
+			}
+
+			_, err := unix.FcntlInt(uintptr(holder), unix.F_SETLEASE, unix.F_UNLCK)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			err = syncer.ReconcileContext(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			checkMirrorContent(t, syncer, hot, "changing")
+		})
 	}
 }
 
