@@ -485,6 +485,12 @@ func (s *Sync) copyRegular(
 		return fmt.Errorf("%w: source replaced before opening: %s", integrity.ErrUnstable, path)
 	}
 
+	// Another process holds a lease on the file. This refused open already asked it to give the lease up,
+	// so a later copy can read the file.
+	if errors.Is(err, unix.EWOULDBLOCK) {
+		return fmt.Errorf("%w: source is leased to another process: %s", integrity.ErrUnstable, path)
+	}
+
 	if err != nil {
 		return fmt.Errorf("open source %s: %w", path, err)
 	}
