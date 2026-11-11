@@ -190,6 +190,12 @@ func pathStillNames(path string, before *unix.Stat_t) error {
 	var now unix.Stat_t
 
 	err := unix.Lstat(path, &now)
+	// The kernel refuses a path of PATH_MAX bytes or more whole. Such entries are still scanned, so the
+	// path is walked again one component at a time, which has no length limit.
+	if errors.Is(err, unix.ENAMETOOLONG) {
+		err = lstatComponents(path, &now)
+	}
+
 	if err != nil {
 		if Missing(err) {
 			return fmt.Errorf("%w: %s", ErrUnstable, path)
@@ -203,6 +209,17 @@ func pathStillNames(path string, before *unix.Stat_t) error {
 	}
 
 	return nil
+}
+
+// lstatComponents stats path through its parent, opened one component at a time without following symlinks.
+func lstatComponents(path string, stat *unix.Stat_t) error {
+	parent, name, err := OpenParent(path)
+	if err != nil {
+		return err
+	}
+	defer resource.FD(parent)
+
+	return fault.Wrap("stat source", unix.Fstatat(parent, name, stat, unix.AT_SYMLINK_NOFOLLOW))
 }
 
 // accessTimesMaintained asks the mount of the observed entry whether access times are kept current.

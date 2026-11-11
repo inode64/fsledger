@@ -89,6 +89,19 @@ func TestScanWithoutDirectoriesObservesOnlyEntries(t *testing.T) {
 	}
 }
 
+// No watcher covers an entry whose path reaches PATH_MAX: only the scan records it.
+func TestScanObservesEntriesBeyondPathMax(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	file := deepFile(t, root)
+
+	visited := scannedPaths(t, root, nil, true)
+	if !slices.Contains(visited, file) || !slices.Contains(visited, filepath.Dir(file)) {
+		t.Fatalf("scan visited %d entries without the deep file and its directory", len(visited))
+	}
+}
+
 func sortedCopy(paths []string) []string {
 	sorted := slices.Clone(paths)
 	slices.Sort(sorted)
