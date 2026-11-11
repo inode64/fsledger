@@ -320,6 +320,12 @@ func openHashed(parent int, name string, record *Record) (int, error) {
 		return -1, fmt.Errorf("%w: source replaced before hashing", ErrUnstable)
 	}
 
+	// Another process holds a lease on the file. This refused open already asked it to give the lease up,
+	// so a later observation can read the file.
+	if errors.Is(err, unix.EWOULDBLOCK) {
+		return -1, fmt.Errorf("%w: source is leased to another process", ErrUnstable)
+	}
+
 	return fd, fault.Wrap("open source for hashing", err)
 }
 

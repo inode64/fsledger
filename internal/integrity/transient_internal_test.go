@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/inode64/fsledger/internal/fault"
+	"github.com/inode64/fsledger/internal/resource"
 )
 
 func TestConsumeContinuesPastTransientPaths(t *testing.T) {
@@ -81,6 +82,54 @@ func TestScannerRetriesUnstableContentWithoutPublishingIt(t *testing.T) {
 	record, err := scanner.Observe(t.Context(), path, "sha256", true, nil)
 	if !errors.Is(err, ErrUnstable) || record.Hash != "" || digest.writes != 3 || digest.err != nil {
 		t.Fatalf("unstable bytes accepted or unbounded retries: %+v %d %v %v", record, digest.writes, err, digest.err)
+	}
+}
+
+// A write lease, such as the one behind a Samba oplock or an nfsd delegation, refuses the non-blocking
+// open for hashing until its holder gives it up.
+func TestObserveDefersFileUnderLease(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "leased")
+
+	err := os.WriteFile(path, []byte("content"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	holder, err := unix.Open(path, unix.O_RDWR|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { resource.FD(holder) })
+
+	_, err = unix.FcntlInt(uintptr(holder), unix.F_SETLEASE, unix.F_WRLCK)
+	if err != nil {
+		if errors.Is(err, unix.EINVAL) {
+			t.Skip("temporary filesystem lacks leases")
+		}
+
+		t.Fatal(err)
+	}
+
+	scanner := NewScanner(1, 1)
+
+	record, err := scanner.Observe(t.Context(), path, "sha256", true, nil)
+
+	unstable, fatal := SplitUnstable(err)
+	if fatal != nil || len(unstable) != 1 || unstable[0] != path || record.Hash != "" {
+		t.Fatalf("leased source was not deferred: %+v %q %v", record, unstable, fatal)
+	}
+
+	_, err = unix.FcntlInt(uintptr(holder), unix.F_SETLEASE, unix.F_UNLCK)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	record, err = scanner.Observe(t.Context(), path, "sha256", true, nil)
+	if err != nil || record.Hash == "" {
+		t.Fatalf("released source was not observed: %+v %v", record, err)
 	}
 }
 
