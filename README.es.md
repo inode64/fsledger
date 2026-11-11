@@ -670,7 +670,7 @@ y [fsledgerd(8)](packaging/man/fsledgerd.8) en el repositorio.
   el catálogo registra atributos como propietario, permisos, ACL o
   xattrs. Git no conserva directorios vacíos ni todos esos metadatos en su árbol.
   Los nombres que Git rechaza incluso en Linux, como `git~1`, `.git.` o un enlace llamado
-  `.gitmodules`, siguen en el catálogo pero no se copian al mirror.
+  `.gitmodules`, y las rutas de 4096 bytes o más siguen en el catálogo pero no se copian al mirror.
 - **Conserva las fuentes fuera del estado administrado.** No edites los mirrors mientras
   corre el daemon. Storage y runtime deben ser privados y se excluyen automáticamente
   de las fuentes de esa instancia. Las instancias independientes necesitan exclusiones compartidas.
