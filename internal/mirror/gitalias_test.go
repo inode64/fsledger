@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/inode64/fsledger/internal/exclude"
 	gitrepo "github.com/inode64/fsledger/internal/git"
 	"github.com/inode64/fsledger/internal/mirror"
@@ -184,5 +186,95 @@ func TestSymlinkBelowGitModulesDirectoryDoesNotBlockCommits(t *testing.T) {
 				t.Fatal("an event kept the earlier copy of a refused symlink")
 			}
 		})
+	}
+}
+
+// deepName returns a name below directory whose path has exactly length bytes.
+func deepName(directory string, length int) string {
+	rest := length - len(directory) - 1
+	levels := (rest - 1) / unix.NAME_MAX
+	parents := filepath.Join(slices.Repeat([]string{strings.Repeat("d", unix.NAME_MAX-1)}, levels)...)
+
+	return filepath.Join(parents, strings.Repeat("f", rest-levels*unix.NAME_MAX))
+}
+
+// deepRoot opens directory to reach names below it one component at a time: the kernel refuses a path of
+// PATH_MAX bytes or more whole.
+func deepRoot(t *testing.T, directory string) *os.Root {
+	t.Helper()
+
+	root, err := os.OpenRoot(directory)
+	must(t, err)
+	t.Cleanup(func() { resource.Close(root) })
+
+	return root
+}
+
+func writeDeep(t *testing.T, root *os.Root, names ...string) {
+	t.Helper()
+
+	for _, name := range names {
+		must(t, root.MkdirAll(filepath.Dir(name), 0o700))
+		must(t, root.WriteFile(name, []byte(name), 0o600))
+	}
+}
+
+func present(t *testing.T, root *os.Root, names ...string) bool {
+	t.Helper()
+
+	return slices.ContainsFunc(names, func(name string) bool {
+		_, err := root.Lstat(name)
+
+		return err == nil
+	})
+}
+
+// Git names a worktree entry by its path below the worktree, and git add dies on one the kernel refuses for
+// its length. A source path one byte short of PATH_MAX is the longest that is mirrored.
+func TestPathsReachingPathMaxDoNotBlockCommits(t *testing.T) {
+	t.Parallel()
+
+	source := t.TempDir()
+	repository, syncer := gitMirror(t, source)
+	tree, worktree := deepRoot(t, source), deepRoot(t, repository.Path)
+	kept := filepath.Join(source, "kept")
+	longest := deepName(source, unix.PathMax-1)
+	// Git can still stat a file that reaches PATH_MAX, but not list a directory of that length.
+	reaching, beyond := deepName(source, unix.PathMax), deepName(source, unix.PathMax+1)
+	refused := []string{filepath.Join(source, reaching), filepath.Join(source, beyond)}
+	committed := mirrorRelative(t, kept, filepath.Join(source, longest))
+	copied := mirrorRelative(t, refused...)
+
+	writeFiles(t, kept)
+	writeDeep(t, tree, longest, reaching, beyond)
+	// Copies made before the length was checked must not keep failing every commit.
+	writeDeep(t, worktree, copied...)
+
+	must(t, syncer.ReconcileContext(t.Context()))
+
+	hash, err := repository.Commit(t.Context(), "snapshot")
+	if err != nil || hash == "" {
+		t.Fatalf("deep paths blocked the commit: %q %v", hash, err)
+	}
+
+	checkCommitted(t, repository, hash, committed...)
+
+	if present(t, worktree, copied...) {
+		t.Fatal("reconciliation kept the earlier copy of a deep path")
+	}
+
+	writeDeep(t, worktree, copied...)
+	must(t, os.WriteFile(kept, []byte("changed"), 0o600))
+	must(t, syncer.ApplyPaths(t.Context(), append([]string{kept}, refused...)))
+
+	hash, err = repository.Commit(t.Context(), "refresh")
+	if err != nil || hash == "" {
+		t.Fatalf("deep paths blocked the commit: %q %v", hash, err)
+	}
+
+	checkCommitted(t, repository, hash, committed...)
+
+	if present(t, worktree, copied...) {
+		t.Fatal("a refresh kept the earlier copy of a deep path")
 	}
 }

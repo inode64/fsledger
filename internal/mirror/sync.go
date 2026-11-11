@@ -216,7 +216,7 @@ func (s *Sync) apply(ctx context.Context, path string, mode copyMode) error {
 	}
 
 	// See gitRefused; removing also drops a copy made before.
-	if pathutil.HasGitAlias(path) {
+	if gitRefusedPath(path) {
 		return s.remove(path)
 	}
 
@@ -948,7 +948,15 @@ func (s *Sync) walkExcluded(path, source string) bool {
 // gitRefused reports entries Git rejects on every platform: one in the worktree fails the whole
 // git add. Left unseen, a copy made before is pruned; the catalog still records the source.
 func gitRefused(path string, entry fs.DirEntry) bool {
-	return pathutil.HasGitAlias(path) || entry.Type()&fs.ModeSymlink != 0 && pathutil.HasGitModulesAlias(path)
+	return gitRefusedPath(path) || entry.Type()&fs.ModeSymlink != 0 && pathutil.HasGitModulesAlias(path)
+}
+
+// gitRefusedPath reports paths Git cannot store whatever they name: an alias of .git, or one too long.
+// Git names a worktree entry by its path below the worktree, which is the source path without its leading
+// slash, and adds a slash to open a directory: the kernel lets it stat a source path of PATH_MAX bytes and
+// list a directory one byte shorter. Paths that reach PATH_MAX are left out, as the watchers do.
+func gitRefusedPath(path string) bool {
+	return pathutil.HasGitAlias(path) || len(path) >= unix.PathMax
 }
 
 func sourceSignature(stat unix.Stat_t) signature {

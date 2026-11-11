@@ -651,7 +651,7 @@ and [fsledgerd(8)](packaging/man/fsledgerd.8) in the repository.
   bit; the catalog records attributes such as ownership, permissions, ACLs,
   or xattrs. Git does not preserve empty directories or all those metadata fields in its tree.
   Names Git refuses even on Linux, such as `git~1`, `.git.` or a symlink named `.gitmodules`,
-  stay in the catalog but are not copied to the mirror.
+  and paths of 4096 bytes or more stay in the catalog but are not copied to the mirror.
 - **Keep sources outside managed state.** Do not edit mirrors while the daemon is running.
   Storage and runtime directories must be private and are automatically excluded from
   that instance's sources. Independent instances need shared exclusions. `.git` components

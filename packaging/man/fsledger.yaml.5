@@ -442,7 +442,8 @@ Git stores final contents and the executable bit, not full filesystem metadata
 or every intermediate write. Source symlinks are preserved without following
 them. Secrets may persist in Git history even after later exclusion.
 Names Git refuses even on Linux, such as git~1, .git. or a symlink named
-\&.gitmodules, stay in the catalog but are not copied to the mirror.
+\&.gitmodules, and paths of 4096 bytes or more stay in the catalog but are not
+copied to the mirror.
 .SH SEE ALSO
 .BR fsledger (1),
 .BR fsledgerd (8)
