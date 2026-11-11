@@ -65,13 +65,14 @@ func TestVerifyRefusesWhileARecordedFilesystemIsNotMounted(t *testing.T) {
 
 	var output string
 
-	if changed := verifiedChanges(t, func(args ...string) (string, error) {
+	forget := func(args ...string) (string, error) {
 		var runErr error
 
 		output, runErr = run(append(args, "--forget-unmounted")...)
 
 		return output, runErr
-	}); changed != 1 {
+	}
+	if changed := verifiedChanges(t, forget); changed != 1 {
 		t.Fatalf("forgetting the filesystem recorded %d changes, want the deletion", changed)
 	}
 

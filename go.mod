@@ -1,6 +1,6 @@
 module github.com/inode64/fsledger
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/RaduBerinde/btreemap v0.0.0-20260105202824-d3184786f603

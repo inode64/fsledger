@@ -100,12 +100,8 @@ func TestIncomingResolvedConflictIsCleared(t *testing.T) {
 			// Publication between fetches is gated only by the current synchronization state.
 			runner.syncRemote(t.Context(), fetched.Add(runner.cfg.Storage.Git.FetchInterval/2))
 
-			if got := incomingGit(
-				t,
-				remote,
-				"rev-parse",
-				"refs/heads/"+runner.cfg.Storage.Git.Branch,
-			); got != runner.status.LastCommit {
+			got := incomingGit(t, remote, "rev-parse", "refs/heads/"+runner.cfg.Storage.Git.Branch)
+			if got != runner.status.LastCommit {
 				t.Fatalf("publication did not resume: %s, %+v", got, runner.status)
 			}
 		})

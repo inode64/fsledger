@@ -58,9 +58,10 @@ func TestDisplayDecodesSymlinkTargets(t *testing.T) {
 			link("/tmp/x\nRuta: \"/etc/shadow\"\r\x1b[2J\u202e\xff\\"),
 		},
 	} {
+		stored := []FieldChange{storedChange(t, fieldTarget, fixture.previous, fixture.current)}
 		want := []FieldChange{{Field: fieldTarget, Before: fixture.before, After: fixture.after}}
-		if got := displayFields([]FieldChange{storedChange(t, fieldTarget, fixture.previous, fixture.current)},
-			fixture.kind); !slices.Equal(got, want) {
+
+		if got := displayFields(stored, fixture.kind); !slices.Equal(got, want) {
 			t.Errorf("%s: target = %q, want %q", fixture.name, got, want)
 		}
 	}
@@ -107,15 +108,17 @@ func TestDisplayDecodesAttributes(t *testing.T) {
 	} {
 		// Attributes are shown in creations and deletions, for the version that exists.
 		for _, field := range []string{fieldXattrs, fieldACL} {
+			added := []FieldChange{storedChange(t, field, integrity.Record{}, fixture.current)}
 			created := []FieldChange{{Field: field, Before: humanize.Absent, After: fixture.after}}
-			if got := displayFields([]FieldChange{storedChange(t, field, integrity.Record{}, fixture.current)},
-				changeAdded); !slices.Equal(got, created) {
+
+			if got := displayFields(added, changeAdded); !slices.Equal(got, created) {
 				t.Errorf("%s %s created = %q, want %q", fixture.name, field, got, created)
 			}
 
+			removed := []FieldChange{storedChange(t, field, fixture.previous, integrity.Record{})}
 			deleted := []FieldChange{{Field: field, Before: fixture.before, After: humanize.Absent}}
-			if got := displayFields([]FieldChange{storedChange(t, field, fixture.previous, integrity.Record{})},
-				changeDeleted); !slices.Equal(got, deleted) {
+
+			if got := displayFields(removed, changeDeleted); !slices.Equal(got, deleted) {
 				t.Errorf("%s %s deleted = %q, want %q", fixture.name, field, got, deleted)
 			}
 		}

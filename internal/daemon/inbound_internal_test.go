@@ -119,12 +119,8 @@ func TestIncomingRoundTrip(t *testing.T) {
 
 	runner.syncRemote(t.Context(), time.Now().Add(time.Hour))
 
-	if got := incomingGit(
-		t,
-		remote,
-		"rev-parse",
-		"refs/heads/"+runner.cfg.Storage.Git.Branch,
-	); got != runner.status.LastCommit {
+	got := incomingGit(t, remote, "rev-parse", "refs/heads/"+runner.cfg.Storage.Git.Branch)
+	if got != runner.status.LastCommit {
 		t.Fatalf("publication did not resume: %s, %+v", got, runner.status)
 	}
 }
