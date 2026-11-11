@@ -60,12 +60,8 @@ func TestIncomingRewoundRemoteResumesPublication(t *testing.T) {
 		t.Fatal("rewound remote kept the conflict", runner.status)
 	}
 
-	if got := incomingGit(
-		t,
-		remote,
-		"rev-parse",
-		"refs/heads/"+runner.cfg.Storage.Git.Branch,
-	); got != runner.status.LastCommit {
+	got := incomingGit(t, remote, "rev-parse", "refs/heads/"+runner.cfg.Storage.Git.Branch)
+	if got != runner.status.LastCommit {
 		t.Fatalf("publication did not resume: %s, %+v", got, runner.status)
 	}
 

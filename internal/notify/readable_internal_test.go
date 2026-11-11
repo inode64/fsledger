@@ -213,13 +213,9 @@ func TestBackdatedFilesAreFlagged(t *testing.T) {
 	}
 
 	details := append(readableDetails(250), backdated)
-	if compact := renderDefault(
-		t,
-		readableMessage(details...),
-	); strings.Count(
-		compact,
-		"[mtime anterior a btime]",
-	) != 1 {
+
+	compact := renderDefault(t, readableMessage(details...))
+	if strings.Count(compact, "[mtime anterior a btime]") != 1 {
 		t.Fatal("compact listing must flag only the backdated path")
 	}
 

@@ -35,13 +35,9 @@ func TestConflictMovesOwnOverlapsToUnknown(t *testing.T) {
 
 	manager.Add(event.Raw{Path: "/srv/other", Time: now.Add(1400 * time.Millisecond), Actor: owner})
 
-	if groups := manager.DueWithAttributionDelay(
-		now.Add(1600*time.Millisecond),
-		false,
-		0,
-	); len(groups) != 1 ||
-		groups[0].Actor.Known {
-		t.Fatalf("conflict group did not drain first: %+v", groups)
+	drained := manager.DueWithAttributionDelay(now.Add(1600*time.Millisecond), false, 0)
+	if len(drained) != 1 || drained[0].Actor.Known {
+		t.Fatalf("conflict group did not drain first: %+v", drained)
 	}
 
 	manager.Add(event.Raw{Path: membershipFile, Time: now.Add(1700 * time.Millisecond), Actor: later})

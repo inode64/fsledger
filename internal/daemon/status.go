@@ -103,7 +103,11 @@ func (w *worker) withdraw(message string) {
 // refreshWarnings rebuilds the published list: advisories first, then the warnings since the last recovery,
 // then the notifications the outbox stopped retrying, which no recovery clears.
 func (w *worker) refreshWarnings() {
-	w.status.Warnings = append(append([]string{}, w.advisories...), w.errorReasons...)
+	// Not slices.Concat: it returns nil when both lists are empty, and the status publishes "warnings": [].
+	warnings := make([]string, 0, len(w.advisories)+len(w.errorReasons))
+	warnings = append(warnings, w.advisories...)
+	warnings = append(warnings, w.errorReasons...)
+	w.status.Warnings = warnings
 
 	if exhausted := w.status.Catalog.ExhaustedNotifications; exhausted > 0 {
 		w.status.Warnings = append(w.status.Warnings, fmt.Sprintf(

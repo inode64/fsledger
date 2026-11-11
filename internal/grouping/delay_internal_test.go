@@ -19,13 +19,7 @@ func TestShortDebounceWaitsForAttribution(t *testing.T) {
 	now := time.Now()
 	manager.Add(event.Raw{Path: "/file", Time: now})
 
-	if groups := manager.DueWithAttributionDelay(
-		now.Add(10*time.Millisecond),
-		false,
-		250*time.Millisecond,
-	); len(
-		groups,
-	) != 0 {
+	if len(manager.DueWithAttributionDelay(now.Add(10*time.Millisecond), false, 250*time.Millisecond)) != 0 {
 		t.Fatal("unresolved event drained before correlation window")
 	}
 

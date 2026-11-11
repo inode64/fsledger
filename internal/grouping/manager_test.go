@@ -66,13 +66,7 @@ func TestDebounceAndMaximum(t *testing.T) {
 	for second := range 5 {
 		manager.Add(event.Raw{Path: "/a", Time: now.Add(time.Duration(second) * time.Second)})
 
-		if groups := manager.DueWithAttributionDelay(
-			now.Add(time.Duration(second)*time.Second),
-			false,
-			0,
-		); len(
-			groups,
-		) != 0 {
+		if len(manager.DueWithAttributionDelay(now.Add(time.Duration(second)*time.Second), false, 0)) != 0 {
 			t.Fatal("premature flush")
 		}
 	}
@@ -97,13 +91,7 @@ func TestDelayedAttributionPreservesDeadlines(t *testing.T) {
 	manager.Add(event.Raw{Path: "/a", Time: first.Add(2*time.Second + 500*time.Millisecond)})
 	manager.Enrich(func(event.Raw) event.Actor { return actor(10, 100, 1000) })
 
-	if groups := manager.DueWithAttributionDelay(
-		first.Add(2*time.Second+800*time.Millisecond),
-		false,
-		0,
-	); len(
-		groups,
-	) != 0 {
+	if len(manager.DueWithAttributionDelay(first.Add(2*time.Second+800*time.Millisecond), false, 0)) != 0 {
 		t.Fatal("enrichment shortened debounce")
 	}
 

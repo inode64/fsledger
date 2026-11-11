@@ -210,9 +210,17 @@ linters:
         - '^github.com/inode64/fsledger/internal/catalog\.(Result|Stats|Message)$'
         - '^log/slog\.HandlerOptions$'
         - '^golang.org/x/sys/unix\.PollFd$'
+    predeclared:
+      # The default "shadow" mode only reports a subset of these declarations.
+      mode:
+        - declare
     testifylint:
       enable-all: true
     revive:
+      # A revive directive must name the rules it silences, as nolintlint requires of nolint.
+      directives:
+        - name: specify-disable-rule
+          severity: error
       rules:
         - name: blank-imports
         - name: context-as-argument
@@ -266,6 +274,9 @@ linters:
         - name: early-return
         - name: use-any
         - name: comment-spacings
+        - name: marshal-receiver
+        - name: multiline-if-init
+        - name: use-slices-concat
   exclusions:
     generated: strict
     presets: []
