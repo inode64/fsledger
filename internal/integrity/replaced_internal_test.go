@@ -178,3 +178,39 @@ func walkListed(ctx context.Context, scanner *Scanner, directory *os.File, path 
 
 	return err
 }
+
+// The walk waits for the observation workers with a directory open: one removed meanwhile reads as ENOENT.
+func TestListingEndsAtDirectoryRemovedAfterOpening(t *testing.T) {
+	t.Parallel()
+
+	matcher, err := exclude.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gone := filepath.Join(t.TempDir(), "gone")
+
+	err = os.Mkdir(gone, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	directory, err := os.Open(gone) //nolint:gosec // The fixture lives in the test's private directory.
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { resource.Close(directory) })
+
+	err = os.Remove(gone)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	walk := scanWalk{matcher: matcher, jobs: nil, directories: true}
+
+	subdirectories, err := listChildren(t.Context(), directory, gone, walk)
+	if err != nil || len(subdirectories) != 0 {
+		t.Fatal("a directory removed while listed failed the walk", subdirectories, err)
+	}
+}

@@ -332,7 +332,9 @@ func listChildren(ctx context.Context, directory *os.File, path string, walk sca
 			}
 		}
 
-		if errors.Is(readErr, io.EOF) {
+		// A directory removed since it was opened reads as ENOENT rather than as empty, and the walk holds
+		// it open while it waits for the observation workers. Its entries went with it.
+		if errors.Is(readErr, io.EOF) || errors.Is(readErr, os.ErrNotExist) {
 			return subdirectories, nil
 		}
 
