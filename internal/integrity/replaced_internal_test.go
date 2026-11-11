@@ -67,6 +67,31 @@ func TestHashRetriesRegularFileReplacedBeforeOpening(t *testing.T) {
 	}
 }
 
+// A regular file renamed over a symlink between the caller's stat and the read of its target is the
+// mirror image of the replacement above.
+func TestReadLinkRetriesSymlinkReplacedBeforeReading(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "link")
+
+	err := os.WriteFile(path, []byte("regular"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parent, name, err := OpenParent(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { resource.FD(parent) })
+
+	target, err := newReadWorkspace().readLink(parent, name)
+	if !errors.Is(err, ErrUnstable) || target != nil {
+		t.Fatalf("replaced symlink was not retried: %q %v", target, err)
+	}
+}
+
 // replacedParent opens a directory, as the walk does before listing it, and then replaces its name;
 // the open directory keeps its entries under the name with .old appended.
 func replacedParent(t *testing.T, replace func(string) error) (*os.File, string) {

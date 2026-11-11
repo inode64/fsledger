@@ -487,6 +487,11 @@ func reuseCopiedHash(source HashSource, algorithm string, record *Record) bool {
 // readLink reads into the reusable buffer and keeps only the target: records stay in batches.
 func (workspace *readWorkspace) readLink(parent int, name string) ([]byte, error) {
 	count, err := unix.Readlinkat(parent, name, workspace.buffer)
+	// EINVAL: the name the caller saw as a symlink is no longer one.
+	if errors.Is(err, unix.EINVAL) {
+		return nil, fmt.Errorf("%w: source replaced before reading its target", ErrUnstable)
+	}
+
 	if err != nil {
 		return nil, fault.Wrap("read source symlink", err)
 	}
