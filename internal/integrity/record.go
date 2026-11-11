@@ -165,9 +165,10 @@ func retimed(previous, current Record) bool {
 
 // Backdated returns how much earlier the modification time of this version is than its birth time, or
 // zero below backdatedThreshold. Copies that keep times (tar, rsync -a, cp -p) produce it as well as a
-// backdated touch, so it is a hint rather than a verdict. Unknown times give zero.
+// backdated touch, so it is a hint rather than a verdict. An unknown birth time gives zero; a
+// modification time is always known, and the epoch (touch -d @0) is as backdated as any other.
 func (record Record) Backdated() time.Duration {
-	if !record.HasBtime || record.Mtime == 0 || record.Btime == 0 {
+	if !record.HasBtime || record.Btime == 0 {
 		return 0
 	}
 

@@ -187,6 +187,36 @@ func TestDisplayFieldsHideCreationNoise(t *testing.T) {
 	}
 }
 
+// touch -d @0 leaves a modification time of zero on a version that exists: that is the epoch. The zero
+// of the side that does not exist, and of an access time the mount does not keep, stays absent.
+func TestDisplayFieldsShowEpochTimesOfExistingVersions(t *testing.T) {
+	t.Parallel()
+
+	shows := func(side string, stamp bool) bool {
+		if stamp {
+			return displayStamp.MatchString(side)
+		}
+
+		return side == "—"
+	}
+
+	for _, fixture := range []struct {
+		name          string
+		detail        catalog.Detail
+		before, after bool
+	}{
+		{"retimed", displayDetail("modified", displayField("mtime", "1792230241202511342", "0")), true, true},
+		{"created", displayDetail("added", displayField("mtime", "0", "0")), false, true},
+		{"deleted", displayDetail("deleted", displayField("ctime", "0", "0")), true, false},
+		{"access time not kept", displayDetail("modified", displayField("atime", "0", "0")), false, false},
+	} {
+		shown := fixture.detail.DisplayFields()
+		if len(shown) != 1 || !shows(shown[0].Before, fixture.before) || !shows(shown[0].After, fixture.after) {
+			t.Errorf("%s: shown %q", fixture.name, shown)
+		}
+	}
+}
+
 func displayNames(fields []catalog.FieldChange) []string {
 	names := make([]string, len(fields))
 	for index, field := range fields {

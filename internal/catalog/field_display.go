@@ -187,10 +187,13 @@ func displayValue(name, value string) string {
 		return displayTarget(value)
 	case fieldXattrs, fieldACL:
 		return displayAttributes(value)
-	case fieldMtime, fieldCtime, fieldAtime:
-		return displayTime(value, parseTime)
+	case fieldMtime, fieldCtime:
+		// Every version that exists has these times, so zero is the epoch (touch -d @0), not a missing value.
+		return displayTime(value, parseTime, humanize.Instant)
+	case fieldAtime:
+		return displayTime(value, parseTime, humanize.Time)
 	case fieldBtime:
-		return displayTime(value, parseBtime)
+		return displayTime(value, parseBtime, humanize.Time)
 	case fieldSize:
 		return displaySize(value)
 	default:
@@ -214,13 +217,13 @@ func parseBtime(value string) (int64, bool) {
 	return parseTime(number)
 }
 
-func displayTime(value string, parse func(string) (int64, bool)) string {
+func displayTime(value string, parse func(string) (int64, bool), render func(int64) string) string {
 	nanoseconds, ok := parse(value)
 	if !ok {
 		return value
 	}
 
-	return humanize.Time(nanoseconds)
+	return render(nanoseconds)
 }
 
 func displaySize(value string) string {

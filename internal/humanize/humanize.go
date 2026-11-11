@@ -28,6 +28,12 @@ func Time(nanoseconds int64) string {
 		return Absent
 	}
 
+	return Instant(nanoseconds)
+}
+
+// Instant renders, as Time does, a time that always exists, such as the modification time of a file:
+// zero is then the epoch.
+func Instant(nanoseconds int64) string {
 	//nolint:gosmopolitan // Alerts are read by the server's operators, in the server's time zone.
 	return time.Unix(0, nanoseconds).Local().Format(timeLayout)
 }

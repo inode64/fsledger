@@ -20,6 +20,10 @@ func TestTime(t *testing.T) {
 	if got := humanize.Time(1792233661004600592); !layout.MatchString(got) {
 		t.Fatalf("Time = %q", got)
 	}
+
+	if got := humanize.Instant(0); !layout.MatchString(got) {
+		t.Fatalf("Instant(0) = %q", got)
+	}
 }
 
 func TestSize(t *testing.T) {
