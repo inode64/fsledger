@@ -82,32 +82,40 @@ func TestVerifyComparesSelectedXattrs(t *testing.T) {
 	}
 }
 
-// touch -d moves mtime back before the birth of the same file, which is a change on its own.
+// touch -d moves mtime back before the birth of the same file, which is a change on its own; the
+// epoch (touch -d @0) is such a time too.
 func TestVerifyRecordsBackdatedModificationTime(t *testing.T) {
 	t.Parallel()
 
-	file, run := inventorySource(t, t.TempDir(), "{}")
+	for name, earlier := range map[string]time.Time{
+		"two days ago": time.Now().Add(-48 * time.Hour),
+		"the epoch":    time.Unix(0, 0),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	var birth unix.Statx_t
+			file, run := inventorySource(t, t.TempDir(), "{}")
 
-	err := unix.Statx(unix.AT_FDCWD, file, 0, unix.STATX_BTIME, &birth)
-	if err != nil {
-		t.Fatal(err)
-	}
+			var birth unix.Statx_t
 
-	if birth.Mask&unix.STATX_BTIME == 0 {
-		t.Skip("temporary directory filesystem has no birth times")
-	}
+			err := unix.Statx(unix.AT_FDCWD, file, 0, unix.STATX_BTIME, &birth)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	earlier := time.Now().Add(-48 * time.Hour)
+			if birth.Mask&unix.STATX_BTIME == 0 {
+				t.Skip("temporary directory filesystem has no birth times")
+			}
 
-	err = os.Chtimes(file, earlier, earlier)
-	if err != nil {
-		t.Fatal(err)
-	}
+			err = os.Chtimes(file, earlier, earlier)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	if changed := verifiedChanges(t, run); changed != 1 {
-		t.Fatalf("backdated mtime recorded %d changes, want 1", changed)
+			if changed := verifiedChanges(t, run); changed != 1 {
+				t.Fatalf("backdated mtime recorded %d changes, want 1", changed)
+			}
+		})
 	}
 }
 

@@ -118,6 +118,8 @@ func TestBackdatedModificationTimeIsAChange(t *testing.T) {
 		want   []string
 	}{
 		{"touch -d", func(record *integrity.Record) { record.Mtime = backdated }, []string{integrity.FieldMtime}},
+		// The epoch is a time like any other, not an unknown one.
+		{"touch -d @0", func(record *integrity.Record) { record.Mtime = 0 }, []string{integrity.FieldMtime}},
 		{"recreated copy", func(record *integrity.Record) {
 			record.Mtime, record.Btime = backdated, first.Btime+int64(time.Minute)
 		}, nil},
@@ -147,5 +149,12 @@ func TestBackdatedModificationTimeIsAChange(t *testing.T) {
 
 	if stale.Backdated() != 2*time.Hour || first.Backdated() != 0 || unknown.Backdated() != 0 {
 		t.Fatal("Backdated misreports the gap")
+	}
+
+	epoch := first
+	epoch.Mtime = 0
+
+	if epoch.Backdated() != time.Duration(fieldBirth) {
+		t.Fatalf("an epoch modification time is backdated by %v, want %v", epoch.Backdated(), time.Duration(fieldBirth))
 	}
 }
