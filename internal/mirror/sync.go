@@ -389,7 +389,7 @@ func (s *Sync) copy(ctx context.Context, path, relative string, mode copyMode) e
 	switch stat.Mode & unix.S_IFMT {
 	case unix.S_IFLNK:
 		// Git refuses this symlink, so it is dropped like an unsupported type.
-		if pathutil.GitModulesAlias(name) {
+		if pathutil.HasGitModulesAlias(path) {
 			return s.remove(path)
 		}
 
@@ -948,7 +948,7 @@ func (s *Sync) walkExcluded(path, source string) bool {
 // gitRefused reports entries Git rejects on every platform: one in the worktree fails the whole
 // git add. Left unseen, a copy made before is pruned; the catalog still records the source.
 func gitRefused(path string, entry fs.DirEntry) bool {
-	return pathutil.HasGitAlias(path) || entry.Type()&fs.ModeSymlink != 0 && pathutil.GitModulesAlias(entry.Name())
+	return pathutil.HasGitAlias(path) || entry.Type()&fs.ModeSymlink != 0 && pathutil.HasGitModulesAlias(path)
 }
 
 func sourceSignature(stat unix.Stat_t) signature {

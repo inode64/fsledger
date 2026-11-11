@@ -29,25 +29,28 @@ func TestHasGitAlias(t *testing.T) {
 	}
 }
 
-func TestGitModulesAlias(t *testing.T) {
+// The paths with a directory come from git add too: it rejects a symlink below one it reads as .gitmodules.
+func TestHasGitModulesAlias(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{
+	for _, path := range []string{
 		".gitmodules", ".GitModules", ".gitmodules.", ".gitmodules ", ".gitmodules:stream", "gitmod~1", "GITMOD~4",
 		"gi7eba~1", "gi7eba~9", "gi7eb~12", "~1234567", `name\.gitmodules`, ".gitmodules\u200c",
-		".git\u200cmodules", ".gitmodules\xff",
+		".git\u200cmodules", ".gitmodules\xff", "srv/.gitmodules", ".gitmodules/link", "srv/.GitModules/deep/link",
+		"srv/.gitmodules:stream/link", "srv/gitmod~1:x/link", `srv/name\gi7eba~1:x/link`,
 	} {
-		if !pathutil.GitModulesAlias(name) {
-			t.Errorf("missed .gitmodules alias %q", name)
+		if !pathutil.HasGitModulesAlias(path) {
+			t.Errorf("missed .gitmodules alias %q", path)
 		}
 	}
 
-	for _, name := range []string{
+	for _, path := range []string{
 		"gitmod~5", "gi7ebb~1", "gi7eba~0", "gi7eba~", ".gitmodulesx", "gitmodu~1", `.gitmodules\name`,
-		".gitmodule", ".gitmodule\u017f", ".git",
+		".gitmodule", ".gitmodule\u017f", ".git", "srv/.gitmodulesx/link", `srv/.gitmodules\name/link`,
+		"srv/gitmod~5:x/link",
 	} {
-		if pathutil.GitModulesAlias(name) {
-			t.Errorf("reserved ordinary name %q", name)
+		if pathutil.HasGitModulesAlias(path) {
+			t.Errorf("reserved ordinary name %q", path)
 		}
 	}
 }

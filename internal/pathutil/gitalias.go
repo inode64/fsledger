@@ -25,9 +25,18 @@ func HasGitAlias(path string) bool {
 	return false
 }
 
-// GitModulesAlias reports names that Git treats as .gitmodules; Git never stores a symlink under one.
-func GitModulesAlias(name string) bool {
-	return hfsAlias(name, ".gitmodules") || ntfsAlias(name, ntfsGitModulesAlias)
+// HasGitModulesAlias reports components that Git treats as .gitmodules on some filesystem. Git stores no
+// symlink under such a name nor below a directory with one, since it tests every component of the path.
+// Directories are matched like names, although Git lets an NTFS alias followed by a slash through unless
+// it has a stream suffix: a missed symlink fails a whole git add, one left out is still cataloged.
+func HasGitModulesAlias(path string) bool {
+	for part := range strings.SplitSeq(path, "/") {
+		if hfsAlias(part, ".gitmodules") || ntfsAlias(part, ntfsGitModulesAlias) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ntfsAlias checks the name and every suffix after a backslash, which NTFS reads as a separator.

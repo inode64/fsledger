@@ -132,3 +132,57 @@ func TestGitRefusedNamesDoNotBlockEvents(t *testing.T) {
 		t.Fatal("an event kept the earlier copy of a refused name")
 	}
 }
+
+// Git tests every component of a symlink's path, so one below a directory it reads as .gitmodules is
+// refused like one with that name.
+func TestSymlinkBelowGitModulesDirectoryDoesNotBlockCommits(t *testing.T) {
+	t.Parallel()
+
+	for _, directory := range []string{".gitmodules", ".GitModules", ".gitmodules:stream", "gitmod~1:x"} {
+		t.Run(directory, func(t *testing.T) {
+			t.Parallel()
+
+			source := t.TempDir()
+			repository, syncer := gitMirror(t, source)
+			kept := []string{filepath.Join(source, "kept"), filepath.Join(source, "sub", directory, "deep", "regular")}
+			link := filepath.Join(source, "sub", directory, "deep", "link")
+			copied := filepath.Join(repository.Path, mirrorRelative(t, link)[0])
+
+			writeFiles(t, kept...)
+			must(t, os.Symlink("regular", link))
+			// A copy made before the path was recognized must not keep failing every commit.
+			must(t, os.MkdirAll(filepath.Dir(copied), 0o700))
+			must(t, os.Symlink("regular", copied))
+
+			must(t, syncer.ReconcileContext(t.Context()))
+
+			hash, err := repository.Commit(t.Context(), "snapshot")
+			if err != nil || hash == "" {
+				t.Fatalf("refused symlink blocked the commit: %q %v", hash, err)
+			}
+
+			checkCommitted(t, repository, hash, mirrorRelative(t, kept...)...)
+
+			if mirrored(t, repository.Path, link) {
+				t.Fatal("reconciliation kept the earlier copy of a refused symlink")
+			}
+
+			must(t, os.Symlink("regular", copied))
+			must(t, os.WriteFile(kept[0], []byte("changed"), 0o600))
+
+			paths := []string{kept[0], link}
+			must(t, syncer.ApplyPaths(t.Context(), paths))
+
+			hash, err = repository.CommitPaths(t.Context(), "event", mirrorRelative(t, paths...))
+			if err != nil || hash == "" {
+				t.Fatalf("refused symlink blocked the commit: %q %v", hash, err)
+			}
+
+			checkCommitted(t, repository, hash, mirrorRelative(t, kept...)...)
+
+			if mirrored(t, repository.Path, link) {
+				t.Fatal("an event kept the earlier copy of a refused symlink")
+			}
+		})
+	}
+}
