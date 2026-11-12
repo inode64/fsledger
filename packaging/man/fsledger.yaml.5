@@ -367,8 +367,8 @@ Detail.DisplayFields renders those values for
 people: timestamps with localtime, size in IEC units, mode as ls-style
 permissions followed by the raw st_mode in hexadecimal (as stat -c %f prints
 it), symlink targets as text, xattrs and ACLs as getfattr does (name="text", or
-name=0x followed by hexadecimal for binary values such as ACLs) with their
-readability status, and the absent side of a creation or deletion as an em
+name=0x followed by hexadecimal for binary values such as ACLs; a name that
+holds that syntax is quoted like a value) with their readability status, and the absent side of a creation or deletion as an em
 dash; control characters and invalid UTF-8 are escaped. They leave out
 has_btime, device, nlink unless a regular file has more than one hard link,
 and attributes_status unless reading xattrs and ACLs failed. Size, times and
