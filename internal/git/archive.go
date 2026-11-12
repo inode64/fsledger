@@ -13,6 +13,12 @@ import (
 
 // CommitBefore returns the last commit reachable from HEAD whose committer date is at or before when.
 func (r *Repository) CommitBefore(ctx context.Context, when time.Time) (string, time.Time, error) {
+	// Git stores no commit date before the epoch, and a negative @N is not its raw format: read as an
+	// approxidate, it would match HEAD.
+	if when.Unix() < 0 {
+		return "", time.Time{}, noCommitBefore(when)
+	}
+
 	// Git treats @N as a Unix time only from 100000000 (1973-03-03). A smaller N is an approxidate and
 	// matches HEAD. The explicit UTC offset keeps the instant, including dates near the epoch.
 	before := "--before=@" + strconv.FormatInt(when.Unix(), 10) + " +0000"
@@ -24,7 +30,7 @@ func (r *Repository) CommitBefore(ctx context.Context, when time.Time) (string, 
 
 	line := strings.TrimSpace(string(out))
 	if line == "" {
-		return "", time.Time{}, fault.New("no commit at or before " + when.Format(time.RFC3339))
+		return "", time.Time{}, noCommitBefore(when)
 	}
 
 	commit, stamp, found := strings.Cut(line, " ")
@@ -38,6 +44,10 @@ func (r *Repository) CommitBefore(ctx context.Context, when time.Time) (string, 
 	}
 
 	return commit, time.Unix(seconds, 0), nil
+}
+
+func noCommitBefore(when time.Time) error {
+	return fault.New("no commit at or before " + when.Format(time.RFC3339))
 }
 
 // Archive streams a tar of path at commit. Close reports the subprocess outcome, so a path

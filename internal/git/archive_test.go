@@ -96,6 +96,14 @@ func TestCommitBeforeKeepsDatesNearTheEpoch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no commit at or before") {
 		t.Fatal(err)
 	}
+
+	// Nothing precedes the epoch. A negative @N is no raw date either: as an approxidate it matched HEAD.
+	for _, early := range []time.Time{time.Unix(-1, 0), time.Date(1926, time.November, 11, 0, 0, 0, 0, time.UTC)} {
+		_, _, err = repository.CommitBefore(t.Context(), early)
+		if err == nil || !strings.Contains(err.Error(), "no commit at or before") {
+			t.Fatal(early, err)
+		}
+	}
 }
 
 func TestArchiveStreamsTreeAndReportsMissingPath(t *testing.T) {
