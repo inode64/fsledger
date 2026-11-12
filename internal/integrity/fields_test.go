@@ -1,6 +1,7 @@
 package integrity_test
 
 import (
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -149,6 +150,19 @@ func TestBackdatedModificationTimeIsAChange(t *testing.T) {
 
 	if stale.Backdated() != 2*time.Hour || first.Backdated() != 0 || unknown.Backdated() != 0 {
 		t.Fatal("Backdated misreports the gap")
+	}
+
+	// Times at the ends of what a record can hold are further apart than a duration can say.
+	earliest, latest := first, first
+	earliest.Mtime, latest.Mtime = math.MinInt64, math.MaxInt64
+
+	if earliest.Backdated() != math.MaxInt64 || latest.Backdated() != 0 {
+		t.Fatalf("backdated by %v at the earliest time and %v at the latest", earliest.Backdated(), latest.Backdated())
+	}
+
+	fields := integrity.Differences(first, earliest, config.Integrity{})
+	if !slices.Equal(fields, []string{integrity.FieldMtime}) {
+		t.Fatalf("earliest time: got %q", fields)
 	}
 
 	epoch := first
