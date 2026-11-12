@@ -90,7 +90,7 @@ func (r *Repository) stagePaths(paths []string) (string, string, error) {
 	return string(present), string(missing), nil
 }
 
-// Resolve parents by descriptor, rejecting symlinks even when they point inside the worktree.
+// Resolve parents by descriptor, never through a symlink, even one that points inside the worktree.
 func inspectStagingPath(root int, path string) error {
 	parts := strings.Split(path, string(filepath.Separator))
 
@@ -123,8 +123,9 @@ func stagingParentError(parent int, name string, openErr error) error {
 	if !errors.Is(openErr, unix.ENOTDIR) {
 		return fault.Wrap("open staging parent", openErr)
 	}
-	// O_DIRECTORY|O_NOFOLLOW reports ENOTDIR for links too. Only a real non-directory
-	// is a missing descendant (for example after replacing a tracked directory with a file).
+	// O_DIRECTORY|O_NOFOLLOW reports ENOTDIR for a link as for any other non-directory. Below either,
+	// the descendant is missing from the worktree, for example after a tracked directory was replaced by
+	// a file or by a link. A link is not followed: what it points to is never staged under this path.
 	var stat unix.Stat_t
 
 	err := unix.Fstatat(parent, name, &stat, unix.AT_SYMLINK_NOFOLLOW)
@@ -134,10 +135,6 @@ func stagingParentError(parent int, name string, openErr error) error {
 
 	if stat.Mode&unix.S_IFMT == unix.S_IFDIR {
 		return fault.New("staging parent changed during resolution")
-	}
-
-	if stat.Mode&unix.S_IFMT == unix.S_IFLNK {
-		return fault.New("staging parent must not be a symlink")
 	}
 
 	return fault.Wrap("open staging parent", openErr)
