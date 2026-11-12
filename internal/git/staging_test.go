@@ -195,3 +195,38 @@ func TestIncrementalStagingTypeReplacement(t *testing.T) {
 		})
 	}
 }
+
+// rm -r dir && ln -s releases dir reports the children of dir and dir itself in one event group. The
+// children are no longer in the worktree: they are staged as removals, and the link as a link. Nothing is
+// read through it.
+func TestCommitPathsStagesDirectoryReplacedBySymlink(t *testing.T) {
+	t.Parallel()
+
+	repository := newRepository(t)
+	writeRepositoryFile(t, repository, "dir/file", "one")
+	writeRepositoryFile(t, repository, "dir/sub/nested", "one")
+	writeRepositoryFile(t, repository, "releases/file", "two")
+	writeRepositoryFile(t, repository, "releases/sub/nested", "two")
+	commitPaths(t, repository, "dir", "releases")
+
+	err := os.RemoveAll(filepath.Join(repository.Path, "dir"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.Symlink("releases", filepath.Join(repository.Path, "dir"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	commitPaths(t, repository, "dir/file", "dir/sub/nested", "dir/sub", "dir")
+
+	tree := repositoryOutput(t, repository, "ls-tree", "-r", "--format=%(objectmode) %(path)", "HEAD")
+	if tree != "120000 dir\n100644 releases/file\n100644 releases/sub/nested\n" {
+		t.Fatalf("unexpected tree after the replacement:\n%s", tree)
+	}
+
+	if status := repositoryOutput(t, repository, "status", "--porcelain"); status != "" {
+		t.Fatalf("replacement left changes behind:\n%s", status)
+	}
+}

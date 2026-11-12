@@ -6,8 +6,11 @@ import (
 	"testing"
 )
 
+// A path below a link is not in the worktree, whatever the link points to: staged as present, Git would
+// read it through the link.
+//
 //nolint:gocognit // Ordered filesystem fixtures cover both internal and external symlink targets.
-func TestStagePathsRejectsSymlinkParents(t *testing.T) {
+func TestStagePathsNeverFollowSymlinkParents(t *testing.T) {
 	t.Parallel()
 
 	for _, target := range []string{"outside", "inside"} {
@@ -35,9 +38,9 @@ func TestStagePathsRejectsSymlinkParents(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			_, _, err = repository.stagePaths([]string{"parent/file"})
-			if err == nil {
-				t.Fatal("staging followed a symlink parent")
+			present, missing, err := repository.stagePaths([]string{"parent/file"})
+			if err != nil || present != "" || missing != "parent/file\x00" {
+				t.Fatalf("staging followed a symlink parent: present=%q missing=%q error=%v", present, missing, err)
 			}
 		})
 	}
