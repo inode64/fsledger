@@ -8,6 +8,7 @@ import (
 	"crypto/sha512"
 	"fmt"
 	"hash"
+	"math"
 	"slices"
 	"time"
 
@@ -172,11 +173,24 @@ func (record Record) Backdated() time.Duration {
 		return 0
 	}
 
-	if gap := time.Duration(record.Btime - record.Mtime); gap > backdatedThreshold {
+	if gap := time.Duration(sinceTime(record.Btime, record.Mtime)); gap > backdatedThreshold {
 		return gap
 	}
 
 	return 0
+}
+
+// sinceTime returns later - earlier. Recorded times stop at the ends of what Unix nanoseconds hold, and
+// two of them can be further apart than that range: the difference then stops at its own end.
+func sinceTime(later, earlier int64) int64 {
+	switch {
+	case earlier < 0 && later > math.MaxInt64+earlier:
+		return math.MaxInt64
+	case earlier > 0 && later < math.MinInt64+earlier:
+		return math.MinInt64
+	default:
+		return later - earlier
+	}
 }
 
 // SameVersion reports whether stat metadata shows the same version of a file, so the digest recorded

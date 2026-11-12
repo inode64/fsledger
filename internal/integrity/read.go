@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"math"
 	"os"
 	"slices"
 	"strings"
@@ -175,7 +176,7 @@ func finishObservation(parent int, name, path string, before *unix.Stat_t, recor
 
 	// Hashing without O_NOATIME may have advanced access time. Persist the
 	// post-read value rather than stale metadata from before our own access.
-	record.Atime = after.Atim.Nano()
+	record.Atime = unixNano(after.Atim.Sec, after.Atim.Nsec)
 	// Zero marks an access time the mount does not maintain: it is not shown.
 	if !accessTimesMaintained(parent, anchored, record.Type) {
 		record.Atime = 0
@@ -250,7 +251,10 @@ func fromStat(path string, stat *unix.Stat_t) Record {
 	return Record{
 		Path: []byte(path), Type: FileType(stat.Mode), Mode: stat.Mode, UID: stat.Uid, GID: stat.Gid,
 		Size: stat.Size, Device: stat.Dev, Inode: stat.Ino, Nlink: stat.Nlink,
-		Atime: stat.Atim.Nano(), Mtime: stat.Mtim.Nano(), Ctime: stat.Ctim.Nano(), Observed: time.Now().UnixNano(),
+		Atime:    unixNano(stat.Atim.Sec, stat.Atim.Nsec),
+		Mtime:    unixNano(stat.Mtim.Sec, stat.Mtim.Nsec),
+		Ctime:    unixNano(stat.Ctim.Sec, stat.Ctim.Nsec),
+		Observed: time.Now().UnixNano(),
 	}
 }
 
@@ -473,7 +477,7 @@ func readBirthTime(parent int, name string, record *Record) error {
 
 	if extended.Mask&unix.STATX_BTIME != 0 {
 		record.HasBtime = true
-		record.Btime = extended.Btime.Sec*int64(time.Second) + int64(extended.Btime.Nsec)
+		record.Btime = unixNano(extended.Btime.Sec, int64(extended.Btime.Nsec))
 	}
 
 	return nil
@@ -520,4 +524,25 @@ func (workspace *readWorkspace) readLink(parent int, name string) ([]byte, error
 	}
 
 	return bytes.Clone(workspace.buffer[:count]), nil
+}
+
+// unixNano converts a kernel timestamp to Unix nanoseconds, which only reach from the year 1677 to 2262.
+// A time beyond either end, as utimensat can set, becomes that end: wrapping round would record an
+// unrelated year, on the other side of the file's birth.
+func unixNano(seconds, nanoseconds int64) int64 {
+	const second = int64(time.Second)
+
+	last, rest := math.MaxInt64/second, math.MaxInt64%second
+
+	switch {
+	case seconds > last || seconds == last && nanoseconds > rest:
+		return math.MaxInt64
+	case seconds < -last-1 || seconds == -last-1 && nanoseconds < second-rest-1:
+		return math.MinInt64
+	case seconds < 0:
+		// Counted back from the next second, so that the first representable second does not overflow.
+		return (seconds+1)*second + nanoseconds - second
+	default:
+		return seconds*second + nanoseconds
+	}
 }

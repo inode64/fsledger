@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +19,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/inode64/fsledger/internal/config"
 	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/integrity"
 )
@@ -228,4 +231,84 @@ func TestHashIgnoresRestoredMtime(t *testing.T) {
 	if before.Hash == after.Hash || before.Size != after.Size || before.Mtime != after.Mtime {
 		t.Fatal("full hash did not detect replacement")
 	}
+}
+
+// utimensat accepts times that Unix nanoseconds cannot hold. They are recorded as the nearest end of
+// that range, so a time far in the future is not taken for one before the file's birth, and one far in
+// the past still is.
+func TestTimesOutsideUnixNanosecondsKeepTheirSide(t *testing.T) {
+	t.Parallel()
+
+	for _, fixture := range []struct {
+		name      string
+		year      int
+		want      int64
+		backdated bool
+	}{
+		{"future", 2400, math.MaxInt64, false},
+		{"past", 1601, math.MinInt64, true},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			t.Parallel()
+
+			before, after := observedAroundYear(t, fixture.year)
+			if after.Mtime != fixture.want {
+				t.Fatalf("recorded mtime %d (%v), want %d", after.Mtime, time.Unix(0, after.Mtime).UTC(), fixture.want)
+			}
+
+			if !after.HasBtime {
+				t.Skip("temporary directory filesystem has no birth times")
+			}
+
+			retimed := slices.Contains(integrity.Differences(before, after, config.Integrity{}), integrity.FieldMtime)
+			if retimed != fixture.backdated || after.Backdated() > 0 != fixture.backdated {
+				t.Fatalf("change %v, backdated by %v, want %v", retimed, after.Backdated(), fixture.backdated)
+			}
+		})
+	}
+}
+
+// observedAroundYear observes a new file before and after its times are set to the start of year.
+func observedAroundYear(t *testing.T, year int) (integrity.Record, integrity.Record) {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "file")
+
+	err := os.WriteFile(path, []byte("content"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scanner := integrity.NewScanner(1, 2)
+
+	before, err := scanner.Observe(t.Context(), path, hashSHA256, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// os.Chtimes goes through Unix nanoseconds itself, so the time is handed to the kernel in seconds.
+	set := unix.Timespec{Sec: time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC).Unix(), Nsec: 0}
+
+	err = unix.UtimesNanoAt(unix.AT_FDCWD, path, []unix.Timespec{set, set}, unix.AT_SYMLINK_NOFOLLOW)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var kept unix.Stat_t
+
+	err = unix.Lstat(path, &kept)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if kept.Mtim != set {
+		t.Skipf("temporary directory filesystem keeps the year %d as second %d", year, kept.Mtim.Sec)
+	}
+
+	after, err := scanner.Observe(t.Context(), path, hashSHA256, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return before, after
 }
