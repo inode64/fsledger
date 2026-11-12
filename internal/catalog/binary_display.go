@@ -37,7 +37,8 @@ func displayTarget(value string) string {
 }
 
 // displayAttributes lists attributes as getfattr does, name="text" or name=0x<hex>, keeping the
-// readability status. Values are shown in full: two versions may differ anywhere.
+// readability status. Values are shown in full: two versions may differ anywhere. Neither a name nor a
+// value can pose as another entry.
 func displayAttributes(value string) string {
 	encoded, status := splitStatus(value)
 
@@ -48,7 +49,7 @@ func displayAttributes(value string) string {
 
 	entries := make([]string, len(attributes))
 	for index, attribute := range attributes {
-		entries[index] = humanize.Printable(string(attribute.Name)) + attributeAssign + attributeValue(attribute.Value)
+		entries[index] = attributeName(attribute.Name) + attributeAssign + attributeValue(attribute.Value)
 	}
 
 	shown := strings.Join(entries, attributeSeparator)
@@ -61,6 +62,22 @@ func displayAttributes(value string) string {
 	}
 
 	return shown + suffixOpening + status + suffixClosing
+}
+
+// attributeName shows a name bare, as getfattr does, unless it could be read as more than a name: one
+// that holds the separator, the assignment, a quote, a backslash or anything unprintable is quoted
+// like a value, so it stays a single entry.
+func attributeName(name []byte) string {
+	text := string(name)
+	if text == "" || !utf8.ValidString(text) || strings.ContainsFunc(text, ambiguousInName) {
+		return strconv.Quote(text)
+	}
+
+	return text
+}
+
+func ambiguousInName(char rune) bool {
+	return unprintable(char) || unicode.IsSpace(char) || strings.ContainsRune(attributeAssign+`",\`, char)
 }
 
 // attributeValue quotes printable text; Quote escapes a C terminator and quotes, so a value cannot

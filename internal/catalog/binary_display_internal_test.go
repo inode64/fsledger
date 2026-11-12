@@ -67,6 +67,21 @@ func TestDisplayDecodesSymlinkTargets(t *testing.T) {
 	}
 }
 
+// A name that holds the syntax of the list is quoted whole: it reads as one entry, not as two.
+func TestDisplayQuotesAttributeNamePosingAsEntries(t *testing.T) {
+	t.Parallel()
+
+	posing := integrity.Attribute{Name: []byte(`user.a="1", security.capability`), Value: []byte("x")}
+	current := integrity.Record{AttributesStatus: integrity.AttributesAvailable, Xattrs: []integrity.Attribute{posing}}
+	stored := []FieldChange{storedChange(t, fieldXattrs, integrity.Record{}, current)}
+	shown := `"user.a=\"1\", security.capability"="x"` + availableSuffix
+	want := []FieldChange{{Field: fieldXattrs, Before: humanize.Absent, After: shown}}
+
+	if got := displayFields(stored, changeAdded); !slices.Equal(got, want) {
+		t.Errorf("posing name = %q, want %q", got, want)
+	}
+}
+
 func TestDisplayDecodesAttributes(t *testing.T) {
 	t.Parallel()
 
@@ -102,7 +117,7 @@ func TestDisplayDecodesAttributes(t *testing.T) {
 		// Names and values are attacker-controlled: they must not add lines or pose as other entries.
 		{
 			"hostile", humanize.Absent + " (denied)",
-			`user.\nRuta="x\", user.b=\"y", user.multiline=0x610a62` + availableSuffix,
+			`"user.\nRuta"="x\", user.b=\"y", user.multiline=0x610a62` + availableSuffix,
 			attributes("denied"), available("user.\nRuta", `x", user.b="y`, "user.multiline", "a\nb"),
 		},
 	} {
