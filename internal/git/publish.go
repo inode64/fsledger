@@ -22,7 +22,8 @@ func (r *Repository) Publish(ctx context.Context, remote, branch, commit string)
 		return fault.New("publication requires a full commit object ID")
 	}
 
-	_, err := r.run(ctx, "-c", "push.followTags=false", "-c", "remote."+remote+".mirror=false",
+	// The key embeds the remote, a path or URL that may hold an equals sign: it cannot go in a -c argument.
+	err := r.runSetting(ctx, "remote."+remote+".mirror", "false", "-c", "push.followTags=false",
 		"push", "--porcelain", "--no-follow-tags", "--recurse-submodules=no", "--", remote,
 		commit+":refs/heads/"+branch)
 	if err != nil {

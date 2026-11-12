@@ -205,6 +205,21 @@ func (r *Repository) runQuiet(ctx context.Context, input string, args ...string)
 	return r.execute(ctx, input, nil, args)
 }
 
+// runSetting runs a command whose output nobody reads with one more configuration value, handed over in
+// the environment. Git ends the key of a -c argument at the first equals sign, so a key built from caller
+// text is only safe here. Like -c, the environment overrides the repository's own configuration.
+func (r *Repository) runSetting(ctx context.Context, key, value string, args ...string) error {
+	git := r.command(ctx, args)
+	git.cmd.Env = append(git.cmd.Env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0="+key, "GIT_CONFIG_VALUE_0="+value)
+
+	err := git.start()
+	if err != nil {
+		return err
+	}
+
+	return git.wait()
+}
+
 // execute pipes only what a caller supplies or reads; a nil stdout is /dev/null.
 func (r *Repository) execute(ctx context.Context, input string, stdout io.Writer, args []string) error {
 	git := r.command(ctx, args)
