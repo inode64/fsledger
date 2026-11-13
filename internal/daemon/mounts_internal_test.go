@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/inode64/fsledger/internal/event"
+	"github.com/inode64/fsledger/internal/exclude"
 	"github.com/inode64/fsledger/internal/integrity"
 	"github.com/inode64/fsledger/internal/mirror"
 	"github.com/inode64/fsledger/internal/mountinfo"
@@ -470,6 +471,53 @@ func TestKernelFilesystemMountedOverASourceRestartsItsWatchers(t *testing.T) {
 	adopt("again")
 }
 
+// A tmpfs below a source, mounted again while the watchers run, comes back as another filesystem: the watcher
+// started on the first one must give way to watchers of the one there now. fanotify's handle anchor keeps the
+// first one alive, as the descriptor held here does, so the second gets another device and mount ID.
+func TestKernelFilesystemBelowASourceMountedAgainRestartsItsWatchers(t *testing.T) {
+	t.Parallel()
+
+	runner := makeWorker(t)
+	runner.cfg.Watch.Backend = event.Inotify
+	runner.queue = watcher.NewQueue(8)
+	nested := filepath.Join(runner.roots[0], "nested")
+	mountNested(t, "", nested)
+	writeSource(t, runner, "nested/file", "first")
+
+	err := runner.reconcile(t.Context(), "mounted")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.startWatchers(t.Context())
+	defer runner.stopWatching()
+
+	watchers := slices.Clone(runner.watchers)
+
+	anchor, err := unix.Open(nested, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer resource.FD(anchor)
+
+	err = unix.Unmount(nested, unix.MNT_DETACH)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mountNested(t, "", nested)
+	file := writeSource(t, runner, "nested/file", "mounted again")
+
+	runner.dirty = true
+	runner.flushReconciliation(t.Context(), time.Now())
+
+	if runner.dirty || slices.Equal(watchers, runner.watchers) ||
+		gitOutput(t, runner, "show", "HEAD:"+strings.TrimPrefix(file, "/")) != "mounted again" {
+		t.Fatal("the filesystem mounted again below the source kept its watchers", runner.errorReasons)
+	}
+}
+
 // A source on a recorded filesystem of its own, inside another recorded one, waits once unmounted: the outer
 // filesystem now holding its mount point was not mounted over it, so its watchers and identity stay.
 func TestKernelUnmountedSourceInsideARecordedFilesystemKeepsItsWatchers(t *testing.T) {
@@ -513,6 +561,87 @@ func TestKernelUnmountedSourceInsideARecordedFilesystemKeepsItsWatchers(t *testi
 	if runner.sourcesPending || len(runner.returnedRoots) != 0 {
 		t.Fatal("the watchers of a source waiting for its filesystem were restarted", runner.returnedRoots)
 	}
+}
+
+// A filesystem below a source has a watcher of its own, which follows the filesystem it started on: once that
+// one is mounted again, replaced or gone, fanotify refuses the watcher's root as another filesystem and loses
+// coverage on every refresh, as pmxcfs restarted at /etc/pve did below /etc until fsledger restarted. The
+// watchers of the source restart instead; a recorded filesystem still unmounted keeps them while it waits.
+func TestFilesystemBelowASourceMountedAgainRestartsItsWatchers(t *testing.T) {
+	t.Parallel()
+
+	remount := func(mount *mountinfo.Mount) { mount.Device, mount.ID = "0:70", mount.ID+1 }
+
+	for _, check := range []struct {
+		change    mountChange
+		name      string
+		restarted bool
+	}{
+		{func(table []mountinfo.Mount) ([]mountinfo.Mount, []string, []string) {
+			return table, nil, nil
+		}, "unchanged", false},
+		{func(table []mountinfo.Mount) ([]mountinfo.Mount, []string, []string) {
+			remount(&table[1])
+
+			return table, nil, nil
+		}, "mounted again", true},
+		{func(table []mountinfo.Mount) ([]mountinfo.Mount, []string, []string) {
+			return table, []string{table[1].Point}, nil
+		}, "mounted again after the wait", true},
+		{func(table []mountinfo.Mount) ([]mountinfo.Mount, []string, []string) {
+			return slices.Delete(table, 1, 2), nil, nil
+		}, "gone", true},
+		{func(table []mountinfo.Mount) ([]mountinfo.Mount, []string, []string) {
+			point := table[1].Point
+
+			return slices.Delete(table, 1, 2), nil, []string{point}
+		}, "waited for", false},
+		{func(table []mountinfo.Mount) ([]mountinfo.Mount, []string, []string) {
+			remount(&table[2])
+
+			return table, nil, nil
+		}, "excluded one mounted again", false},
+	} {
+		if restarted := restartedAfter(t, check.change); restarted != check.restarted {
+			t.Errorf("%s: watchers restarted %v, want %v", check.name, restarted, check.restarted)
+		}
+	}
+}
+
+// mountChange derives from the mount table the watchers started with (/, then a FUSE filesystem and an
+// excluded tmpfs below the source) the table now, the points the repository waited for and those still unmounted.
+type mountChange func(started []mountinfo.Mount) (table []mountinfo.Mount, waiting, unmounted []string)
+
+// restartedAfter reports whether rebindMounted restarts the watchers of the source after change.
+func restartedAfter(t *testing.T, change mountChange) bool {
+	t.Helper()
+
+	runner := makeWorker(t)
+	root := runner.roots[0]
+	excluded := filepath.Join(root, "excluded")
+
+	matcher, err := exclude.New(excluded)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner.watchedMounts = []mountinfo.Mount{
+		{Point: "/", Type: "ext4", Device: "254:1", ID: 1},
+		{Point: filepath.Join(root, "pve"), Type: "fuse", Device: "0:50", ID: 40, Parent: 1},
+		{Point: excluded, Type: "tmpfs", Device: "0:60", ID: 50, Parent: 1},
+	}
+	runner.matcher, runner.mounts = matcher, []string{runner.watchedMounts[1].Point}
+
+	table, waiting, unmounted := change(slices.Clone(runner.watchedMounts))
+	runner.status.UnmountedPaths = unmounted
+	runner.rebindMounted(table, waiting)
+
+	restarted := slices.Contains(runner.returnedRoots, root)
+	if restarted != runner.sourcesPending {
+		t.Fatal("a restart left pending without its root, or the reverse", runner.returnedRoots)
+	}
+
+	return restarted
 }
 
 // Events queued on the directory a filesystem is then mounted over describe what it covers: their actor must

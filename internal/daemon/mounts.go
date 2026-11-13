@@ -88,19 +88,22 @@ func (w *worker) recordMounts(ctx context.Context) error {
 // repository waited for it or it appears over the directory they watch: they still follow what was there, and
 // a pinned empty directory would read as a replaced filesystem. Events queued meanwhile lose their actor: the
 // reconciliation that follows certifies the bytes. Mount IDs are reused, so a mount that differs from the one
-// the watchers started with is only one of the signs, and a root still held by an unmounted point waits.
+// the watchers started with is only one of the signs, and a root still held by an unmounted point waits. A
+// filesystem below the root counts as well, see nestedChanged.
 func (w *worker) rebindMounted(table []mountinfo.Mount, waiting []string) {
 	var mounted []string
 
 	for _, root := range w.roots {
 		holding := mountinfo.Resolve(root, table)
-		if len(holding) == 0 || !slices.Contains(w.mounts, holding[0].Point) ||
-			pathutil.Within(w.status.UnmountedPaths, root) || slices.Contains(w.returnedRoots, root) {
+		if len(holding) == 0 || pathutil.Within(w.status.UnmountedPaths, root) ||
+			slices.Contains(w.returnedRoots, root) {
 			continue
 		}
 
 		watched := mountinfo.Resolve(root, w.watchedMounts)
-		if slices.Contains(waiting, holding[0].Point) || len(watched) > 0 && watched[0] != holding[0] {
+		if slices.Contains(w.mounts, holding[0].Point) &&
+			(slices.Contains(waiting, holding[0].Point) || len(watched) > 0 && watched[0] != holding[0]) ||
+			w.nestedChanged(root, holding, watched, waiting) {
 			mounted = append(mounted, root)
 		}
 	}
@@ -109,7 +112,7 @@ func (w *worker) rebindMounted(table []mountinfo.Mount, waiting []string) {
 		return
 	}
 
-	w.logger.Info("recorded filesystem mounted at a source; restarting its watchers", "paths", mounted)
+	w.logger.Info("filesystem at or below a source mounted again; restarting its watchers", "paths", mounted)
 	w.rebindRoots(mounted)
 
 	if !w.sourcesPending {
@@ -117,6 +120,45 @@ func (w *worker) rebindMounted(table []mountinfo.Mount, waiting []string) {
 	}
 
 	w.sourcesPending, w.dirty, w.contaminated = true, true, true
+}
+
+// nestedChanged reports a filesystem below root that its watchers no longer match: a recorded one mounted again
+// after the repository waited for it, or one with a watcher of its own that was mounted again, replaced or is
+// gone. That watcher still follows the filesystem it started on, and fanotify refuses its root on another one,
+// losing coverage on every refresh. A recorded one still unmounted keeps them while the repository waits.
+func (w *worker) nestedChanged(root string, current, watched []mountinfo.Mount, waiting []string) bool {
+	now := mountinfo.Nested(root, current)
+	if slices.ContainsFunc(now, func(point string) bool {
+		return slices.Contains(waiting, point) && !w.matcher.Match(point)
+	}) {
+		return true
+	}
+
+	for _, point := range mountinfo.Nested(root, watched) {
+		switch {
+		case w.matcher.Match(point):
+		case !slices.Contains(now, point):
+			if !slices.Contains(w.status.UnmountedPaths, point) {
+				return true
+			}
+		case !sameMounts(mountsAt(point, watched), mountsAt(point, current)):
+			return true
+		}
+	}
+
+	return false
+}
+
+// mountsAt lists the mounts stacked at point. Resolve orders nested mounts with an unstable sort, so those
+// stacked at one point compare as sets.
+func mountsAt(point string, table []mountinfo.Mount) []mountinfo.Mount {
+	return slices.DeleteFunc(slices.Clone(table), func(mount mountinfo.Mount) bool { return mount.Point != point })
+}
+
+func sameMounts(first, second []mountinfo.Mount) bool {
+	return len(first) == len(second) && !slices.ContainsFunc(first, func(mount mountinfo.Mount) bool {
+		return !slices.Contains(second, mount)
+	})
 }
 
 // restoreMounts takes the points the catalog recorded before a restart, before anything walks a root: a
