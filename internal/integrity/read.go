@@ -250,13 +250,17 @@ func accessTimesMaintained(parent int, anchored, kind string) bool {
 func fromStat(path string, stat *unix.Stat_t) Record {
 	return Record{
 		Path: []byte(path), Type: FileType(stat.Mode), Mode: stat.Mode, UID: stat.Uid, GID: stat.Gid,
-		Size: stat.Size, Device: stat.Dev, Inode: stat.Ino, Nlink: stat.Nlink,
+		Size: stat.Size, Device: stat.Dev, Inode: stat.Ino, Nlink: widen(stat.Nlink),
 		Atime:    unixNano(stat.Atim.Sec, stat.Atim.Nsec),
 		Mtime:    unixNano(stat.Mtim.Sec, stat.Mtim.Nsec),
 		Ctime:    unixNano(stat.Ctim.Sec, stat.Ctim.Nsec),
 		Observed: time.Now().UnixNano(),
 	}
 }
+
+// widen takes the link count as linux/amd64 declares it (uint64) and as linux/arm64 does (uint32): a plain
+// conversion would be redundant on one of them.
+func widen[T uint32 | uint64](count T) uint64 { return uint64(count) }
 
 func sameVersion(first, second *unix.Stat_t) bool {
 	return first.Dev == second.Dev && first.Ino == second.Ino && first.Size == second.Size &&
