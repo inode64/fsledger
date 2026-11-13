@@ -1,0 +1,18 @@
+Package: fsledger
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: INODE64 <ffelix@inode64.com>
+Installed-Size: @SIZE@
+Depends: git (>= 1:2.36)
+Recommends: ca-certificates, tzdata
+Section: admin
+Priority: optional
+Homepage: https://github.com/inode64/fsledger
+Description: file integrity monitoring with Git history and alerts
+ fsledger detects unexpected file changes, records their contents in Git,
+ keeps a catalog of hashes and metadata, and sends alerts and reports. When
+ Linux provides the evidence, it also records the user and process that
+ made each change.
+ .
+ The systemd unit is installed but neither enabled nor started: review the
+ example configuration in /etc/fsledger first.

@@ -240,25 +240,54 @@ No additional database server is required.
 
 ## Installation
 
-### Prebuilt Linux x86_64 binaries
+### Prebuilt packages for Linux x86_64
 
-Published [GitHub releases](https://github.com/inode64/fsledger/releases) attach
-`fsledger-linux-x86_64`, `fsledgerd-linux-x86_64`, `LICENSE`, and `SHA256SUMS` after
-the project checks pass. Both binaries include the release tag in `--version`, are
-built without CGO, and use `GOAMD64=v1` for compatibility with older x86-64 CPUs.
+Each published [GitHub release](https://github.com/inode64/fsledger/releases) attaches,
+after the project checks pass:
 
-Download all four assets from the same release and verify them before use:
+- `fsledger_<version>_amd64.deb` for Ubuntu and Debian;
+- `fsledger-<tag>-linux-x86_64.tar.gz` for other distributions, with both binaries, the
+  manual pages, the configuration examples and the systemd and OpenRC service files;
+- `fsledger-linux-x86_64` and `fsledgerd-linux-x86_64`, the bare executables;
+- `LICENSE` and `SHA256SUMS`.
+
+The binaries include the release tag in `--version`, are built without CGO, and use
+`GOAMD64=v1` for compatibility with older x86-64 CPUs. Download `SHA256SUMS` with the
+assets you need and verify them before use:
 
 ```sh
-sha256sum --check SHA256SUMS
-chmod +x fsledger-linux-x86_64 fsledgerd-linux-x86_64
-./fsledger-linux-x86_64 --version
-./fsledgerd-linux-x86_64 --version
+sha256sum --check --ignore-missing SHA256SUMS
 ```
 
-The assets contain the executables; configuration examples, manual pages, and service
-files are available in the source archive for the same tag. Review the configuration
-as described in [Getting started](#getting-started) before running the daemon.
+#### Ubuntu and Debian
+
+```sh
+sudo apt install ./fsledger_1.0.0_amd64.deb
+sudoedit /etc/fsledger/fsledger.yaml
+sudo fsledger check
+sudo systemctl enable --now fsledger
+```
+
+The package requires Git 2.36 or later, available from Ubuntu 24.04 and Debian 12. It
+installs both binaries, the manual pages, the systemd unit, and the example configuration
+in `/etc/fsledger`, which upgrades never overwrite once you edit it. It neither enables
+nor starts the service; an upgrade restarts it only if it is running. `apt remove` keeps
+`/var/lib/fsledger` and `/var/log/fsledger`, which hold the recorded history, and
+`apt purge` also deletes the configuration.
+
+#### Other distributions
+
+```sh
+tar -xzf fsledger-v1.0.0-linux-x86_64.tar.gz
+cd fsledger-v1.0.0-linux-x86_64
+sudo install -m 0755 fsledger /usr/bin/fsledger
+sudo install -m 0755 fsledgerd /usr/sbin/fsledgerd
+```
+
+Copy `examples/` to `/etc/fsledger` keeping its `0700` and `0600` permissions, the manual
+pages from `man/`, and the unit in `systemd/` or the scripts in `openrc/`, as
+`make install-systemd` and `make install-openrc` do. Review the configuration as
+described in [Getting started](#getting-started) before running the daemon.
 
 ### Building from source
 
@@ -321,6 +350,9 @@ Download or check out the new source version, rebuild, and install the binaries
 with `sudo make install-bin install-man`. This target updates binaries and manual pages
 without adding example profiles. Validate the YAML with the new CLI and restart the service
 to use the new executable. Keep the previous version so you can revert an upgrade if needed.
+
+With the `.deb` package, install the new release with `sudo apt install ./fsledger_<version>_amd64.deb`:
+it keeps your configuration and restarts the service if it is running.
 
 ## Getting started
 

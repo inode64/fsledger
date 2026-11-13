@@ -50,6 +50,10 @@ jobs:
             [[ "$version" == *"linux/amd64)" ]]
             printf '%s\n' "$version"
           done
+          tar -tzvf "bin/release/fsledger-$RELEASE_TAG-linux-x86_64.tar.gz"
+          deb=(bin/release/fsledger_*_amd64.deb)
+          dpkg-deb --info "${deb[0]}"
+          dpkg-deb --contents "${deb[0]}"
           cd bin/release
           sha256sum --check SHA256SUMS
       - name: Attach assets to the published release
@@ -60,5 +64,7 @@ jobs:
           gh release upload "$RELEASE_TAG" \
             bin/release/fsledger-linux-x86_64 \
             bin/release/fsledgerd-linux-x86_64 \
+            "bin/release/fsledger-$RELEASE_TAG-linux-x86_64.tar.gz" \
+            bin/release/fsledger_*_amd64.deb \
             bin/release/LICENSE \
             bin/release/SHA256SUMS

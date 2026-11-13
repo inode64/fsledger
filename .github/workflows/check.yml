@@ -78,3 +78,39 @@ jobs:
           cache-dependency-path: go.sum
       - name: Fuzz untrusted input parsers
         run: make fuzz
+
+  packages:
+    name: Linux packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # A Debian version must start with a digit; release builds use the tag instead.
+      VERSION: v0.0.0-ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Build release packages
+        run: make release VERSION="$VERSION"
+      - name: Install, check and remove the .deb on Ubuntu
+        shell: bash
+        run: |
+          deb=(bin/release/fsledger_*_amd64.deb)
+          sudo apt-get install -y --no-install-recommends "./${deb[0]}"
+          fsledger --version
+          fsledgerd --version
+          test "$(sudo stat -c %a /etc/fsledger)" = 700
+          sudo fsledger check -c /etc/fsledger/fsledger.yaml
+          systemctl cat fsledger.service
+          # Installation must leave the service disabled and stopped until the configuration is reviewed.
+          test "$(systemctl is-enabled fsledger.service || true)" = disabled
+          test "$(systemctl is-active fsledger.service || true)" = inactive
+          sudo apt-get remove -y fsledger
+          test ! -e /usr/sbin/fsledgerd
+          sudo test -e /etc/fsledger/fsledger.yaml
+          sudo apt-get purge -y fsledger
+          sudo test ! -e /etc/fsledger/fsledger.yaml

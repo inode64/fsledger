@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+# Removal takes the unit away, so an enabled one would leave a dangling link behind.
+if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+	systemctl disable --now fsledger.service >/dev/null 2>&1 || true
+fi
+
+exit 0

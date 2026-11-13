@@ -105,7 +105,8 @@ deadcode:
 		cat "$$output"; test ! -s "$$output"
 
 lint-shell:
-	shellcheck --shell=sh packaging/openrc/fsledger.initd packaging/openrc/fsledger.confd
+	shellcheck --shell=sh packaging/openrc/fsledger.initd packaging/openrc/fsledger.confd packaging/release.sh \
+		packaging/debian/postinst packaging/debian/prerm packaging/debian/postrm
 
 lint-workflows:
 	actionlint
@@ -135,18 +136,26 @@ build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o "$(BUILD_DIR)/fsledger" ./cmd/fsledger
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o "$(BUILD_DIR)/fsledgerd" ./cmd/fsledgerd
 
-# Release assets always target the portable Linux x86-64 baseline.
+# Release assets always target the portable Linux x86-64 baseline. The packages are assembled from one
+# tree staged by the install targets, with the systemd unit in the vendor directory; building the .deb
+# needs dpkg-deb.
 release:
 	@case "$(VERSION)" in \
 		''|[!a-zA-Z0-9]*|*[!a-zA-Z0-9._+-]*) \
 			echo 'VERSION must start with a letter or digit and contain only letters, digits, dots, underscores, + or -.' >&2; \
 			exit 2 ;; \
 		esac
-	$(MAKE) build BUILD_DIR=bin/release GOOS=linux GOARCH=amd64 GOAMD64=v1 VERSION="$(VERSION)"
-	mv bin/release/fsledger bin/release/fsledger-linux-x86_64
-	mv bin/release/fsledgerd bin/release/fsledgerd-linux-x86_64
+	rm -rf bin/release
+	$(MAKE) install-systemd install-openrc DESTDIR="$(CURDIR)/bin/release/root" BUILD_DIR=bin/release/build \
+		PREFIX=/usr SYSCONFDIR=/etc SYSTEMDUNITDIR=/usr/lib/systemd/system \
+		GOOS=linux GOARCH=amd64 GOAMD64=v1 VERSION="$(VERSION)"
+	$(INSTALL) -m 0755 bin/release/build/fsledger bin/release/fsledger-linux-x86_64
+	$(INSTALL) -m 0755 bin/release/build/fsledgerd bin/release/fsledgerd-linux-x86_64
 	$(INSTALL) -m 0644 LICENSE bin/release/LICENSE
-	cd bin/release && sha256sum fsledger-linux-x86_64 fsledgerd-linux-x86_64 LICENSE > SHA256SUMS
+	packaging/release.sh "$(VERSION)" bin/release
+	rm -rf bin/release/build bin/release/root
+	cd bin/release && sha256sum fsledger-linux-x86_64 fsledgerd-linux-x86_64 LICENSE \
+		fsledger-*-linux-x86_64.tar.gz fsledger_*_amd64.deb > SHA256SUMS
 
 test:
 	$(call with_packages,mkdir -p bin && $(GO) test -race -shuffle=on -count=1 -timeout=5m -covermode=atomic -coverpkg=./... -coverprofile=bin/coverage.out ./... && $(GO) tool cover -func=bin/coverage.out)

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+# The unit is never enabled or started here: the example configuration must be reviewed first. An upgrade
+# restarts a running daemon, which otherwise keeps executing the replaced binary.
+if [ "$1" = configure ] && [ -d /run/systemd/system ]; then
+	systemctl daemon-reload >/dev/null || true
+	if [ -n "${2:-}" ]; then
+		systemctl try-restart fsledger.service >/dev/null || true
+	fi
+fi
+
+exit 0

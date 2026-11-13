@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+# Purge leaves /var/lib/fsledger and /var/log/fsledger alone: they hold the recorded history and evidence,
+# which must not disappear with the package.
+if { [ "$1" = remove ] || [ "$1" = purge ]; } && [ -d /run/systemd/system ]; then
+	systemctl daemon-reload >/dev/null || true
+fi
+
+exit 0
