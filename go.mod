@@ -52,7 +52,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
-	golang.org/x/exp v0.0.0-20261109185158-a52e3aef5920 // indirect
+	golang.org/x/exp v0.0.0-20261113113407-e3970619a1a4 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
