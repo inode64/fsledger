@@ -80,10 +80,19 @@ jobs:
         run: make fuzz
 
   packages:
-    name: Linux packages
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    name: Linux packages (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     env:
+      ARCH: ${{ matrix.arch }}
       # A Debian version must start with a digit; release builds use the tag instead.
       VERSION: v0.0.0-ci
     steps:
@@ -94,15 +103,22 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
+      # The amd64 tests run in the check job; this is the only place the arm64 code runs.
+      - name: Test on arm64
+        if: matrix.arch == 'arm64'
+        run: make test
       - name: Build release packages
         run: make release VERSION="$VERSION"
       - name: Install, check and remove the .deb on Ubuntu
         shell: bash
         run: |
-          deb=(bin/release/fsledger_*_amd64.deb)
-          sudo apt-get install -y --no-install-recommends "./${deb[0]}"
-          fsledger --version
-          fsledgerd --version
+          sudo apt-get install -y --no-install-recommends "./bin/release/fsledger_0.0.0~ci_$ARCH.deb"
+          for binary in fsledger fsledgerd; do
+            version=$("$binary" --version)
+            [[ "$version" == "fsledger $VERSION ("* ]]
+            [[ "$version" == *"linux/$ARCH)" ]]
+            printf '%s\n' "$version"
+          done
           test "$(sudo stat -c %a /etc/fsledger)" = 700
           sudo fsledger check -c /etc/fsledger/fsledger.yaml
           systemctl cat fsledger.service

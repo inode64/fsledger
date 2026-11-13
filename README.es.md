@@ -256,20 +256,22 @@ pendiente. No necesitas un servidor de base de datos adicional.
 
 ## Instalación
 
-### Paquetes precompilados para Linux x86_64
+### Paquetes precompilados para Linux x86_64 y arm64
 
 Cada [release de GitHub](https://github.com/inode64/fsledger/releases) publicada adjunta,
 después de superar las comprobaciones del proyecto:
 
-- `fsledger_<versión>_amd64.deb` para Ubuntu y Debian;
-- `fsledger-<tag>-linux-x86_64.tar.gz` para otras distribuciones, con los dos binarios,
-  los manuales, los ejemplos de configuración y los archivos de servicio de systemd y
-  OpenRC;
-- `fsledger-linux-x86_64` y `fsledgerd-linux-x86_64`, los ejecutables sueltos;
+- `fsledger_<versión>_amd64.deb` y `fsledger_<versión>_arm64.deb` para Ubuntu y Debian;
+- `fsledger-<tag>-linux-x86_64.tar.gz` y `fsledger-<tag>-linux-arm64.tar.gz` para otras
+  distribuciones, con los dos binarios, los manuales, los ejemplos de configuración y los
+  archivos de servicio de systemd y OpenRC;
+- `fsledger-linux-<arq>` y `fsledgerd-linux-<arq>`, los ejecutables sueltos, donde `<arq>`
+  es `x86_64` o `arm64`;
 - `LICENSE` y `SHA256SUMS`.
 
-Los binarios incluyen el tag de la release en `--version`, se compilan sin CGO y usan
-`GOAMD64=v1` para admitir CPUs x86-64 antiguas. Descarga `SHA256SUMS` junto con los
+Los binarios incluyen el tag de la release en `--version`, se compilan sin CGO y usan el
+nivel base de cada arquitectura para admitir CPUs antiguas: `GOAMD64=v1` en x86-64 y ARMv8.0
+en arm64. Descarga `SHA256SUMS` junto con los
 assets que necesites y verifícalos antes de usarlos:
 
 ```sh
@@ -279,7 +281,7 @@ sha256sum --check --ignore-missing SHA256SUMS
 #### Ubuntu y Debian
 
 ```sh
-sudo apt install ./fsledger_1.0.0_amd64.deb
+sudo apt install ./fsledger_1.0.0_amd64.deb    # o fsledger_1.0.0_arm64.deb
 sudoedit /etc/fsledger/fsledger.yaml
 sudo fsledger check
 sudo systemctl enable --now fsledger

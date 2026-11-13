@@ -240,19 +240,22 @@ No additional database server is required.
 
 ## Installation
 
-### Prebuilt packages for Linux x86_64
+### Prebuilt packages for Linux x86_64 and arm64
 
 Each published [GitHub release](https://github.com/inode64/fsledger/releases) attaches,
 after the project checks pass:
 
-- `fsledger_<version>_amd64.deb` for Ubuntu and Debian;
-- `fsledger-<tag>-linux-x86_64.tar.gz` for other distributions, with both binaries, the
-  manual pages, the configuration examples and the systemd and OpenRC service files;
-- `fsledger-linux-x86_64` and `fsledgerd-linux-x86_64`, the bare executables;
+- `fsledger_<version>_amd64.deb` and `fsledger_<version>_arm64.deb` for Ubuntu and Debian;
+- `fsledger-<tag>-linux-x86_64.tar.gz` and `fsledger-<tag>-linux-arm64.tar.gz` for other
+  distributions, with both binaries, the manual pages, the configuration examples and the
+  systemd and OpenRC service files;
+- `fsledger-linux-<arch>` and `fsledgerd-linux-<arch>`, the bare executables, where
+  `<arch>` is `x86_64` or `arm64`;
 - `LICENSE` and `SHA256SUMS`.
 
-The binaries include the release tag in `--version`, are built without CGO, and use
-`GOAMD64=v1` for compatibility with older x86-64 CPUs. Download `SHA256SUMS` with the
+The binaries include the release tag in `--version`, are built without CGO, and target the
+baseline of each architecture for compatibility with older CPUs: `GOAMD64=v1` on x86-64 and
+ARMv8.0 on arm64. Download `SHA256SUMS` with the
 assets you need and verify them before use:
 
 ```sh
@@ -262,7 +265,7 @@ sha256sum --check --ignore-missing SHA256SUMS
 #### Ubuntu and Debian
 
 ```sh
-sudo apt install ./fsledger_1.0.0_amd64.deb
+sudo apt install ./fsledger_1.0.0_amd64.deb    # or fsledger_1.0.0_arm64.deb
 sudoedit /etc/fsledger/fsledger.yaml
 sudo fsledger check
 sudo systemctl enable --now fsledger

@@ -15,7 +15,7 @@ jobs:
   checks:
     uses: ./.github/workflows/check.yml
 
-  linux-x86_64:
+  linux:
     needs: checks
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -32,7 +32,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-      - name: Build Linux x86_64 assets
+      - name: Build Linux x86_64 and arm64 assets
         shell: bash
         run: |
           # Validate event data before passing it to Make's variable expansion.
@@ -50,10 +50,17 @@ jobs:
             [[ "$version" == *"linux/amd64)" ]]
             printf '%s\n' "$version"
           done
-          tar -tzvf "bin/release/fsledger-$RELEASE_TAG-linux-x86_64.tar.gz"
-          deb=(bin/release/fsledger_*_amd64.deb)
-          dpkg-deb --info "${deb[0]}"
-          dpkg-deb --contents "${deb[0]}"
+          # This runner cannot execute arm64; the checks run those binaries on an arm64 runner.
+          for binary in bin/release/fsledger-linux-arm64 bin/release/fsledgerd-linux-arm64; do
+            go version -m "$binary" | grep -qx $'\tbuild\tGOARCH=arm64'
+          done
+          for label in x86_64 arm64; do
+            tar -tzvf "bin/release/fsledger-$RELEASE_TAG-linux-$label.tar.gz"
+          done
+          for deb in bin/release/fsledger_*.deb; do
+            dpkg-deb --info "$deb"
+            dpkg-deb --contents "$deb"
+          done
           cd bin/release
           sha256sum --check SHA256SUMS
       - name: Attach assets to the published release
@@ -64,7 +71,11 @@ jobs:
           gh release upload "$RELEASE_TAG" \
             bin/release/fsledger-linux-x86_64 \
             bin/release/fsledgerd-linux-x86_64 \
+            bin/release/fsledger-linux-arm64 \
+            bin/release/fsledgerd-linux-arm64 \
             "bin/release/fsledger-$RELEASE_TAG-linux-x86_64.tar.gz" \
+            "bin/release/fsledger-$RELEASE_TAG-linux-arm64.tar.gz" \
             bin/release/fsledger_*_amd64.deb \
+            bin/release/fsledger_*_arm64.deb \
             bin/release/LICENSE \
             bin/release/SHA256SUMS
