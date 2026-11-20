@@ -4,7 +4,7 @@ go 1.27.4
 
 require (
 	github.com/RaduBerinde/btreemap v0.0.0-20260105202824-d3184786f603
-	github.com/aymanbagabas/go-udiff v0.4.1
+	github.com/aymanbagabas/go-udiff v0.4.2
 	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/cockroachdb/pebble/v2 v2.1.7
